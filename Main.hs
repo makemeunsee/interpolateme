@@ -18,9 +18,6 @@ import Graphics.Rendering.OpenGL.Raw ( glUniformMatrix4fv
                                      , gl_FLOAT
                                      , glDeleteBuffers
                                      , glDisableVertexAttribArray
-                                     , glDeleteVertexArrays
-                                     , glGenVertexArrays
-                                     , glBindVertexArray
                                      , glBufferData
                                      , glGenBuffers
                                      , gl_STATIC_DRAW
@@ -59,7 +56,10 @@ data CameraState = CameraState { theta :: GLdouble
 
 -- what we render
 usePolyhedron :: Polyhedron
-usePolyhedron = polyhedrons !! (-3 + length polyhedrons)
+usePolyhedron = snubDodecahedron
+
+altPolyhedron :: Polyhedron
+altPolyhedron = stubRhombicosidodecahedron -- rhombicosidodecahedron
 
 
 -- data buffers
@@ -69,6 +69,12 @@ usePolyhedron = polyhedrons !! (-3 + length polyhedrons)
 vertexBufferData :: [GLfloat]
 vertexBufferData =
   map realToFrac $ facesToFlatTriangles (vertice usePolyhedron) (faces usePolyhedron)
+
+
+-- alt vertex position buffer
+altVertexBufferData :: [GLfloat]
+altVertexBufferData =
+  map realToFrac $ facesToFlatTriangles (vertice altPolyhedron) (faces usePolyhedron)
 
 
 -- attribute buffer to distinguish edge points from face center points
@@ -93,9 +99,10 @@ data GLIDs = GLIDs { prog :: Program
                    , indice :: BufferObject
                    , vertexBufferId :: GLuint
                    , vertexAttrib :: GLuint
+                   , altVertexBufferId :: GLuint
+                   , altVertexAttrib :: GLuint
                    , centerBufferId :: GLuint
                    , centerAttrib :: GLuint
-                   , vertexArrayId :: GLuint
                    }
 
 
@@ -117,13 +124,12 @@ initGL = do
   -- make shaders & data
   prog <- loadProgram "polyhedra.vert" "polyhedra.frag"
   (AttribLocation vertexAttrib) <- get (attribLocation prog "position")
+  (AttribLocation altVertexAttrib) <- get (attribLocation prog "alt_position")
   (AttribLocation centerAttrib) <- get (attribLocation prog "a_barycentric")
   indice <- makeBuffer ElementArrayBuffer indexBufferData
 
-  vertexArrayId <- withNewPtr (glGenVertexArrays 1)
-  glBindVertexArray vertexArrayId
-
   vertexBufferId <- fillNewBuffer vertexBufferData
+  altVertexBufferId <- fillNewBuffer altVertexBufferData
   centerBufferId <- fillNewBuffer centerBufferData
 
   return GLIDs{..}
@@ -132,8 +138,8 @@ initGL = do
 cleanUpGLStuff :: GLIDs -> IO ()
 cleanUpGLStuff GLIDs{..} = do
   with vertexBufferId $ glDeleteBuffers 1
+  with altVertexBufferId $ glDeleteBuffers 1
   with centerBufferId $ glDeleteBuffers 1
-  with vertexArrayId $ glDeleteVertexArrays 1
 
 
 -- rendering code
@@ -141,16 +147,18 @@ cleanUpGLStuff GLIDs{..} = do
 
 bindGeometry :: GLIDs -> IO ()
 bindGeometry GLIDs{..} = do bindFloatBufferToAttrib 3 vertexBufferId vertexAttrib
+                            bindFloatBufferToAttrib 3 altVertexBufferId altVertexAttrib
                             bindFloatBufferToAttrib 1 centerBufferId centerAttrib
 
 
 unbindGeometry :: GLIDs -> IO ()
 unbindGeometry GLIDs{..} = do glDisableVertexAttribArray vertexAttrib
+                              glDisableVertexAttribArray altVertexAttrib
                               glDisableVertexAttribArray centerAttrib
 
 
-render :: CameraState -> GLIDs -> IO ()
-render state glids@GLIDs{..} = do
+render :: Float -> CameraState -> GLIDs -> IO ()
+render now state glids@GLIDs{..} = do
   GL.clear [GL.ColorBuffer, GL.DepthBuffer]
 
   currentProgram $= Just prog
@@ -167,7 +175,11 @@ render state glids@GLIDs{..} = do
   uniform colLoc $= Color4 1 1 1 (1 :: GLfloat)
   uniform bColLoc $= Color4 0.4 0.4 0.4 (1 :: GLfloat)
 
-  -- bind attributes (position and center flags)
+  -- bind time
+  timeLoc <- get $ uniformLocation prog "u_time"
+  uniform timeLoc $= Index1 (realToFrac now :: GLfloat)
+
+  -- bind attributes (position and alt position and center flags)
   bindGeometry glids
   -- bind indice
   bindBuffer ElementArrayBuffer $= Just (indice)
@@ -345,7 +357,7 @@ loop action state lastTime glids = do
   -- dt
   nowD <- get time
   let now = realToFrac nowD
-  let dt = realToFrac $ now - lastTime
+--  let dt = realToFrac $ now - lastTime
 
   -- game
   Action (action', stateUpdater) <- action
@@ -357,7 +369,7 @@ loop action state lastTime glids = do
                                 (vec3 0 0 0)
                                 (vec3 0 1 0)
 
-  render newState glids
+  render now newState glids
 
   -- exit if window closed or Esc pressed
   esc <- GLFW.getKey GLFW.ESC

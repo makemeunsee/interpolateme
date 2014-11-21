@@ -4,6 +4,17 @@ module FloretSphere ( Polyhedron
                     , facesToFlatTriangles
                     , facesToCenterFlags
                     , polyhedrons
+                    , tetrahedron
+                    , cube
+                    , dodecahedron
+                    , stubRhombicosidodecahedron
+                    , rhombicosidodecahedron
+                    , snubDodecahedron
+                    , pentagonalHexecontahedron
+                    , icosahedron
+                    , snubRhombiMix
+                    , thinFloret
+                    , pentaFloret
                     )
 where
 
@@ -20,21 +31,33 @@ data Polyhedron = Polyhedron { vertice :: [Point3f]
 
 
 -- some polyhedrons created along the way...
-polyhedrons :: [Polyhedron]
-polyhedrons = [ Polyhedron tetrahedronPoints tetrahedronFaces
-              , Polyhedron cubePoints cubeFaces
-              , Polyhedron dodecahedronPoints dodecahedronFaces
-              , Polyhedron rhombicosidodecahedronPoints rhombicosidodecahedronFaces
-              , Polyhedron snubDodecahedronPoints snubDodecahedronFaces
-              , Polyhedron pentagonalHexecontahedronPoints pentagonalHexecontahedronFaces
-              , Polyhedron icosahedronPoints icosahedronFaces
-              , Polyhedron snubDodecahedronPoints rhombicosidodecahedronFaces
-              , Polyhedron thinFloretPoints thinFloretFaces
-              , Polyhedron pentaFloretPoints pentaFloretFaces
+tetrahedron = Polyhedron tetrahedronPoints tetrahedronFaces
+cube = Polyhedron cubePoints cubeFaces
+dodecahedron = Polyhedron dodecahedronPoints dodecahedronFaces
+stubRhombicosidodecahedron = Polyhedron stubRhombicosidodecahedronPoints rhombicosidodecahedronFaces
+rhombicosidodecahedron = Polyhedron rhombicosidodecahedronPoints rhombicosidodecahedronFaces
+snubDodecahedron = Polyhedron snubDodecahedronPoints snubDodecahedronFaces
+pentagonalHexecontahedron = Polyhedron pentagonalHexecontahedronPoints pentagonalHexecontahedronFaces
+icosahedron = Polyhedron icosahedronPoints icosahedronFaces
+snubRhombiMix = Polyhedron snubDodecahedronPoints rhombicosidodecahedronFaces
+thinFloret = Polyhedron thinFloretPoints thinFloretFaces
+pentaFloret = Polyhedron pentaFloretPoints pentaFloretFaces
+
+polyhedrons = [ tetrahedron
+              , cube
+              , dodecahedron
+              , stubRhombicosidodecahedron
+              , rhombicosidodecahedron
+              , snubDodecahedron
+              , pentagonalHexecontahedron
+              , icosahedron
+              , snubRhombiMix
+              , thinFloret
+              , pentaFloret
               ]
 
 
--- polyhedron geometry function
+-- polyhedron geometry functions
 
 
 -- flatten faces into an indice list.
@@ -257,10 +280,15 @@ magicTranslation = 1.1755705
 -- put them into a single list (length 12 * 5)
 -- translate to using the magic translation along the normal of their face
 -- -> rhombicosidodecahedron vertice
-rhombicosidodecahedronPoints :: [Point3f]
-rhombicosidodecahedronPoints = foldr (++) [] $ map asList dodecahedronFaces
+
+stubRhombicosidodecahedronPoints = rhombicosidodecahedronPointsFactory 0
+
+rhombicosidodecahedronPoints = rhombicosidodecahedronPointsFactory magicTranslation
+
+rhombicosidodecahedronPointsFactory :: Float -> [Point3f]
+rhombicosidodecahedronPointsFactory expansionStep = foldr (++) [] $ map asList dodecahedronFaces
   where asList is = expandFace $ map (\i -> dodecahedronPoints !! i) is
-        expandFace ps = map (add $ forceNorm magicTranslation $ faceSum ps) ps
+        expandFace ps = map (add $ forceNorm expansionStep $ faceSum ps) ps
         faceSum ps = foldr add (Point3f 0 0 0) ps
 
 
