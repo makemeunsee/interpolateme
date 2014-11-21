@@ -59,7 +59,7 @@ data CameraState = CameraState { theta :: GLdouble
 
 -- what we render
 usePolyhedron :: Polyhedron
-usePolyhedron = polyhedrons !! (-2 + length polyhedrons)
+usePolyhedron = polyhedrons !! (-3 + length polyhedrons)
 
 
 -- data buffers
@@ -110,9 +110,6 @@ initGL = do
 --  light (Light 0) $= Enabled
 
   GL.polygonMode $= (Fill, Fill)
-  GL.lineWidth $= 2
-  GL.polygonSmooth $= Enabled
-  GL.lineSmooth $= Enabled
 
   GL.cullFace $= Just Back
 --  GL.cullFace $= Nothing
@@ -290,10 +287,10 @@ resize projMatRef size@(Size w h) = do
 
 limitAngle :: (Floating a, Ord a) => a -> a
 limitAngle angle =
-  if angle <= 0.05
-    then 0.05
-    else if angle >= pi - 0.05
-      then pi - 0.05
+  if angle < 0.01
+    then 0.01
+    else if angle > pi
+      then pi
       else angle
 
 

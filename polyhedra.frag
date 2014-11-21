@@ -3,7 +3,9 @@
 uniform vec4 u_color;
 uniform vec4 u_borderColor;
 
-varying float v_barycenter;
+in float v_barycenter;
+
+out vec4 color;
 
 float edgeFactor(const float thickness, const float bary)
 {
@@ -15,10 +17,10 @@ float edgeFactor(const float thickness, const float bary)
 
 void main()
 {
-    gl_FragColor = mix(
+    color = mix(
         u_borderColor,
         u_color,
         edgeFactor(1.2, v_barycenter)
     );
-    //gl_FragColor = vec4(smoothstep(vec3(0.0), fwidth(v_barycenter)*5, v_barycenter) , 1.0);
+    //color = vec4(smoothstep(vec3(0.0), fwidth(v_barycenter)*5, v_barycenter) , 1.0);
 }

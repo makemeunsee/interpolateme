@@ -1,11 +1,11 @@
 #version 130
 
-attribute vec3 position;
-attribute float a_barycentric;
+in vec3 position;
+in float a_barycentric;
 
 uniform mat4 u_worldView;
 
-varying float v_barycenter;
+out float v_barycenter;
 
 void main()
 {
