@@ -1,0 +1,18 @@
+Name:                interpolateme
+Version:             0.1
+Synopsis:            OpenGL Demo
+Description:	     Drag mouse and behold
+License:             GPL-3
+Author:              makemeunsee
+Maintainer:          makemeunsee <makemeunsee@gmail.com>
+Category:            Game
+Build-Type:          Simple
+Cabal-Version:       >= 1.2
+Tested-with:         GHC==7.6.3
+Extra-Source-Files:  README.md
+Data-Files:          polyhedra.frag, polyhedra.vert
+
+Executable interpolateme
+  Main-is:             Main.hs
+  Build-Depends:       base >= 3 && < 5, OpenGL >= 2.3, GLFW, GLUtil, bytestring, OpenGLRaw, Vec
+  Other-Modules:       Geometry, ListUtil, FloretSphere
