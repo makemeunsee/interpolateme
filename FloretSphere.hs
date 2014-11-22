@@ -38,32 +38,6 @@ data Bounds = Bounds { minx :: Float
                      }
 
 
-defaultSeed :: Seed
-defaultSeed = seed $ map charToWord32 "defaultSeed"
-
-
-charToWord32 :: Char -> Word32
-charToWord32 c = fromIntegral $ fromEnum c
-
-
--- randomize 'depth' of face along given axis.
--- random from -5 to 5, 0.05 steps
--- ~max dist from origin (positive or negative) along axis: 80
-randomizeVerticeAlongAxis :: Seed -> Point3f -> [Point3f] -> ([Point3f], Seed)
-randomizeVerticeAlongAxis seed axis face = (clamp translatedFace, newSeed)
-  where nAxis = normalized axis
-        distToOrigin = head translatedFace `dot` nAxis
-        translatedFace = map (add (times alpha $ nAxis)) face
-        alpha = k / 15.0
-        (k, newSeed) = range_random (-100, 100) seed
-        clamp [] = []
-        clamp f =
-          let distToOrigin = head f `dot` nAxis in
-          if abs distToOrigin > 80
-            then clamp $ map (add (times (-0.5*distToOrigin) nAxis)) f
-            else f
-
-
 data Polyhedron = Polyhedron { vertice :: [Point3f]
                              , faces :: [[Int]]
                              }
@@ -162,6 +136,25 @@ faceBarycenter pts faceIds = barycenter $ map (pts !!) faceIds
 -- average on a point3f list
 barycenter :: [Point3f] -> Point3f
 barycenter = uncurry (divBy) . foldr (\e (c,s) -> (c+1, e `add` s)) (0, Point3f 0 0 0)
+
+
+-- randomize face functions
+
+
+defaultSeed :: Seed
+defaultSeed = seed $ map charToWord32 "defaultSeed"
+ where charToWord32 c = fromIntegral $ fromEnum c
+
+
+-- randomize 'depth' of face along given axis.
+-- random from -5 to 5, 0.05 steps
+randomizeVerticeAlongAxis :: Seed -> Point3f -> [Point3f] -> ([Point3f], Seed)
+randomizeVerticeAlongAxis seed axis face = (translatedFace, newSeed)
+  where nAxis = normalized axis
+        originalDistToOrigin = head face `dot` nAxis
+        translatedFace = map (add (times alpha $ nAxis)) face
+        alpha = k / 15.0
+        (k, newSeed) = range_random (0, 100 * signum originalDistToOrigin) seed
 
 
 -- tetrahedron

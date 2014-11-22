@@ -59,12 +59,13 @@ data CameraState = CameraState { theta :: GLdouble
 
 -- what we render
 usePolyhedron :: Polyhedron
-usePolyhedron = snubDodecahedron
+usePolyhedron = pentagonalHexecontahedron
 
 
 -- data buffers
 
 
+-- randomize the position of a polyhedron faces in a way imperceptible to the given (ortho) camera
 rndVertexBufferData :: Seed -> CameraState -> Polyhedron -> ([GLfloat], Seed)
 rndVertexBufferData seed state poly = (map realToFrac floats, newSeed)
   where (floats, newSeed) = axisRndFacesToFlatTriangles seed (camLookAxis state) (vertice poly) (faces poly)
@@ -122,8 +123,8 @@ initGL = do
 
   GL.polygonMode $= (Fill, Line)
 
-  GL.cullFace $= Just Back
---  GL.cullFace $= Nothing
+--  GL.cullFace $= Just Back
+  GL.cullFace $= Nothing
 
   -- make shaders & data
   prog <- loadProgram "polyhedra.vert" "polyhedra.frag"
