@@ -11,8 +11,7 @@ out float v_barycenter;
 
 void main()
 {
-    float s = sin(u_time);
-    float alpha = s*s;
+    float alpha = 0.5 + 0.5 * cos(u_time);
     gl_Position = u_worldView * vec4(alpha*position + (1-alpha)*alt_position, 1.0);
     v_barycenter = a_barycentric;
 }

@@ -19,6 +19,7 @@ import Graphics.Rendering.OpenGL.Raw ( glUniformMatrix4fv
                                      , glDeleteBuffers
                                      , glDisableVertexAttribArray
                                      , glBufferData
+                                     , glGetBufferSubData
                                      , glGenBuffers
                                      , gl_STATIC_DRAW
                                      )
@@ -28,6 +29,7 @@ import Foreign
 import Data.ByteString.Char8 (pack)
 import Data.IORef (IORef, newIORef)
 import Data.Vec (Mat44, identity)
+import Random.MWC.Pure (Seed)
 
 import FloretSphere
 import Geometry ( Point3f (Point3f)
@@ -49,34 +51,26 @@ data CameraState = CameraState { theta :: GLdouble
                                , phi :: GLdouble
                                , mouseX :: GLint
                                , mouseY :: GLint
-                               , lastPress :: Double
                                , pausing :: Bool
                                , projMat :: IORef Mat44Float
-                               , viewMat :: IORef Mat44Float
+                               , viewMat :: Mat44Float
                                }
 
 
 -- what we render
 usePolyhedron :: Polyhedron
-usePolyhedron = dodecahedron -- snubDodecahedron
-
-altPolyhedron :: Polyhedron
-altPolyhedron = dodecahedron -- stubRhombicosidodecahedron
+usePolyhedron = snubDodecahedron
 
 
 -- data buffers
 
 
--- vertex position buffer
-vertexBufferData :: [GLfloat]
-vertexBufferData =
-  map realToFrac $ fst $ axisRndFacesToFlatTriangles defaultSeed (camLookAxis defaultCamState) (vertice usePolyhedron) (faces usePolyhedron)
+rndVertexBufferData :: Seed -> CameraState -> Polyhedron -> ([GLfloat], Seed)
+rndVertexBufferData seed state poly = (map realToFrac floats, newSeed)
+  where (floats, newSeed) = axisRndFacesToFlatTriangles seed (camLookAxis state) (vertice poly) (faces poly)
 
 
--- alt vertex position buffer
-altVertexBufferData :: [GLfloat]
-altVertexBufferData =
-  map realToFrac $ fst $ axisRndFacesToFlatTriangles defaultSeed (camLookAxis defaultCamState) (vertice altPolyhedron) (faces usePolyhedron)
+(vertexBufferData, seed0) = rndVertexBufferData defaultSeed defaultCamState usePolyhedron
 
 
 -- attribute buffer to distinguish edge points from face center points
@@ -96,9 +90,17 @@ indexCount :: GLint
 indexCount = fromIntegral $ length indexBufferData
 
 
+-- interpolation mimicking that of polyhedra.vert
+interpolate :: Double -> [GLfloat] -> [GLfloat] -> [GLfloat]
+interpolate t from to = map interp $ zip from to
+  where alpha = realToFrac $ 0.5 + 0.5 * cos t
+        interp (f0,f1) = alpha*f0 + (1-alpha)*f1
+
+
 -- GL Stuff
 data GLIDs = GLIDs { prog :: Program
                    , indice :: BufferObject
+                   , vertexBuffersLength :: Int
                    , vertexBufferId :: GLuint
                    , vertexAttrib :: GLuint
                    , altVertexBufferId :: GLuint
@@ -120,8 +122,8 @@ initGL = do
 
   GL.polygonMode $= (Fill, Line)
 
---  GL.cullFace $= Just Back
-  GL.cullFace $= Nothing
+  GL.cullFace $= Just Back
+--  GL.cullFace $= Nothing
 
   -- make shaders & data
   prog <- loadProgram "polyhedra.vert" "polyhedra.frag"
@@ -130,8 +132,10 @@ initGL = do
   (AttribLocation centerAttrib) <- get (attribLocation prog "a_barycentric")
   indice <- makeBuffer ElementArrayBuffer indexBufferData
 
+  -- initially, vertice and alt vertice are equal
+  let vertexBuffersLength = length vertexBufferData
   vertexBufferId <- fillNewBuffer vertexBufferData
-  altVertexBufferId <- fillNewBuffer altVertexBufferData
+  altVertexBufferId <- fillNewBuffer vertexBufferData
   centerBufferId <- fillNewBuffer centerBufferData
 
   return GLIDs{..}
@@ -160,7 +164,7 @@ unbindGeometry GLIDs{..} = do glDisableVertexAttribArray vertexAttrib
 
 
 render :: Double -> CameraState -> GLIDs -> IO ()
-render dt state glids@GLIDs{..} = do
+render t state glids@GLIDs{..} = do
   GL.clear [GL.ColorBuffer, GL.DepthBuffer]
 
   currentProgram $= Just prog
@@ -168,8 +172,7 @@ render dt state glids@GLIDs{..} = do
   -- bind view projection matrix
   (UniformLocation mvpLoc) <- get $ uniformLocation prog "u_worldView"
   projection <- get $ projMat state
-  view <- get $ viewMat state
-  with (multMat projection view) $ glUniformMatrix4fv mvpLoc 1 (fromBool True) . castPtr
+  with (multMat projection $ viewMat state) $ glUniformMatrix4fv mvpLoc 1 (fromBool True) . castPtr
 
   -- bind uniform colors
   colLoc <- get $ uniformLocation prog "u_color"
@@ -178,11 +181,8 @@ render dt state glids@GLIDs{..} = do
   uniform bColLoc $= Color4 0.4 0.4 0.4 (1 :: GLfloat)
 
   -- bind time
-  if pausing state
-    then return ()
-    else do timeLoc <- get $ uniformLocation prog "u_time"
-            (Index1 oldTime) <- get $ uniform timeLoc
-            uniform timeLoc $= Index1 (realToFrac dt + oldTime :: GLfloat)
+  timeLoc <- get $ uniformLocation prog "u_time"
+  uniform timeLoc $= Index1 (realToFrac t :: GLfloat)
 
   -- bind attributes (position and alt position and center flags)
   bindGeometry glids
@@ -196,7 +196,7 @@ render dt state glids@GLIDs{..} = do
   GLFW.swapBuffers
 
 
--- shader creation, low level opengl code
+-- shader / buffer creation, low level opengl code
 
 
 withNewPtr f = alloca (\p -> f p >> peek p)
@@ -210,6 +210,27 @@ fillNewBuffer list = do
     glBufferData gl_ARRAY_BUFFER (fromIntegral (length * sizeOf (undefined :: GLfloat)))
                  (ptr :: Ptr GLfloat) gl_STATIC_DRAW
   return bufId
+
+
+refillBuffer :: GLuint -> [GLfloat] -> IO ()
+refillBuffer bufId list = do
+  glBindBuffer gl_ARRAY_BUFFER bufId
+  withArrayLen list $ \length ptr ->
+    glBufferData gl_ARRAY_BUFFER (fromIntegral (length * sizeOf (undefined :: GLfloat)))
+                 (ptr :: Ptr GLfloat) gl_STATIC_DRAW
+
+
+readBuffer :: GLuint -> Int -> IO [GLfloat]
+readBuffer bufId length = do
+  glBindBuffer gl_ARRAY_BUFFER bufId
+  arrPtr <- mallocArray length
+  glGetBufferSubData gl_ARRAY_BUFFER
+                     0
+                     (fromIntegral (length * sizeOf (undefined :: GLfloat)))
+                     (arrPtr :: Ptr GLfloat)
+  list <- peekArray length arrPtr
+  free arrPtr
+  return list
 
 
 bindFloatBufferToAttrib :: GLint -> GLuint -> GLuint -> IO ()
@@ -258,19 +279,17 @@ loadProgram vertShader fragShader = do
 
 
 defaultCamState :: CameraState
-defaultCamState = CameraState { theta = 2.5*pi/4.0
+defaultCamState = CameraState { theta = 5.5*pi/4.0
                               , phi = pi/3.0
                               , mouseX = 0
                               , mouseY = 0
-                              , lastPress = -1
                               , pausing = False
+                              , viewMat = identity
                               }
 
 
-camStateWithMatrice :: CameraState -> IORef Mat44Float -> IORef Mat44Float -> CameraState
-camStateWithMatrice state projMat viewMat = state { projMat = projMat
-                                                  , viewMat = viewMat
-                                                  }
+camStateWithMatrice :: CameraState -> IORef Mat44Float -> CameraState
+camStateWithMatrice state projMat = state { projMat = projMat }
 
 
 camPos :: CameraState -> (GLdouble, GLdouble, GLdouble)
@@ -325,14 +344,15 @@ onClick :: GLint -> GLint -> CameraState -> CameraState
 onClick newX newY state =
   state { mouseX = newX
         , mouseY = newY
+        , pausing = True
         }
 
 
-applyMouseMove :: (Double -> Double) -> GLint -> GLint -> CameraState -> CameraState
-applyMouseMove lastPressUpdater newX newY state =
+applyMouseMove :: Bool -> GLint -> GLint -> CameraState -> CameraState
+applyMouseMove pausing newX newY state =
   state { mouseX = newX
         , mouseY = newY
-        , lastPress = lastPressUpdater $ lastPress state
+        , pausing = pausing
         , theta = (theta state) + (fromIntegral diffX) / 100.0
         , phi = limitAngle $ (phi state) + (fromIntegral diffY) / 100.0
         }
@@ -363,46 +383,55 @@ waitForRelease = do
   case b of
     -- when button is released, switch back back to
     -- waitForPress action
-    GLFW.Release -> return (Action (waitForPress, applyMouseMove id x y))
-    GLFW.Press   -> return (Action (waitForRelease, applyMouseMove (\_ -> nowD) x y))
+    GLFW.Release -> return (Action (waitForPress, applyMouseMove False x y))
+    GLFW.Press   -> return (Action (waitForRelease, applyMouseMove True x y))
 
 
--- if the mouse has not been pressed for 0.3 second, we're pausing until the next press
--- otherwise, time flows
-updatePausing :: Double -> CameraState -> IO CameraState
-updatePausing now state = case (now - (lastPress state) > 0.3, pausing state) of
-  (True, True)   -> do putStrLn "unpausing"
-                       return state { pausing = False }
-  (True, False)  -> return state -- keep on being in "unpaused" state
-  (False, True)  -> return state -- keep on being in "paused" state
-  (False, False) -> do putStrLn "pausing" -- TODO replace with set new interpolation target
-                       return state { pausing = True }
+loop :: IO Action -> CameraState -> Double -> Double -> GLIDs -> Seed -> IO ()
+loop action state lastRealTime lastSimulatedTime glids@GLIDs{..} seed = do
 
-
-loop :: IO Action -> CameraState -> Double -> GLIDs -> IO ()
-loop action state lastTime glids = do
   -- dt
   now <- get time
-  let dt = now - lastTime
+  let dt = now - lastRealTime
 
   -- game
   Action (action', stateUpdater) <- action
 
-  newState <- updatePausing now $ stateUpdater state
+  -- update state with mouse actions
+  let newState0 = stateUpdater state
 
-  let (Point3f px py pz) = camToPoint3f state
-  viewMat state $= lookAtMatrix (vec3 (realToFrac px) (realToFrac py) (realToFrac pz))
-                                (vec3 0 0 0)
-                                (vec3 0 1 0)
+  -- update camera
+  let (Point3f px py pz) = camToPoint3f newState0
+  let newState = newState0 { viewMat = lookAtMatrix (vec3 (realToFrac px) (realToFrac py) (realToFrac pz))
+                                                    (vec3 0 0 0)
+                                                    (vec3 0 1 0)
+                           }
 
-  render dt newState glids
+  -- check for sim restart
+  (simTime, newSeed) <- case (pausing newState0, pausing state) of
+                          -- sim paused
+                          (True, _)      -> return (lastSimulatedTime, seed)
+                          -- sim runs, but max sim time is pi, so that interpolation stops matching the alt vertice
+                          (False, False) -> return (min pi lastSimulatedTime + dt, seed)
+                          -- sim restarted
+                          (False, True)  -> do
+                            oldVertice <- Main.readBuffer vertexBufferId vertexBuffersLength
+                            oldAltVertice <- Main.readBuffer altVertexBufferId vertexBuffersLength
+                            refillBuffer vertexBufferId $ interpolate lastSimulatedTime oldVertice oldAltVertice
+                            let (newVertice, newSeed) = rndVertexBufferData seed newState usePolyhedron
+                            refillBuffer altVertexBufferId newVertice
+                            return (0, newSeed)
+
+
+  -- render
+  render simTime newState glids
 
   -- exit if window closed or Esc pressed
   esc <- GLFW.getKey GLFW.ESC
   q <- GLFW.getKey 'Q'
   open <- GLFW.getParam GLFW.Opened
   if open && esc /= GLFW.Press && q /= GLFW.Press
-    then loop action' newState now glids
+    then loop action' newState now simTime glids newSeed
     else return ()
 
 
@@ -416,8 +445,7 @@ main = do
 
   -- init
   projMat <- newIORef identity
-  viewMat <- newIORef identity
-  let state = camStateWithMatrice defaultCamState projMat viewMat
+  let state = camStateWithMatrice defaultCamState projMat
 
   -- initialize
   GLFW.initialize
@@ -445,7 +473,7 @@ main = do
   GLFW.windowSizeCallback $= resize projMat
   -- main loop
   now <- get GLFW.time
-  loop waitForPress state (realToFrac now) glids
+  loop waitForPress state now now glids seed0
   -- exit
   cleanUpGLStuff glids
   GLFW.closeWindow
