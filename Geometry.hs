@@ -15,7 +15,7 @@ gold = (1+sqrt 5)/2
 
 
 norm :: Point3f -> Float
-norm (Point3f x y z) = sqrt(x*x + y*y + z*z)
+norm p = sqrt $ p `dot` p
 
 
 add :: Point3f -> Point3f -> Point3f
@@ -40,6 +40,10 @@ dist (Point3f x0 y0 z0) (Point3f x1 y1 z1) = sqrt $ (x1-x0)*(x1-x0) + (y1-y0)*(y
 
 cross :: Point3f -> Point3f -> Point3f
 cross (Point3f x0 y0 z0) (Point3f x1 y1 z1) = Point3f (y0 * z1 - z0 * y1) (z0 * x1 - x0 * z1) (x0 * y1 - y0 * x1)
+
+
+dot :: Point3f -> Point3f -> Float
+dot (Point3f x0 y0 z0) (Point3f x1 y1 z1) = x0*x1 + y0*y1 + z0*z1
 
 
 type Normal = Point3f

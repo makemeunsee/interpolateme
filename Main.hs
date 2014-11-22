@@ -49,6 +49,8 @@ data CameraState = CameraState { theta :: GLdouble
                                , phi :: GLdouble
                                , mouseX :: GLint
                                , mouseY :: GLint
+                               , lastPress :: Double
+                               , pausing :: Bool
                                , projMat :: IORef Mat44Float
                                , viewMat :: IORef Mat44Float
                                }
@@ -56,10 +58,10 @@ data CameraState = CameraState { theta :: GLdouble
 
 -- what we render
 usePolyhedron :: Polyhedron
-usePolyhedron = snubDodecahedron
+usePolyhedron = dodecahedron -- snubDodecahedron
 
 altPolyhedron :: Polyhedron
-altPolyhedron = stubRhombicosidodecahedron -- rhombicosidodecahedron
+altPolyhedron = dodecahedron -- stubRhombicosidodecahedron
 
 
 -- data buffers
@@ -68,13 +70,13 @@ altPolyhedron = stubRhombicosidodecahedron -- rhombicosidodecahedron
 -- vertex position buffer
 vertexBufferData :: [GLfloat]
 vertexBufferData =
-  map realToFrac $ facesToFlatTriangles (vertice usePolyhedron) (faces usePolyhedron)
+  map realToFrac $ fst $ axisRndFacesToFlatTriangles defaultSeed (camLookAxis defaultCamState) (vertice usePolyhedron) (faces usePolyhedron)
 
 
 -- alt vertex position buffer
 altVertexBufferData :: [GLfloat]
 altVertexBufferData =
-  map realToFrac $ facesToFlatTriangles (vertice altPolyhedron) (faces usePolyhedron)
+  map realToFrac $ fst $ axisRndFacesToFlatTriangles defaultSeed (camLookAxis defaultCamState) (vertice altPolyhedron) (faces usePolyhedron)
 
 
 -- attribute buffer to distinguish edge points from face center points
@@ -116,10 +118,10 @@ initGL = do
 --  diffuse (Light 0) $= Color4 0.9 0.9 0.9 (1 :: GLfloat)
 --  light (Light 0) $= Enabled
 
-  GL.polygonMode $= (Fill, Fill)
+  GL.polygonMode $= (Fill, Line)
 
-  GL.cullFace $= Just Back
---  GL.cullFace $= Nothing
+--  GL.cullFace $= Just Back
+  GL.cullFace $= Nothing
 
   -- make shaders & data
   prog <- loadProgram "polyhedra.vert" "polyhedra.frag"
@@ -157,8 +159,8 @@ unbindGeometry GLIDs{..} = do glDisableVertexAttribArray vertexAttrib
                               glDisableVertexAttribArray centerAttrib
 
 
-render :: Float -> CameraState -> GLIDs -> IO ()
-render now state glids@GLIDs{..} = do
+render :: Double -> CameraState -> GLIDs -> IO ()
+render dt state glids@GLIDs{..} = do
   GL.clear [GL.ColorBuffer, GL.DepthBuffer]
 
   currentProgram $= Just prog
@@ -176,8 +178,11 @@ render now state glids@GLIDs{..} = do
   uniform bColLoc $= Color4 0.4 0.4 0.4 (1 :: GLfloat)
 
   -- bind time
-  timeLoc <- get $ uniformLocation prog "u_time"
-  uniform timeLoc $= Index1 (realToFrac now :: GLfloat)
+  if pausing state
+    then return ()
+    else do timeLoc <- get $ uniformLocation prog "u_time"
+            (Index1 oldTime) <- get $ uniform timeLoc
+            uniform timeLoc $= Index1 (realToFrac dt + oldTime :: GLfloat)
 
   -- bind attributes (position and alt position and center flags)
   bindGeometry glids
@@ -252,18 +257,28 @@ loadProgram vertShader fragShader = do
 -- camera functions
 
 
-defaultCameraState :: IORef Mat44Float -> IORef Mat44Float -> CameraState
-defaultCameraState projMat viewMat = CameraState { theta = 2.5*pi/4.0
-                                                 , phi = pi/3.0
-                                                 , mouseX = 0
-                                                 , mouseY = 0
-                                                 , projMat = projMat
-                                                 , viewMat = viewMat
-                                                 }
+defaultCamState :: CameraState
+defaultCamState = CameraState { theta = 2.5*pi/4.0
+                              , phi = pi/3.0
+                              , mouseX = 0
+                              , mouseY = 0
+                              , lastPress = -1
+                              , pausing = False
+                              }
+
+
+camStateWithMatrice :: CameraState -> IORef Mat44Float -> IORef Mat44Float -> CameraState
+camStateWithMatrice state projMat viewMat = state { projMat = projMat
+                                                  , viewMat = viewMat
+                                                  }
 
 
 camPos :: CameraState -> (GLdouble, GLdouble, GLdouble)
 camPos cam = (50 * sin (phi cam) * cos (theta cam), 50 * cos (phi cam), 50 * sin (phi cam) * sin (theta cam))
+
+
+camLookAxis :: CameraState -> Point3f
+camLookAxis state = (-1) `times` (camToPoint3f state)
 
 
 camToPoint3f :: CameraState -> Point3f
@@ -280,9 +295,9 @@ resize projMatRef size@(Size w h) = do
   let aspect = (fromIntegral w) / (fromIntegral hh)
   GL.viewport   $= (Position 0 0, size)
 
-  let far = 200
-  let near = 10
-  let top = 4
+  let far = 100
+  let near = -100
+  let top = 5
   let right = top*aspect
   let left = -right
   let bottom = -top
@@ -313,18 +328,17 @@ onClick newX newY state =
         }
 
 
-applyMouseMove :: GLint -> GLint -> CameraState -> CameraState
-applyMouseMove newX newY state =
+applyMouseMove :: (Double -> Double) -> GLint -> GLint -> CameraState -> CameraState
+applyMouseMove lastPressUpdater newX newY state =
   state { mouseX = newX
         , mouseY = newY
-        , theta = theta0 + (fromIntegral diffX) / 100.0
-        , phi = limitAngle $ phi0 + (fromIntegral diffY) / 100.0
+        , lastPress = lastPressUpdater $ lastPress state
+        , theta = (theta state) + (fromIntegral diffX) / 100.0
+        , phi = limitAngle $ (phi state) + (fromIntegral diffY) / 100.0
         }
   where
     diffX = newX - mouseX state
     diffY = -newY + mouseY state
-    theta0 = theta state
-    phi0 = phi state
 
 
 waitForPress :: IO Action
@@ -345,31 +359,43 @@ waitForRelease = do
   -- release
   (GL.Position x y) <- GL.get GLFW.mousePos
   b <- GLFW.getMouseButton GLFW.ButtonLeft
+  nowD <- get time
   case b of
     -- when button is released, switch back back to
     -- waitForPress action
-    GLFW.Release -> return (Action (waitForPress, applyMouseMove x y))
-    GLFW.Press   -> return (Action (waitForRelease, applyMouseMove x y))
+    GLFW.Release -> return (Action (waitForPress, applyMouseMove id x y))
+    GLFW.Press   -> return (Action (waitForRelease, applyMouseMove (\_ -> nowD) x y))
 
 
-loop :: IO Action -> CameraState -> Float -> GLIDs -> IO ()
+-- if the mouse has not been pressed for 0.3 second, we're pausing until the next press
+-- otherwise, time flows
+updatePausing :: Double -> CameraState -> IO CameraState
+updatePausing now state = case (now - (lastPress state) > 0.3, pausing state) of
+  (True, True)   -> do putStrLn "unpausing"
+                       return state { pausing = False }
+  (True, False)  -> return state -- keep on being in "unpaused" state
+  (False, True)  -> return state -- keep on being in "paused" state
+  (False, False) -> do putStrLn "pausing" -- TODO replace with set new interpolation target
+                       return state { pausing = True }
+
+
+loop :: IO Action -> CameraState -> Double -> GLIDs -> IO ()
 loop action state lastTime glids = do
   -- dt
-  nowD <- get time
-  let now = realToFrac nowD
---  let dt = realToFrac $ now - lastTime
+  now <- get time
+  let dt = now - lastTime
 
   -- game
   Action (action', stateUpdater) <- action
 
-  let newState = stateUpdater state
+  newState <- updatePausing now $ stateUpdater state
 
   let (Point3f px py pz) = camToPoint3f state
   viewMat state $= lookAtMatrix (vec3 (realToFrac px) (realToFrac py) (realToFrac pz))
                                 (vec3 0 0 0)
                                 (vec3 0 1 0)
 
-  render now newState glids
+  render dt newState glids
 
   -- exit if window closed or Esc pressed
   esc <- GLFW.getKey GLFW.ESC
@@ -391,7 +417,7 @@ main = do
   -- init
   projMat <- newIORef identity
   viewMat <- newIORef identity
-  let state = defaultCameraState projMat viewMat
+  let state = camStateWithMatrice defaultCamState projMat viewMat
 
   -- initialize
   GLFW.initialize

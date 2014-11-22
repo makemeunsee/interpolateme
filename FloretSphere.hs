@@ -2,6 +2,8 @@ module FloretSphere ( Polyhedron
                     , vertice, faces
                     , facesToFlatIndice
                     , facesToFlatTriangles
+                    , axisRndFacesToFlatTriangles
+                    , defaultSeed
                     , facesToCenterFlags
                     , polyhedrons
                     , tetrahedron
@@ -21,8 +23,45 @@ where
 import Control.Exception (assert)
 import Data.List (elemIndex)
 import Data.Maybe (fromJust)
+import Data.Word
+import Random.MWC.Pure
 import ListUtil
 import Geometry
+
+
+data Bounds = Bounds { minx :: Float
+                     , maxx :: Float
+                     , miny :: Float
+                     , maxy :: Float
+                     , minz :: Float
+                     , maxz :: Float
+                     }
+
+
+defaultSeed :: Seed
+defaultSeed = seed $ map charToWord32 "defaultSeed"
+
+
+charToWord32 :: Char -> Word32
+charToWord32 c = fromIntegral $ fromEnum c
+
+
+-- randomize 'depth' of face along given axis.
+-- random from -5 to 5, 0.05 steps
+-- ~max dist from origin (positive or negative) along axis: 80
+randomizeVerticeAlongAxis :: Seed -> Point3f -> [Point3f] -> ([Point3f], Seed)
+randomizeVerticeAlongAxis seed axis face = (clamp translatedFace, newSeed)
+  where nAxis = normalized axis
+        distToOrigin = head translatedFace `dot` nAxis
+        translatedFace = map (add (times alpha $ nAxis)) face
+        alpha = k / 15.0
+        (k, newSeed) = range_random (-100, 100) seed
+        clamp [] = []
+        clamp f =
+          let distToOrigin = head f `dot` nAxis in
+          if abs distToOrigin > 80
+            then clamp $ map (add (times (-0.5*distToOrigin) nAxis)) f
+            else f
 
 
 data Polyhedron = Polyhedron { vertice :: [Point3f]
@@ -95,7 +134,15 @@ firstWithEveryPair (f:r) = concatMap (\ (i,j) -> [f,i,j]) $ cyclicConsecutivePai
 facesToFlatTriangles :: [Point3f] -> [[Int]] -> [Float]
 facesToFlatTriangles _ [] = []
 facesToFlatTriangles pts (arr:arrs) =
-  (pointToArr $ faceBarycenter pts arr) ++ (concatMap (pointToArr . (!!) pts ) arr) ++ facesToFlatTriangles pts arrs
+  (concatMap pointToArr (faceBarycenter pts arr : map ((!!) pts) arr)) ++ facesToFlatTriangles pts arrs
+
+
+axisRndFacesToFlatTriangles :: Seed -> Point3f -> [Point3f] -> [[Int]] -> ([Float], Seed)
+axisRndFacesToFlatTriangles seed _ _ [] = ([], seed)
+axisRndFacesToFlatTriangles seed axis pts (arr:arrs) =
+  ((concatMap pointToArr rndFace) ++ rndRemainder, finalSeed)
+  where (rndFace, newSeed) = randomizeVerticeAlongAxis seed axis (faceBarycenter pts arr : map ((!!) pts) arr)
+        (rndRemainder, finalSeed) = axisRndFacesToFlatTriangles newSeed axis pts arrs
 
 
 -- flags vertice which are a barycenter and not part of the original face.
