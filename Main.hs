@@ -422,10 +422,10 @@ updateState state@GlobalState{..} newCamera = do
       return state { camera = newCamera, realTime = now, simTime = 0, seed = newSeed }
 
 
-loop :: IO Action -> GlobalState -> IO ()
-loop action state = do
+loop :: Bool -> IO Action -> GlobalState -> IO ()
+loop static action state = do
 
-  -- game
+  -- read io action
   Action (action', camUpdater) <- action
 
   -- update state with mouse actions
@@ -439,7 +439,9 @@ loop action state = do
                             }
 
   -- check for sim restart
-  newState <- updateState state camState1
+  newState <- if static
+                then return state { camera = camState1 }
+                else updateState state camState1
 
   -- render
   projection <- get $ projMat camState1
@@ -451,7 +453,7 @@ loop action state = do
   q <- GLFW.getKey 'Q'
   open <- GLFW.getParam GLFW.Opened
   if open && esc /= GLFW.Press && q /= GLFW.Press
-    then loop action' newState
+    then loop static action' newState
     else return ()
 
 
@@ -461,7 +463,14 @@ main = do
 --  putStrLn $ show $
 
   args <- getArgs
+
+  -- fullscreen flag
   let fullScreenRequest = [] /= filter (\s -> s == "--f") args
+
+  -- animated or not
+  let static = [] /= filter (\s -> s == "--s") args
+
+  -- model from json?
   json <- readJson $ listToMaybe $ drop 1 $ dropWhile ("--json" /=) args
 
   let model = maybe pentagonalHexecontahedron
@@ -493,7 +502,9 @@ main = do
   -- init GL state
   projMat <- newIORef identity
   let camState = (camStateWithMatrice defaultCamState projMat) { distance = realToFrac span * 1.1 }
-  let (vertexBufferData, seed0) = rndVertexBufferData defaultSeed camState model
+  let bufferMaker = if static then (\ m s -> (regularVertexBufferData m, defaultSeed))
+                              else (\ m s -> rndVertexBufferData s camState m)
+  let (vertexBufferData, seed0) = bufferMaker model defaultSeed
   let centersBuffer = centerBufferData model
   let indiceBuffer = indexBufferData model
 
@@ -516,7 +527,7 @@ main = do
   GLFW.windowSizeCallback $= resize span projMat
   -- main loop
   now <- get GLFW.time
-  loop waitForPress state
+  loop static waitForPress state
   -- exit
   cleanUpGLStuff glids
   GLFW.closeWindow
