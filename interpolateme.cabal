@@ -14,5 +14,5 @@ Data-Files:          polyhedra.frag, polyhedra.vert
 
 Executable interpolateme
   Main-is:             Main.hs
-  Build-Depends:       base >= 3 && < 5, OpenGL >= 2.3, GLFW, GLUtil, bytestring, OpenGLRaw, Vec, AC-Random
-  Other-Modules:       Geometry, ListUtil, FloretSphere
+  Build-Depends:       base >= 3 && < 5, OpenGL >= 2.3, GLFW, GLUtil, bytestring, OpenGLRaw, Vec, AC-Random, aeson
+  Other-Modules:       Geometry, ListUtil, FloretSphere, Json

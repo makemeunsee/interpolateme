@@ -47,6 +47,7 @@ import Geometry ( Point3f (Point3f)
                 , defaultSeed
                 )
 import ListUtil
+import Json
 
 
 data Action = Action (IO Action, CameraState -> CameraState)
@@ -454,12 +455,11 @@ main = do
 
   args <- getArgs
   let fullScreenRequest = [] /= filter (\s -> s == "--f") args
---  let json = listToMaybe $ tail $ dropWhile ("--json" /=) args
---
---  let model = maybe pentagonalHexecontahedron
---                    parseJson
---                    json
-  let model = pentagonalHexecontahedron
+  json <- readJson $ listToMaybe $ drop 1 $ dropWhile ("--json" /=) args
+
+  let model = maybe pentagonalHexecontahedron
+                    parseJson
+                    json
 
   -- initialize
   GLFW.initialize
