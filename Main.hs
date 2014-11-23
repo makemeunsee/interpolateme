@@ -411,7 +411,7 @@ updateState state@GlobalState{..} newCamera = do
     -- sim paused, do nothing
     (True, _)      -> return state { camera = newCamera, realTime = now }
     -- sim runs, but max sim time is pi, so that interpolation stops matching the alt vertice
-    (False, False) -> return state { camera = newCamera, realTime = now, simTime = min pi simTime + dt }
+    (False, False) -> return state { camera = newCamera, realTime = now, simTime = min pi (simTime + dt) }
     -- sim restarted
     (False, True)  -> do
       oldVertice <- Main.readBuffer vertexBufferId vertexBuffersLength
