@@ -37,10 +37,15 @@ import Geometry ( Point3f (Point3f)
                 , normalized
                 , cross
                 , times
+                , axisRndFacesToFlatTriangles
+                , facesToCenterFlags
+                , facesToFlatIndice
                 , lookAtMatrix
                 , orthoMatrix
                 , multMat
-                , vec3)
+                , vec3
+                , defaultSeed
+                )
 import ListUtil
 
 
@@ -404,7 +409,7 @@ updateState state@GlobalState{..} newCamera = do
       oldVertice <- Main.readBuffer vertexBufferId vertexBuffersLength
       oldAltVertice <- Main.readBuffer altVertexBufferId vertexBuffersLength
       refillBuffer vertexBufferId $ interpolate simTime oldVertice oldAltVertice
-      let (newVertice, newSeed) = rndVertexBufferData seed camera model
+      let (newVertice, newSeed) = rndVertexBufferData seed newCamera model
       refillBuffer altVertexBufferId newVertice
       return state { camera = newCamera, realTime = now, simTime = 0, seed = newSeed }
 
@@ -449,9 +454,12 @@ main = do
 
   args <- getArgs
   let fullScreenRequest = [] /= filter (\s -> s == "--f") args
-  let json = listToMaybe $ tail $ dropWhile ("--json" /=) args
-
-  let polyhedron = pentagonalHexecontahedron
+--  let json = listToMaybe $ tail $ dropWhile ("--json" /=) args
+--
+--  let model = maybe pentagonalHexecontahedron
+--                    parseJson
+--                    json
+  let model = pentagonalHexecontahedron
 
   -- initialize
   GLFW.initialize
@@ -476,20 +484,20 @@ main = do
   -- init GL state
   projMat <- newIORef identity
   let camState = camStateWithMatrice defaultCamState projMat
-  let (vertexBufferData, seed0) = rndVertexBufferData defaultSeed camState polyhedron
-  let centersBuffer = centerBufferData polyhedron
-  let indiceBuffer = indexBufferData polyhedron
+  let (vertexBufferData, seed0) = rndVertexBufferData defaultSeed camState model
+  let centersBuffer = centerBufferData model
+  let indiceBuffer = indexBufferData model
 
   glids <- initGL vertexBufferData indiceBuffer centersBuffer
 
   -- init global state
   now <- get time
   let state = GlobalState { camera = camState
-                          , model = polyhedron
+                          , model = model
                           , seed = seed0
                           , glids = glids
-                          , realTime = now
-                          , simTime = now
+                          , realTime = 0
+                          , simTime = 0
                           }
 
 

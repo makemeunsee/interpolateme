@@ -1,8 +1,115 @@
-module Geometry where
+module Geometry ( Point3f(Point3f)
+                , norm, normalized, cross, times, pointToArr, add, forceNorm, vec
+                , gold
+                , vec3
+                , lookAtMatrix
+                , orthoMatrix
+                , multMat
+                , rotate
+                , facesToFlatIndice
+                , facesToFlatTriangles
+                , axisRndFacesToFlatTriangles
+                , facesToCenterFlags
+                , defaultSeed
+                )
+where
 
 import qualified Data.Vec as V
+import Data.Word
+import Random.MWC.Pure
+import ListUtil
 
 data Point3f = Point3f Float Float Float
+
+
+-- model conversion functions
+
+
+-- flatten faces into an indice list.
+-- faces are tessellated into triangles, each having the face barycenter as first point.
+-- indice used in the parameter and result WILL NOT match.
+-- to use along 'facesToFlatTriangles'.
+-- eg: [7 9 8] -> [0 1 2 0 2 3 0 3 1] where 0 <- index of barycenter of the triangle
+--                                          1 <- 7
+--                                          2 <- 9
+--                                          3 <- 8
+facesToFlatIndice :: [[Int]] -> [Int]
+facesToFlatIndice faces = facesToFlatIndice0 0 faces
+  where
+    facesToFlatIndice0 :: Int -> [[Int]] -> [Int]
+    facesToFlatIndice0 _ [] = []
+    facesToFlatIndice0 count (arr:arrs) = offsetTriangles ++ facesToFlatIndice0 (count+l+1) arrs
+      where
+        l = length arr
+        triangles = firstWithEveryPair $ take (l+1) [0..]
+        offsetTriangles = map (count+) triangles
+
+
+-- concat triplets made of the input head, and each consecutive pair in the cycling input tail
+firstWithEveryPair :: [a] -> [a]
+firstWithEveryPair [] = []
+firstWithEveryPair (f:r) = concatMap (\ (i,j) -> [f,i,j]) $ cyclicConsecutivePairs r
+
+
+-- use vertex data (pts) and face data to create flat, tessellated vertex data
+-- eg: [p0, p1, p2] [[0,2,1]] -> [ b.x, b.y, b.z, p0.x, p0.y, p0.z, p2.x, p2.y, p2.z,
+--                                 b.x, b.y, b.z, p2.x, p2.y, p2.z, p1.x, p1.y, p1.z,
+--                                 b.x, b.y, b.z, p1.x, p1.y, p1.z, p0.x, p0.y, p0.z ]
+-- where b = (p0 + p1 + p2) / 3 (barycenter)
+-- to use along 'facesToFlatIndice'.
+facesToFlatTriangles :: [Point3f] -> [[Int]] -> [Float]
+facesToFlatTriangles _ [] = []
+facesToFlatTriangles pts (arr:arrs) =
+  (concatMap pointToArr (faceBarycenter pts arr : map ((!!) pts) arr)) ++ facesToFlatTriangles pts arrs
+
+
+axisRndFacesToFlatTriangles :: Seed -> Point3f -> [Point3f] -> [[Int]] -> ([Float], Seed)
+axisRndFacesToFlatTriangles seed _ _ [] = ([], seed)
+axisRndFacesToFlatTriangles seed axis pts (arr:arrs) =
+  ((concatMap pointToArr rndFace) ++ rndRemainder, finalSeed)
+  where (rndFace, newSeed) = randomizeVerticeAlongAxis seed axis (faceBarycenter pts arr : map ((!!) pts) arr)
+        (rndRemainder, finalSeed) = axisRndFacesToFlatTriangles newSeed axis pts arrs
+
+
+-- flags vertice which are a barycenter and not part of the original face.
+-- each face gets 1 barycenter and as many normal points as it originally contains.
+-- to use along 'facesToFlatIndice' and 'facesToFlatTriangles'.
+facesToCenterFlags :: [[Int]] -> [Float]
+facesToCenterFlags [] = []
+facesToCenterFlags (arr:arrs) =
+  1 : (take (length arr) $ iterate id 0) ++ facesToCenterFlags arrs
+
+
+-- using vertex data and a face, creates the barycenter of this face
+faceBarycenter :: [Point3f] -> [Int] -> Point3f
+faceBarycenter pts faceIds = barycenter $ map (pts !!) faceIds
+
+
+-- average on a point3f list
+barycenter :: [Point3f] -> Point3f
+barycenter = uncurry (divBy) . foldr (\e (c,s) -> (c+1, e `add` s)) (0, Point3f 0 0 0)
+
+
+-- randomize face functions
+
+
+defaultSeed :: Seed
+defaultSeed = seed $ map charToWord32 "defaultSeed"
+ where charToWord32 c = fromIntegral $ fromEnum c
+
+
+-- randomize 'depth' of face along given axis.
+-- random from -5 to 5, 0.05 steps
+randomizeVerticeAlongAxis :: Seed -> Point3f -> [Point3f] -> ([Point3f], Seed)
+randomizeVerticeAlongAxis seed axis face = (translatedFace, newSeed)
+  where nAxis = normalized axis
+        originalDistToOrigin = head face `dot` nAxis
+        translatedFace = map (add (times alpha $ nAxis)) face
+        alpha = k / 15.0
+        (k, newSeed) = range_random (0, 100 * signum originalDistToOrigin) seed
+
+
+-- basic geometry functions
 
 
 pointToArr :: Point3f -> [Float]
