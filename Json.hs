@@ -14,7 +14,7 @@ import Data.Maybe
 
 import FloretSphere
 import ListUtil
-import Geometry (Point3f (Point3f), Model (Model), barycenter, times, add, rotateL)
+import Geometry (Point3f (Point3f), Model (Model), combine, barycenter, times, add, rotateL)
 
 
 data Child = Child { cTransformation :: [Float], meshIds :: Maybe [Int] }
@@ -67,6 +67,7 @@ transformOne (MeshList rt ms) meshId =
         transformed = map (\[x,y,z] -> transform $ Point3f x y z) $ chop 3 vs
         tRoot = transformation rt
         transform = rotateL tRoot
+        -- unsure how to apply mesh specific transformations yet
 --        tChild = map cTransformation $ filter (\c -> contains meshId $ meshIds c) $ children rt
 --        transform = foldl (\f t -> f . (rotateL t)) (rotateL tRoot) tChild
 --        tChild = listToMaybe $ map cTransformation $ filter (\c -> contains meshId $ meshIds c) $ children rt
@@ -75,6 +76,7 @@ transformOne (MeshList rt ms) meshId =
 
 parseJson :: MeshList -> Model
 parseJson ml = Model centered fs
-  where Model vs fs = transformOne ml 0
+  where allMeshIds = take (length $ meshes ml) [0..]
+        Model vs fs = foldr1 combine $ map (transformOne ml) allMeshIds
         bary = barycenter vs
         centered = map ((-1) `times` bary `add`) vs
