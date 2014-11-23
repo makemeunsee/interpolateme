@@ -17,11 +17,11 @@ import ListUtil
 import Geometry (Point3f (Point3f), Model (Model), barycenter, times, add, rotateL)
 
 
-data Child = Child { cTransformation :: [Float], meshIds :: [Int] }
+data Child = Child { cTransformation :: [Float], meshIds :: Maybe [Int] }
              deriving (Show)
 
 instance FromJSON Child where
-  parseJSON (Object o) = Child <$> o .: "transformation" <*> o .: "meshes"
+  parseJSON (Object o) = Child <$> o .: "transformation" <*> o .:? "meshes"
   parseJSON _ = mzero
 
 
