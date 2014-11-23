@@ -1,6 +1,7 @@
 module Geometry ( Point3f(Point3f)
                 , norm, normalized, cross, times, pointToArr, add, forceNorm, vec
                 , Model(Model), vertice, faces
+                , combine
                 , gold
                 , vec3
                 , lookAtMatrix
@@ -33,7 +34,7 @@ combine :: Model -> Model -> Model
 combine (Model v0 f0) (Model v1 f1) =
   Model (v0 ++ v1) (f0 ++ offset)
   where offset = map (map (idCount0 +)) f1
-        idCount0 = floor $ (fromIntegral $ length v0) / 3
+        idCount0 = length v0
 
 
 -- model conversion functions
