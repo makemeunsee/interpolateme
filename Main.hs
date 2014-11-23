@@ -40,6 +40,7 @@ import Geometry ( Point3f (Point3f)
                 , axisRndFacesToFlatTriangles
                 , facesToCenterFlags
                 , facesToFlatIndice
+                , scale
                 , lookAtMatrix
                 , orthoMatrix
                 , multMat
@@ -59,6 +60,8 @@ data CameraState = CameraState { theta :: GLdouble
                                , distance :: GLdouble
                                , mouseX :: GLint
                                , mouseY :: GLint
+                               , wheel :: Int
+                               , zoom :: Float
                                , mouseDown :: Bool
                                , projMat :: IORef Mat44f
                                , viewMat :: Mat44f
@@ -296,6 +299,8 @@ defaultCamState = CameraState { theta = pi / 2
                               , distance = 50
                               , mouseX = 0
                               , mouseY = 0
+                              , wheel = 0
+                              , zoom = 1
                               , mouseDown = False
                               , viewMat = identity
                               }
@@ -355,22 +360,32 @@ limitAngle angle =
       else angle
 
 
-onClick :: GLint -> GLint -> CameraState -> CameraState
-onClick newX newY state =
-  state { mouseX = newX
-        , mouseY = newY
-        , mouseDown = True
-        }
+updateZoom :: Int -> CameraState -> CameraState
+updateZoom newWheel state = state { wheel = newWheel
+                                  , zoom = newZoom
+                                  }
+  where newZoom = max (min (zoom0*a) 8) 0.125
+        zoom0 = zoom state
+        oldWheel = wheel state
+        a = 1.1 ** fromIntegral (oldWheel-newWheel)
 
 
-applyMouseMove :: Bool -> GLint -> GLint -> CameraState -> CameraState
-applyMouseMove mouseDown newX newY state =
-  state { mouseX = newX
-        , mouseY = newY
-        , mouseDown = mouseDown
-        , theta = (theta state) + (fromIntegral diffX) / 100.0
-        , phi = limitAngle $ (phi state) + (fromIntegral diffY) / 100.0
-        }
+onClick :: GLint -> GLint -> Int -> CameraState -> CameraState
+onClick newX newY newWheel state =
+  updateZoom newWheel state { mouseX = newX
+                            , mouseY = newY
+                            , mouseDown = True
+                            }
+
+
+applyMouseMove :: Bool -> GLint -> GLint -> Int -> CameraState -> CameraState
+applyMouseMove mouseDown newX newY newWheel state =
+  updateZoom newWheel state  { mouseX = newX
+                             , mouseY = newY
+                             , mouseDown = mouseDown
+                             , theta = (theta state) + (fromIntegral diffX) / 100.0
+                             , phi = limitAngle $ (phi state) + (fromIntegral diffY) / 100.0
+                             }
   where
     diffX = newX - mouseX state
     diffY = -newY + mouseY state
@@ -379,13 +394,14 @@ applyMouseMove mouseDown newX newY state =
 waitForPress :: IO Action
 waitForPress = do
   b <- GLFW.getMouseButton GLFW.ButtonLeft
+  wheel <- get mouseWheel
   case b of
-    GLFW.Release -> return (Action (waitForPress, id))
+    GLFW.Release -> return (Action (waitForPress, updateZoom wheel))
     GLFW.Press   -> do
       -- when left mouse button is pressed,
       -- switch to waitForRelease action.
       (GL.Position x y) <- GL.get GLFW.mousePos
-      return (Action (waitForRelease, onClick x y))
+      return (Action (waitForRelease, onClick x y wheel))
 
 
 waitForRelease :: IO Action
@@ -394,12 +410,13 @@ waitForRelease = do
   -- release
   (GL.Position x y) <- GL.get GLFW.mousePos
   b <- GLFW.getMouseButton GLFW.ButtonLeft
+  wheel <- get mouseWheel
   nowD <- get time
   case b of
     -- when button is released, switch back back to
     -- waitForPress action
-    GLFW.Release -> return (Action (waitForPress, applyMouseMove False x y))
-    GLFW.Press   -> return (Action (waitForRelease, applyMouseMove True x y))
+    GLFW.Release -> return (Action (waitForPress, applyMouseMove False x y wheel))
+    GLFW.Press   -> return (Action (waitForRelease, applyMouseMove True x y wheel))
 
 
 updateState :: GlobalState -> CameraState -> IO (GlobalState)
@@ -425,11 +442,20 @@ updateState state@GlobalState{..} newCamera = do
 loop :: Bool -> IO Action -> GlobalState -> IO ()
 loop static action state = do
 
-  -- read io action
+  -- read io actions
   Action (action', camUpdater) <- action
 
   -- update state with mouse actions
   let camState0 = camUpdater $ camera state
+
+  -- apply zoom
+  let k = (zoom $ camera state) / (zoom camState0)
+  if (k /= 1)
+    then do
+      let projRef = projMat $ camera state
+      oldProjection <- get projRef
+      projRef $= Geometry.scale (realToFrac k) oldProjection
+    else return ()
 
   -- update camera
   let (Point3f px py pz) = camToPoint3f camState0

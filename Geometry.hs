@@ -6,6 +6,7 @@ module Geometry ( Point3f(Point3f)
                 , vec3
                 , lookAtMatrix
                 , orthoMatrix
+                , scale
                 , multMat
                 , rotate
                 , rotateM, rotateL
@@ -230,6 +231,10 @@ orthoMatrix left right bottom top near far = x V.:. y V.:. z V.:. h V.:. ()
 
 multMat :: Floating a => V.Mat44 a -> V.Mat44 a -> V.Mat44 a
 multMat = V.multmm
+
+
+scale :: Floating a => a -> V.Mat44 a -> V.Mat44 a
+scale k = V.scale (vec4 k k k)
 
 
 vec3 x y z = (x V.:. y V.:. z V.:. ())
