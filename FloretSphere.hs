@@ -1,6 +1,4 @@
-module FloretSphere ( Polyhedron(Polyhedron)
-                    , vertice, faces
-                    , polyhedrons
+module FloretSphere ( polyhedrons
                     , tetrahedron
                     , cube
                     , dodecahedron
@@ -20,26 +18,21 @@ import Data.List (elemIndex)
 import Data.Maybe (fromJust)
 import ListUtil
 import Geometry
-import Geometry (Point3f)
-
-
-data Polyhedron = Polyhedron { vertice :: [Point3f]
-                             , faces :: [[Int]]
-                             }
+import Geometry (Point3f, Model (Model))
 
 
 -- some polyhedrons created along the way...
-tetrahedron = Polyhedron tetrahedronPoints tetrahedronFaces
-cube = Polyhedron cubePoints cubeFaces
-dodecahedron = Polyhedron dodecahedronPoints dodecahedronFaces
-stubRhombicosidodecahedron = Polyhedron stubRhombicosidodecahedronPoints rhombicosidodecahedronFaces
-rhombicosidodecahedron = Polyhedron rhombicosidodecahedronPoints rhombicosidodecahedronFaces
-snubDodecahedron = Polyhedron snubDodecahedronPoints snubDodecahedronFaces
-pentagonalHexecontahedron = Polyhedron pentagonalHexecontahedronPoints pentagonalHexecontahedronFaces
-icosahedron = Polyhedron icosahedronPoints icosahedronFaces
-snubRhombiMix = Polyhedron snubDodecahedronPoints rhombicosidodecahedronFaces
-thinFloret = Polyhedron thinFloretPoints thinFloretFaces
-pentaFloret = Polyhedron pentaFloretPoints pentaFloretFaces
+tetrahedron = Model tetrahedronPoints tetrahedronFaces
+cube = Model cubePoints cubeFaces
+dodecahedron = Model dodecahedronPoints dodecahedronFaces
+stubRhombicosidodecahedron = Model stubRhombicosidodecahedronPoints rhombicosidodecahedronFaces
+rhombicosidodecahedron = Model rhombicosidodecahedronPoints rhombicosidodecahedronFaces
+snubDodecahedron = Model snubDodecahedronPoints snubDodecahedronFaces
+pentagonalHexecontahedron = Model pentagonalHexecontahedronPoints pentagonalHexecontahedronFaces
+icosahedron = Model icosahedronPoints icosahedronFaces
+snubRhombiMix = Model snubDodecahedronPoints rhombicosidodecahedronFaces
+thinFloret = Model thinFloretPoints thinFloretFaces
+pentaFloret = Model pentaFloretPoints pentaFloretFaces
 
 polyhedrons = [ tetrahedron
               , cube

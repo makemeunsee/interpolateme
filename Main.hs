@@ -34,9 +34,9 @@ import Random.MWC.Pure (Seed)
 
 import FloretSphere
 import Geometry ( Point3f (Point3f)
-                , normalized
-                , cross
-                , times
+                , Model (Model), vertice, faces
+                , normalized, cross, times, norm
+                , facesToFlatTriangles
                 , axisRndFacesToFlatTriangles
                 , facesToCenterFlags
                 , facesToFlatIndice
@@ -56,6 +56,7 @@ type Mat44f = Mat44 GLfloat
 
 data CameraState = CameraState { theta :: GLdouble
                                , phi :: GLdouble
+                               , distance :: GLdouble
                                , mouseX :: GLint
                                , mouseY :: GLint
                                , mouseDown :: Bool
@@ -64,7 +65,7 @@ data CameraState = CameraState { theta :: GLdouble
                                }
 
 data GlobalState = GlobalState { camera :: CameraState
-                               , model :: Polyhedron
+                               , model :: Model
                                , seed :: Seed
                                , glids :: GLIDs
                                , realTime :: Double
@@ -75,19 +76,22 @@ data GlobalState = GlobalState { camera :: CameraState
 
 
 -- randomize the position of a polyhedron faces in a way imperceptible to the given (ortho) camera
-rndVertexBufferData :: Seed -> CameraState -> Polyhedron -> ([GLfloat], Seed)
+rndVertexBufferData :: Seed -> CameraState -> Model -> ([GLfloat], Seed)
 rndVertexBufferData seed state poly = (map realToFrac floats, newSeed)
-  where (floats, newSeed) = axisRndFacesToFlatTriangles seed (camLookAxis state) (vertice poly) (faces poly)
+  where (floats, newSeed) = axisRndFacesToFlatTriangles seed (realToFrac $  distance state) (camLookAxis state) (vertice poly) (faces poly)
 
+
+regularVertexBufferData :: Model -> [GLfloat]
+regularVertexBufferData poly = map realToFrac $ facesToFlatTriangles (vertice poly) (faces poly)
 
 -- attribute buffer to distinguish edge points from face center points
-centerBufferData :: Polyhedron -> [GLfloat]
+centerBufferData :: Model -> [GLfloat]
 centerBufferData poly =
   map realToFrac $ facesToCenterFlags $ faces poly
 
 
 -- indice linked to the vertex buffer
-indexBufferData :: Polyhedron -> [GLuint]
+indexBufferData :: Model -> [GLuint]
 indexBufferData poly =
   map fromIntegral $ facesToFlatIndice $ faces poly
 
@@ -287,8 +291,9 @@ loadProgram vertShader fragShader = do
 
 
 defaultCamState :: CameraState
-defaultCamState = CameraState { theta = 5.5*pi/4.0
-                              , phi = pi/3.0
+defaultCamState = CameraState { theta = pi / 2
+                              , phi = pi / 2
+                              , distance = 50
                               , mouseX = 0
                               , mouseY = 0
                               , mouseDown = False
@@ -301,7 +306,8 @@ camStateWithMatrice state projMat = state { projMat = projMat }
 
 
 camPos :: CameraState -> (GLdouble, GLdouble, GLdouble)
-camPos cam = (50 * sin (phi cam) * cos (theta cam), 50 * cos (phi cam), 50 * sin (phi cam) * sin (theta cam))
+camPos cam = (d * sin (phi cam) * cos (theta cam), d * cos (phi cam), d * sin (phi cam) * sin (theta cam))
+  where d = distance cam
 
 
 camLookAxis :: CameraState -> Point3f
@@ -316,16 +322,17 @@ camToPoint3f cam = Point3f (realToFrac x) (realToFrac y) (realToFrac z)
 -- input handling / UI
 
 
-resize :: IORef Mat44f -> GLFW.WindowSizeCallback
-resize projMatRef size@(Size w h) = do
+resize :: Float -> IORef Mat44f -> GLFW.WindowSizeCallback
+resize span projMatRef size@(Size w h) = do
   let hh = if h < 0 then 1 else h
   let aspect = (fromIntegral w) / (fromIntegral hh)
   GL.viewport   $= (Position 0 0, size)
 
-  let far = 100
-  let near = -100
-  let top = 5
-  let right = top*aspect
+  let s = realToFrac (span * 1.5) :: GLfloat
+  let far = 3*s
+  let near = -s
+  let right = s * aspect
+  let top = s
   let left = -right
   let bottom = -top
 
@@ -460,6 +467,8 @@ main = do
   let model = maybe pentagonalHexecontahedron
                     parseJson
                     json
+  let span = maximum $ map norm $ vertice model
+
 
   -- initialize
   GLFW.initialize
@@ -483,7 +492,7 @@ main = do
 
   -- init GL state
   projMat <- newIORef identity
-  let camState = camStateWithMatrice defaultCamState projMat
+  let camState = (camStateWithMatrice defaultCamState projMat) { distance = realToFrac span * 1.1 }
   let (vertexBufferData, seed0) = rndVertexBufferData defaultSeed camState model
   let centersBuffer = centerBufferData model
   let indiceBuffer = indexBufferData model
@@ -504,7 +513,7 @@ main = do
   -- setup stuff
   GLFW.swapInterval       $= 1 -- vsync
   GLFW.windowTitle        $= "Interpol ate me"
-  GLFW.windowSizeCallback $= resize projMat
+  GLFW.windowSizeCallback $= resize span projMat
   -- main loop
   now <- get GLFW.time
   loop waitForPress state

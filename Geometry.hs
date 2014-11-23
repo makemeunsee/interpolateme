@@ -1,11 +1,14 @@
 module Geometry ( Point3f(Point3f)
                 , norm, normalized, cross, times, pointToArr, add, forceNorm, vec
+                , Model(Model), vertice, faces
                 , gold
                 , vec3
                 , lookAtMatrix
                 , orthoMatrix
                 , multMat
                 , rotate
+                , rotateM, rotateL
+                , barycenter
                 , facesToFlatIndice
                 , facesToFlatTriangles
                 , axisRndFacesToFlatTriangles
@@ -20,6 +23,17 @@ import Random.MWC.Pure
 import ListUtil
 
 data Point3f = Point3f Float Float Float
+
+
+data Model = Model { vertice :: [Point3f], faces :: [[Int]] }
+
+
+-- combine 2 models
+combine :: Model -> Model -> Model
+combine (Model v0 f0) (Model v1 f1) =
+  Model (v0 ++ v1) (f0 ++ offset)
+  where offset = map (map (idCount0 +)) f1
+        idCount0 = floor $ (fromIntegral $ length v0) / 3
 
 
 -- model conversion functions
@@ -63,12 +77,12 @@ facesToFlatTriangles pts (arr:arrs) =
   (concatMap pointToArr (faceBarycenter pts arr : map ((!!) pts) arr)) ++ facesToFlatTriangles pts arrs
 
 
-axisRndFacesToFlatTriangles :: Seed -> Point3f -> [Point3f] -> [[Int]] -> ([Float], Seed)
-axisRndFacesToFlatTriangles seed _ _ [] = ([], seed)
-axisRndFacesToFlatTriangles seed axis pts (arr:arrs) =
+axisRndFacesToFlatTriangles :: Seed -> Float -> Point3f -> [Point3f] -> [[Int]] -> ([Float], Seed)
+axisRndFacesToFlatTriangles seed _ _ _ [] = ([], seed)
+axisRndFacesToFlatTriangles seed span axis pts (arr:arrs) =
   ((concatMap pointToArr rndFace) ++ rndRemainder, finalSeed)
-  where (rndFace, newSeed) = randomizeVerticeAlongAxis seed axis (faceBarycenter pts arr : map ((!!) pts) arr)
-        (rndRemainder, finalSeed) = axisRndFacesToFlatTriangles newSeed axis pts arrs
+  where (rndFace, newSeed) = randomizeDepthAlongAxis seed span axis (faceBarycenter pts arr : map ((!!) pts) arr)
+        (rndRemainder, finalSeed) = axisRndFacesToFlatTriangles newSeed span axis pts arrs
 
 
 -- flags vertice which are a barycenter and not part of the original face.
@@ -99,13 +113,12 @@ defaultSeed = seed $ map charToWord32 "defaultSeed"
 
 
 -- randomize 'depth' of face along given axis.
--- random from -5 to 5, 0.05 steps
-randomizeVerticeAlongAxis :: Seed -> Point3f -> [Point3f] -> ([Point3f], Seed)
-randomizeVerticeAlongAxis seed axis face = (translatedFace, newSeed)
+randomizeDepthAlongAxis :: Seed -> Float -> Point3f -> [Point3f] -> ([Point3f], Seed)
+randomizeDepthAlongAxis seed span axis face = (translatedFace, newSeed)
   where nAxis = normalized axis
         originalDistToOrigin = head face `dot` nAxis
         translatedFace = map (add (times alpha $ nAxis)) face
-        alpha = k / 15.0
+        alpha = k / 100.0 * span
         (k, newSeed) = range_random (0, 100 * signum originalDistToOrigin) seed
 
 
@@ -172,11 +185,21 @@ rotate a n (Point3f x y z) =
   where m = rotMatrix a n
 
 
+rotateM :: V.Mat44 Float -> Point3f -> Point3f
+rotateM mat (Point3f x y z) = Point3f rx ry rz
+  where rx V.:. ry V.:. rz V.:. _ = V.multmv mat $ vec4 x y z
+
+
+rotateL :: [Float] -> Point3f -> Point3f
+rotateL l = rotateM $ V.matFromList l
+
+
 rotMatrix :: Float -> Normal -> [[Float]]
 rotMatrix a (Point3f nx ny nz) = [ [cos a + nx*nx*(1-cos a),    nx*ny*(1-cos a) - nz*sin a, nx*nz*(1-cos a) + ny*sin a]
                                  , [nx*ny*(1-cos a) + nz*sin a, cos a + ny*ny*(1-cos a),    ny*nz*(1-cos a) - nx*sin a]
                                  , [nx*nz*(1-cos a) - ny*sin a, ny*nz*(1-cos a) + nx*sin a, cos a + nz*nz*(1-cos a)]
                                  ]
+
 
 lookAtMatrix :: Floating a => V.Vec3 a -> V.Vec3 a -> V.Vec3 a -> V.Mat44 a
 lookAtMatrix eye target up = x V.:. y V.:. z V.:. h V.:. ()
@@ -209,3 +232,6 @@ multMat = V.multmm
 
 
 vec3 x y z = (x V.:. y V.:. z V.:. ())
+
+
+vec4 x y z = (x V.:. y V.:. z V.:. 1 V.:. ())
