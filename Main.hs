@@ -125,8 +125,8 @@ data GLIDs = GLIDs { prog :: Program
                    }
 
 
-initGL :: [GLfloat] -> [GLuint] -> [GLfloat] -> IO GLIDs
-initGL verticeData indiceData centersData = do
+initGL :: Bool -> [GLfloat] -> [GLuint] -> [GLfloat] -> IO GLIDs
+initGL invertFaces verticeData indiceData centersData = do
   GL.depthFunc $= Just GL.Less
   GL.blend $= Enabled
   GL.blendFunc $= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
@@ -135,7 +135,8 @@ initGL verticeData indiceData centersData = do
 --  diffuse (Light 0) $= Color4 0.9 0.9 0.9 (1 :: GLfloat)
 --  light (Light 0) $= Enabled
 
-  GL.polygonMode $= (Fill, Line)
+  if invertFaces then GL.polygonMode $= (Line, Fill)
+                 else GL.polygonMode $= (Fill, Line)
 
 --  GL.cullFace $= Just Back
   GL.cullFace $= Nothing
@@ -436,7 +437,9 @@ updateState state@GlobalState{..} newCamera = do
       refillBuffer vertexBufferId $ interpolate simTime oldVertice oldAltVertice
       let (newVertice, newSeed) = rndVertexBufferData seed newCamera model
       refillBuffer altVertexBufferId newVertice
-      return state { camera = newCamera, realTime = now, simTime = 0, seed = newSeed }
+      -- updating geometries can be long, update realTime after
+      now2 <- get time
+      return state { camera = newCamera, realTime = now2, simTime = 0, seed = newSeed }
 
 
 loop :: Bool -> IO Action -> GlobalState -> IO ()
@@ -483,6 +486,10 @@ loop static action state = do
     else return ()
 
 
+boolArgument :: String -> [String] -> Bool
+boolArgument arg args = [] /= filter (\s -> s == arg) args
+
+
 main :: IO ()
 main = do
 
@@ -491,10 +498,13 @@ main = do
   args <- getArgs
 
   -- fullscreen flag
-  let fullScreenRequest = [] /= filter (\s -> s == "--f") args
+  let fullScreenRequest = boolArgument "--f" args
 
   -- animated or not
-  let static = [] /= filter (\s -> s == "--s") args
+  let static = boolArgument "--s" args
+
+  -- invert back / front faces
+  let invertFaces = boolArgument "--i" args
 
   -- model from json?
   json <- readJson $ listToMaybe $ drop 1 $ dropWhile ("--json" /=) args
@@ -534,7 +544,7 @@ main = do
   let centersBuffer = centerBufferData model
   let indiceBuffer = indexBufferData model
 
-  glids <- initGL vertexBufferData indiceBuffer centersBuffer
+  glids <- initGL invertFaces vertexBufferData indiceBuffer centersBuffer
 
   -- init global state
   now <- get time
