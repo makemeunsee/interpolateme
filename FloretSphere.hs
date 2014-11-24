@@ -1,5 +1,4 @@
-module FloretSphere ( polyhedrons
-                    , tetrahedron
+module FloretSphere ( tetrahedron
                     , cube
                     , dodecahedron
                     , stubRhombicosidodecahedron
@@ -10,6 +9,7 @@ module FloretSphere ( polyhedrons
                     , snubRhombiMix
                     , thinFloret
                     , pentaFloret
+                    , polyhedrons
                     )
 where
 
@@ -18,22 +18,35 @@ import Data.List (elemIndex)
 import Data.Maybe (fromJust)
 import ListUtil
 import Geometry
-import Geometry (Point3f, Model (Model))
+import Geometry (Point3f, Normal, Model (Model))
 
 
 -- some polyhedrons created along the way...
+tetrahedron :: RealFloat a => Model a
 tetrahedron = Model tetrahedronPoints tetrahedronFaces
+cube :: RealFloat a => Model a
 cube = Model cubePoints cubeFaces
+dodecahedron :: RealFloat a => Model a
 dodecahedron = Model dodecahedronPoints dodecahedronFaces
+stubRhombicosidodecahedron :: RealFloat a => Model a
 stubRhombicosidodecahedron = Model stubRhombicosidodecahedronPoints rhombicosidodecahedronFaces
+rhombicosidodecahedron :: RealFloat a => Model a
 rhombicosidodecahedron = Model rhombicosidodecahedronPoints rhombicosidodecahedronFaces
+snubDodecahedron :: RealFloat a => Model a
 snubDodecahedron = Model snubDodecahedronPoints snubDodecahedronFaces
+pentagonalHexecontahedron :: RealFloat a => Model a
 pentagonalHexecontahedron = Model pentagonalHexecontahedronPoints pentagonalHexecontahedronFaces
+icosahedron :: RealFloat a => Model a
 icosahedron = Model icosahedronPoints icosahedronFaces
+snubRhombiMix :: RealFloat a => Model a
 snubRhombiMix = Model snubDodecahedronPoints rhombicosidodecahedronFaces
+thinFloret :: RealFloat a => Model a
 thinFloret = Model thinFloretPoints thinFloretFaces
+pentaFloret :: RealFloat a => Model a
 pentaFloret = Model pentaFloretPoints pentaFloretFaces
 
+
+polyhedrons :: RealFloat a => [Model a]
 polyhedrons = [ tetrahedron
               , cube
               , dodecahedron
@@ -54,7 +67,7 @@ polyhedrons = [ tetrahedron
 -- tetrahedron
 
 
-tetrahedronPoints :: [Point3f]
+tetrahedronPoints :: RealFloat a => [Point3f a]
 tetrahedronPoints = [ Point3f 1 1 1
                     , Point3f (-1) 1 (-1)
                     , Point3f 1 (-1) (-1)
@@ -73,7 +86,7 @@ tetrahedronFaces = [ [0,2,1]
 -- cube
 
 
-cubePoints :: [Point3f]
+cubePoints :: RealFloat a => [Point3f a]
 cubePoints = [ Point3f 1 1 1
              , Point3f (-1) 1 1
              , Point3f (-1) 1 (-1)
@@ -97,7 +110,7 @@ cubeFaces = [ [0,3,2,1]
 
 
 -- vertice of a dodecahedron of edge length 2/gold
-dodecahedronPoints :: [Point3f]
+dodecahedronPoints :: RealFloat a => [Point3f a]
 dodecahedronPoints = [ Point3f 1 1 1
                      , Point3f 1 1 (-1)
                      , Point3f 1 (-1) 1
@@ -205,7 +218,7 @@ rhombicosidodecahedronQuads =
 
 
 -- used to expands the faces of a dodecahedron of edge length 2/gold into a rhombicosidodecahedron
-magicTranslation :: Float
+magicTranslation :: RealFloat a => a
 magicTranslation = 1.1755705
 
 
@@ -215,11 +228,14 @@ magicTranslation = 1.1755705
 -- translate to using the magic translation along the normal of their face
 -- -> rhombicosidodecahedron vertice
 
+stubRhombicosidodecahedronPoints :: RealFloat a => [Point3f a]
 stubRhombicosidodecahedronPoints = rhombicosidodecahedronPointsFactory 0
 
+rhombicosidodecahedronPoints :: RealFloat a => [Point3f a]
 rhombicosidodecahedronPoints = rhombicosidodecahedronPointsFactory magicTranslation
 
-rhombicosidodecahedronPointsFactory :: Float -> [Point3f]
+
+rhombicosidodecahedronPointsFactory :: RealFloat a => a -> [Point3f a]
 rhombicosidodecahedronPointsFactory expansionStep = foldr (++) [] $ map asList dodecahedronFaces
   where asList is = expandFace $ map (\i -> dodecahedronPoints !! i) is
         expandFace ps = map (add $ forceNorm expansionStep $ faceSum ps) ps
@@ -237,15 +253,15 @@ rhombicosidodecahedronFaces = rhombicosidodecahedronTriangles ++
 
 
 -- used to expands the faces of a dodecahedron of edge length 2/gold into a rhombicosidodecahedron
-magicSnubTranslation :: Float
+magicSnubTranslation :: RealFloat a => a
 magicSnubTranslation = 1.072163
 -- used to rotate the pentagonal faces into a snub dodecahedron
-magicSnubRotation :: Float
+magicSnubRotation :: RealFloat a => a
 magicSnubRotation = 0.2287498
 
 
 -- expand and rotate each face of the dodecahedron
-snubDodecahedronPoints :: [Point3f]
+snubDodecahedronPoints :: RealFloat a => [Point3f a]
 snubDodecahedronPoints = foldr (++) [] $ map asList dodecahedronFaces
   where asList is = expandFace $ map (\i -> dodecahedronPoints !! i) is
         expandFace ps = map ((rotateFace ps ). (add $ times magicSnubTranslation $ faceNorm ps)) ps
@@ -265,11 +281,11 @@ snubDodecahedronFaces = rhombicosidodecahedronTriangles ++
 
 
 -- dual of snub -> convert faces to vertice
-pentagonalHexecontahedronPoints :: [Point3f]
+pentagonalHexecontahedronPoints :: RealFloat a => [Point3f a]
 pentagonalHexecontahedronPoints = map (center . toPoints) snubDodecahedronFaces
   where toPoints (i:is) = (snubDodecahedronPoints !! i) : toPoints is
         toPoints [] = []
-        center ps = times ((/) 1 $ realToFrac $ length ps) $ foldr add (Point3f 0 0 0) ps
+        center ps = times ((/) 1 $ fromIntegral $ length ps) $ foldr add (Point3f 0 0 0) ps
 
 
 snubFaceCount     = length snubDodecahedronFaces
@@ -303,6 +319,7 @@ findTriangleStrip triangles notK (i, j) =
   where triangle = findTriangle i j notK triangles
         k = head $ dropWhile (\e -> e == i) $ dropWhile (\e -> e == j) triangle
 
+
 findTriangle :: Int -> Int -> Int -> [[Int]] -> [Int]
 findTriangle i j notK triangles = if result == [] then [] else head result
   where result = filter (notContains notK) $ filter (contains i) $ filter (contains j) triangles
@@ -311,7 +328,7 @@ findTriangle i j notK triangles = if result == [] then [] else head result
 -- icosahedron
 
 
-icosahedronPoints :: [Point3f]
+icosahedronPoints :: RealFloat a => [Point3f a]
 icosahedronPoints = [ Point3f 0 (1)  gold
                     , Point3f 0 (-1) gold
                     , Point3f 0 (-1) (-gold)
@@ -352,21 +369,22 @@ icosahedronFaces = [ [0,1,8]
                    ]
 
 
-icosahedronRadius :: Float
+icosahedronRadius :: RealFloat a => a
 icosahedronRadius = sqrt(gold * gold + 1)
 
 
 -- floret tessellation of icosahedron
 
 
-magicAngle :: Float
+magicAngle :: RealFloat a => a
 magicAngle = acos $ 3 / 14 * sqrt 21
 
 
-magicScale :: Float
+magicScale :: RealFloat a => a
 magicScale = 2 / 21 * sqrt 21
 
 
+magicRotate :: RealFloat a => Normal a -> Point3f a -> Point3f a
 magicRotate = rotate magicAngle
 
 
@@ -375,7 +393,7 @@ floretPushing :: Bool
 floretPushing = False
 
 
-toFloretFace :: [Point3f] -> [[Point3f]]
+toFloretFace :: RealFloat a => [Point3f a] -> [[Point3f a]]
 toFloretFace [p0, p1, p2] = assert (n1 == n2 && n2 == n0)
                                    [ [p0, p3, p9, p5, p8]
                                    , [p1, p4, p9, p3, p6]
@@ -397,24 +415,31 @@ toFloretFace [p0, p1, p2] = assert (n1 == n2 && n2 == n0)
         p8 = push $ p0 `add` (transform $ vec p0 p2)
 
 
-thinFloretIco :: [[Point3f]]
+thinFloretIco :: RealFloat a => [[Point3f a]]
 thinFloretIco = concatMap ((map $ take 4) . toFloretFace . idsToFace) icosahedronFaces
   where idsToFace [i,j,k] = [icosahedronPoints !! i, icosahedronPoints !! j, icosahedronPoints !! k]
 
-pentagonalFloretIco :: [[Point3f]]
+
+pentagonalFloretIco :: RealFloat a => [[Point3f a]]
 pentagonalFloretIco = concatMap (toFloretFace . idsToFace) icosahedronFaces
   where idsToFace [i,j,k] = [icosahedronPoints !! i, icosahedronPoints !! j, icosahedronPoints !! k]
 
-floretPoints :: [[Point3f]] -> [Point3f]
+
+floretPoints :: RealFloat a => [[Point3f a]] -> [Point3f a]
 floretPoints floretIco = concatMap id floretIco
 
-floretFaces :: [[Point3f]] -> [[Int]]
+
+floretFaces :: RealFloat a =>  [[Point3f a]] -> [[Int]]
 floretFaces floretIco = replaceWithId 0 floretIco
   where replaceWithId _ [] = []
         replaceWithId n (face:faces) = take (length face) [n..] : (replaceWithId (n+length face) faces)
 
+
+thinFloretPoints :: RealFloat a => [Point3f a]
 thinFloretPoints = floretPoints thinFloretIco
 thinFloretFaces = floretFaces thinFloretIco
 
+
+pentaFloretPoints :: RealFloat a => [Point3f a]
 pentaFloretPoints = floretPoints pentagonalFloretIco
 pentaFloretFaces = floretFaces pentagonalFloretIco

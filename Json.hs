@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Json ( readJson
             , parseJson
             )
@@ -7,17 +8,35 @@ where
 import Data.Aeson
 import Data.Aeson.Types
 import Control.Monad
-import Control.Applicative ((<$>), (<*>))
+import Control.Applicative ((<$>), (<*>), pure)
 import qualified Data.ByteString.Lazy.Char8 as BL
 import GHC.Generics (Generic)
 import Data.Maybe
+
+import Foreign.C.Types (CFloat)
+import Data.Scientific (Scientific)
+import qualified Data.Scientific as Scientific (toRealFloat)
 
 import FloretSphere
 import ListUtil
 import Geometry (Point3f (Point3f), Model (Model), combine, barycenter, times, add, rotateL)
 
 
-data Child = Child { cTransformation :: [Float], meshIds :: Maybe [Int] }
+-- parseJSON instance for CFloat/GLfloat
+instance FromJSON CFloat  where
+  parseJSON = parseRealFloat "CFloat"
+  {-# INLINE parseJSON #-}
+
+
+parseRealFloat :: RealFloat a => String -> Value -> Parser a
+parseRealFloat _ (Number s) = pure $ Scientific.toRealFloat s
+parseRealFloat _ Null = pure (0/0)
+parseRealFloat expected v = typeMismatch expected v
+
+
+-- assimp json partial structure
+
+data Child = Child { cTransformation :: [CFloat], meshIds :: Maybe [Int] }
              deriving (Show)
 
 instance FromJSON Child where
@@ -25,7 +44,7 @@ instance FromJSON Child where
   parseJSON _ = mzero
 
 
-data RootNode = RootNode { transformation :: [Float], children :: Maybe [Child] }
+data RootNode = RootNode { transformation :: [CFloat], children :: Maybe [Child] }
                 deriving (Show)
 
 instance FromJSON RootNode where
@@ -41,7 +60,7 @@ instance FromJSON MeshList where
   parseJSON _ = mzero
 
 
-data Mesh = Mesh { vertice :: [Float], faces :: [[Int]] }
+data Mesh = Mesh { vertice :: [CFloat], faces :: [[Int]] }
             deriving (Show)
 
 instance FromJSON Mesh where
@@ -60,7 +79,7 @@ readJson (Just path) = do
                    return Nothing
 
 
-transformOne :: MeshList -> Int -> Model
+transformOne :: MeshList -> Int -> Model CFloat
 transformOne (MeshList rt ms) meshId =
   Model transformed fs
   where Mesh vs fs = ms !! meshId
@@ -74,7 +93,7 @@ transformOne (MeshList rt ms) meshId =
 --        transform = rotateL tRoot . maybe id (\t -> rotateL t) tChild
 
 
-parseJson :: MeshList -> Model
+parseJson :: MeshList -> Model CFloat
 parseJson ml = Model centered fs
   where allMeshIds = take (length $ meshes ml) [0..]
         Model vs fs = foldr1 combine $ map (transformOne ml) allMeshIds
