@@ -32,6 +32,7 @@ import Data.Maybe (listToMaybe)
 import Data.ByteString.Char8 (pack)
 import Data.IORef (IORef, newIORef)
 import Data.Vec (Mat44, identity)
+import Data.List.Split (splitOn)
 import Random.MWC.Pure (Seed)
 
 import FloretSphere
@@ -573,6 +574,11 @@ boolArgument :: String -> [String] -> Bool
 boolArgument arg args = [] /= filter (\s -> s == arg) args
 
 
+parseJsonArgs :: String -> (FilePath, [Int])
+parseJsonArgs args = (head split, map read $ tail split)
+  where split = splitOn "," args
+
+
 main :: IO ()
 main = do
 
@@ -592,11 +598,16 @@ main = do
   -- invert back / front faces
   let bothFaces = boolArgument "--b" args
 
+  let jsonArgs = listToMaybe $ drop 1 $ dropWhile ("--json" /=) args
+  let (jsonFile, indice) = maybe (Nothing, Nothing)
+                                 ((\ (x,y) -> (Just x, Just y)) . parseJsonArgs)
+                                 jsonArgs
+
   -- model from json?
-  json <- readJson $ listToMaybe $ drop 1 $ dropWhile ("--json" /=) args
+  json <- readJson jsonFile
 
   let model = maybe tetrahedron
-                    parseJson
+                    (parseJson indice)
                     json
   let span = maximum $ map norm $ vertice model
 

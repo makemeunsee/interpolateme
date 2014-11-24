@@ -93,9 +93,10 @@ transformOne (MeshList rt ms) meshId =
 --        transform = rotateL tRoot . maybe id (\t -> rotateL t) tChild
 
 
-parseJson :: MeshList -> Model CFloat
-parseJson ml = Model centered fs
-  where allMeshIds = take (length $ meshes ml) [0..]
-        Model vs fs = foldr1 combine $ map (transformOne ml) allMeshIds
+parseJson :: Maybe [Int] -> MeshList -> Model CFloat
+parseJson indice ml = Model centered fs
+  where ids = maybe allMeshIds id indice
+        allMeshIds = take (length $ meshes ml) [0..]
+        Model vs fs = foldr1 combine $ map (transformOne ml) ids
         bary = barycenter vs
         centered = map ((-1) `times` bary `add`) vs
