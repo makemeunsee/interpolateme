@@ -3,13 +3,14 @@ module Geometry ( Point3f(Point3f)
                 , Model(Model), vertice, faces
                 , combine
                 , gold
-                , vec3
+                , vec3, vec4, vec4ToPoint3f
                 , lookAtMatrix
                 , orthoMatrix
                 , scale
-                , multMat
+                , multMat, multInvMatV
                 , rotate
                 , rotateM, rotateL
+                , negXRot, posXRot, negYRot, posYRot
                 , barycenter
                 , facesToFlatIndice
                 , facesToFlatTriangles
@@ -21,6 +22,7 @@ where
 
 import qualified Data.Vec as V
 import Data.Word
+import Data.Maybe (fromJust)
 import Random.MWC.Pure
 import ListUtil
 
@@ -81,10 +83,10 @@ facesToFlatTriangles pts (arr:arrs) =
 
 axisRndFacesToFlatTriangles :: Seed -> Float -> Point3f -> [Point3f] -> [[Int]] -> ([Float], Seed)
 axisRndFacesToFlatTriangles seed _ _ _ [] = ([], seed)
-axisRndFacesToFlatTriangles seed span axis pts (arr:arrs) =
+axisRndFacesToFlatTriangles seed span normedAxis pts (arr:arrs) =
   ((concatMap pointToArr rndFace) ++ rndRemainder, finalSeed)
-  where (rndFace, newSeed) = randomizeDepthAlongAxis seed span axis (faceBarycenter pts arr : map ((!!) pts) arr)
-        (rndRemainder, finalSeed) = axisRndFacesToFlatTriangles newSeed span axis pts arrs
+  where (rndFace, newSeed) = randomizeDepthAlongAxis seed span normedAxis (faceBarycenter pts arr : map ((!!) pts) arr)
+        (rndRemainder, finalSeed) = axisRndFacesToFlatTriangles newSeed span normedAxis pts arrs
 
 
 -- flags vertice which are a barycenter and not part of the original face.
@@ -116,10 +118,9 @@ defaultSeed = seed $ map charToWord32 "defaultSeed"
 
 -- randomize 'depth' of face along given axis.
 randomizeDepthAlongAxis :: Seed -> Float -> Point3f -> [Point3f] -> ([Point3f], Seed)
-randomizeDepthAlongAxis seed span axis face = (translatedFace, newSeed)
-  where nAxis = normalized axis
-        originalDistToOrigin = head face `dot` nAxis
-        translatedFace = map (add (times alpha $ nAxis)) face
+randomizeDepthAlongAxis seed span normedAxis face = (translatedFace, newSeed)
+  where originalDistToOrigin = head face `dot` normedAxis
+        translatedFace = map (add (times alpha $ normedAxis)) face
         alpha = k / 100.0 * span
         (k, newSeed) = range_random (0, 100 * signum originalDistToOrigin) seed
 
@@ -233,6 +234,10 @@ multMat :: Floating a => V.Mat44 a -> V.Mat44 a -> V.Mat44 a
 multMat = V.multmm
 
 
+-- multInvMatV :: Floating a => V.Mat44 a -> V.Vec4 a -> V.Vec4 a
+multInvMatV m = V.multmv (fromJust $ V.invert m)
+
+
 scale :: Floating a => a -> V.Mat44 a -> V.Mat44 a
 scale k = V.scale (vec4 k k k)
 
@@ -241,3 +246,38 @@ vec3 x y z = (x V.:. y V.:. z V.:. ())
 
 
 vec4 x y z = (x V.:. y V.:. z V.:. 1 V.:. ())
+
+
+vec4ToPoint3f (x V.:. y V.:. z V.:. _ V.:. ()) = Point3f (realToFrac x) (realToFrac y) (realToFrac z)
+
+
+negXRot :: Floating a => V.Mat44 a
+negXRot = x V.:. y V.:. z V.:. w V.:. ()
+  where x = 1 V.:. 0    V.:. 0    V.:. 0 V.:. ()
+        y = 0 V.:. 0    V.:. 1    V.:. 0 V.:. ()
+        z = 0 V.:. (-1) V.:. 0    V.:. 0 V.:. ()
+        w = 0 V.:. 0    V.:. 0    V.:. 1 V.:. ()
+
+
+posXRot :: Floating a => V.Mat44 a
+posXRot = x V.:. y V.:. z V.:. w V.:. ()
+  where x = 1 V.:. 0    V.:. 0    V.:. 0 V.:. ()
+        y = 0 V.:. 0    V.:. (-1) V.:. 0 V.:. ()
+        z = 0 V.:. 1    V.:. 0    V.:. 0 V.:. ()
+        w = 0 V.:. 0    V.:. 0    V.:. 1 V.:. ()
+
+
+negYRot :: Floating a => V.Mat44 a
+negYRot = x V.:. y V.:. z V.:. w V.:. ()
+  where x = 0 V.:. 0    V.:. (-1) V.:. 0 V.:. ()
+        y = 0 V.:. 1    V.:. 0    V.:. 0 V.:. ()
+        z = 1 V.:. 0    V.:. 0    V.:. 0 V.:. ()
+        w = 0 V.:. 0    V.:. 0    V.:. 1 V.:. ()
+
+
+posYRot :: Floating a => V.Mat44 a
+posYRot = x V.:. y V.:. z V.:. w V.:. ()
+  where x = 0    V.:. 0    V.:. 1    V.:. 0 V.:. ()
+        y = 0    V.:. 1    V.:. 0    V.:. 0 V.:. ()
+        z = (-1) V.:. 0    V.:. 0    V.:. 0 V.:. ()
+        w = 0    V.:. 0    V.:. 0    V.:. 1 V.:. ()

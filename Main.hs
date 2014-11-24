@@ -43,8 +43,9 @@ import Geometry ( Point3f (Point3f)
                 , scale
                 , lookAtMatrix
                 , orthoMatrix
-                , multMat
-                , vec3
+                , multMat, multInvMatV
+                , negXRot, posXRot, negYRot, posYRot
+                , vec3, vec4, vec4ToPoint3f
                 , defaultSeed
                 )
 import ListUtil
@@ -53,7 +54,13 @@ import Json
 
 data Action = Action (IO Action, CameraState -> CameraState)
 
-type Mat44f = Mat44 GLfloat
+type Mat44f = Mat44 Float
+
+data KeyState = KeyState { up :: KeyButtonState
+                         , down :: KeyButtonState
+                         , left :: KeyButtonState
+                         , right :: KeyButtonState
+                         }
 
 data CameraState = CameraState { theta :: GLdouble
                                , phi :: GLdouble
@@ -62,7 +69,7 @@ data CameraState = CameraState { theta :: GLdouble
                                , mouseY :: GLint
                                , wheel :: Int
                                , zoom :: Float
-                               , mouseDown :: Bool
+                               , leftButton :: KeyButtonState
                                , projMat :: IORef Mat44f
                                , viewMat :: Mat44f
                                }
@@ -73,15 +80,17 @@ data GlobalState = GlobalState { camera :: CameraState
                                , glids :: GLIDs
                                , realTime :: Double
                                , simTime :: Double
+                               , keys :: KeyState
+                               , modelMat :: Mat44f
                                }
 
 -- data buffers
 
 
--- randomize the position of a polyhedron faces in a way imperceptible to the given (ortho) camera
-rndVertexBufferData :: Seed -> CameraState -> Model -> ([GLfloat], Seed)
-rndVertexBufferData seed state poly = (map realToFrac floats, newSeed)
-  where (floats, newSeed) = axisRndFacesToFlatTriangles seed (realToFrac $  distance state) (camLookAxis state) (vertice poly) (faces poly)
+-- randomize the position of a polyhedron faces in a way imperceptible to the given (ortho) camera, relative to model transform
+rndVertexBufferData :: Seed -> Point3f -> Model -> ([GLfloat], Seed)
+rndVertexBufferData seed camEye poly = (map realToFrac floats, newSeed)
+  where (floats, newSeed) = axisRndFacesToFlatTriangles seed (norm camEye) (normalized camEye) (vertice poly) (faces poly)
 
 
 regularVertexBufferData :: Model -> [GLfloat]
@@ -125,8 +134,8 @@ data GLIDs = GLIDs { prog :: Program
                    }
 
 
-initGL :: Bool -> [GLfloat] -> [GLuint] -> [GLfloat] -> IO GLIDs
-initGL invertFaces verticeData indiceData centersData = do
+initGL :: Bool -> Bool -> [GLfloat] -> [GLuint] -> [GLfloat] -> IO GLIDs
+initGL drawFront drawBack verticeData indiceData centersData = do
   GL.depthFunc $= Just GL.Less
   GL.blend $= Enabled
   GL.blendFunc $= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
@@ -135,8 +144,9 @@ initGL invertFaces verticeData indiceData centersData = do
 --  diffuse (Light 0) $= Color4 0.9 0.9 0.9 (1 :: GLfloat)
 --  light (Light 0) $= Enabled
 
-  if invertFaces then GL.polygonMode $= (Line, Fill)
-                 else GL.polygonMode $= (Fill, Line)
+  let front = if drawFront then Fill else Line
+  let back = if drawBack then Fill else Line
+  GL.polygonMode $= (front, back)
 
 --  GL.cullFace $= Just Back
   GL.cullFace $= Nothing
@@ -294,6 +304,10 @@ loadProgram vertShader fragShader = do
 -- camera functions
 
 
+defaultKeyState :: KeyState
+defaultKeyState = KeyState Release Release Release Release
+
+
 defaultCamState :: CameraState
 defaultCamState = CameraState { theta = pi / 2
                               , phi = pi / 2
@@ -302,7 +316,7 @@ defaultCamState = CameraState { theta = pi / 2
                               , mouseY = 0
                               , wheel = 0
                               , zoom = 1
-                              , mouseDown = False
+                              , leftButton = Release
                               , viewMat = identity
                               }
 
@@ -325,6 +339,12 @@ camToPoint3f cam = Point3f (realToFrac x) (realToFrac y) (realToFrac z)
   where (x,y,z) = camPos cam
 
 
+camEyeForModel :: Mat44f -> CameraState -> Point3f
+camEyeForModel modelMatrix state = vec4ToPoint3f modelCamEye
+  where modelCamEye = multInvMatV modelMatrix $ vec4 (realToFrac ex) (realToFrac ey) (realToFrac ez)
+        camEye@(Point3f ex ey ez) = camLookAxis state
+
+
 -- input handling / UI
 
 
@@ -334,7 +354,7 @@ resize span projMatRef size@(Size w h) = do
   let aspect = (fromIntegral w) / (fromIntegral hh)
   GL.viewport   $= (Position 0 0, size)
 
-  let s = realToFrac (span * 1.5) :: GLfloat
+  let s = span * 1.5
   let far = 3*s
   let near = -s
   let right = s * aspect
@@ -342,7 +362,7 @@ resize span projMatRef size@(Size w h) = do
   let left = -right
   let bottom = -top
 
-  projMatRef $= orthoMatrix (left :: GLfloat)
+  projMatRef $= orthoMatrix left
                             right
                             bottom
                             top
@@ -375,15 +395,15 @@ onClick :: GLint -> GLint -> Int -> CameraState -> CameraState
 onClick newX newY newWheel state =
   updateZoom newWheel state { mouseX = newX
                             , mouseY = newY
-                            , mouseDown = True
+                            , leftButton = Press
                             }
 
 
-applyMouseMove :: Bool -> GLint -> GLint -> Int -> CameraState -> CameraState
-applyMouseMove mouseDown newX newY newWheel state =
+applyMouseMove :: KeyButtonState -> GLint -> GLint -> Int -> CameraState -> CameraState
+applyMouseMove leftButtonDown newX newY newWheel state =
   updateZoom newWheel state  { mouseX = newX
                              , mouseY = newY
-                             , mouseDown = mouseDown
+                             , leftButton = leftButtonDown
                              , theta = (theta state) + (fromIntegral diffX) / 100.0
                              , phi = limitAngle $ (phi state) + (fromIntegral diffY) / 100.0
                              }
@@ -402,7 +422,7 @@ waitForPress = do
       -- when left mouse button is pressed,
       -- switch to waitForRelease action.
       (GL.Position x y) <- GL.get GLFW.mousePos
-      return (Action (waitForRelease, onClick x y wheel))
+      return $ Action (waitForRelease, onClick x y wheel)
 
 
 waitForRelease :: IO Action
@@ -416,46 +436,94 @@ waitForRelease = do
   case b of
     -- when button is released, switch back back to
     -- waitForPress action
-    GLFW.Release -> return (Action (waitForPress, applyMouseMove False x y wheel))
-    GLFW.Press   -> return (Action (waitForRelease, applyMouseMove True x y wheel))
+    GLFW.Release -> return (Action (waitForPress, applyMouseMove b x y wheel))
+    GLFW.Press   -> return (Action (waitForRelease, applyMouseMove b x y wheel))
+
+
+triggerReshape :: GlobalState -> IO GlobalState
+triggerReshape state@GlobalState{..} = do
+  let GLIDs{..} = glids
+
+  -- read current vertex buffers
+  oldVertice <- Main.readBuffer vertexBufferId vertexBuffersLength
+  oldAltVertice <- Main.readBuffer altVertexBufferId vertexBuffersLength
+
+  -- vertex buffer becomes interpolation (as of now) of vertice and alt vertice
+  refillBuffer vertexBufferId $ interpolate simTime oldVertice oldAltVertice
+
+  -- create new alt vertice ligned with the cam
+  let (newVertice, newSeed) = rndVertexBufferData seed (camEyeForModel modelMat camera) model
+  refillBuffer altVertexBufferId newVertice
+
+  -- updating geometries can be long, update realTime after
+  now <- get time
+  return state { realTime = now, simTime = 0, seed = newSeed }
 
 
 updateState :: GlobalState -> CameraState -> IO (GlobalState)
 updateState state@GlobalState{..} newCamera = do
   now <- get time
   let dt = now - realTime
-  let GLIDs{..} = glids
-  case (mouseDown newCamera, mouseDown camera) of
+  case (leftButton newCamera, leftButton camera) of
     -- sim paused, do nothing
-    (True, _)      -> return state { camera = newCamera, realTime = now }
+    (Press, _)         -> return state { camera = newCamera, realTime = now }
     -- sim runs, but max sim time is pi, so that interpolation stops matching the alt vertice
-    (False, False) -> return state { camera = newCamera, realTime = now, simTime = min pi (simTime + dt) }
+    (Release, Release) -> return state { camera = newCamera, realTime = now, simTime = min pi (simTime + dt) }
     -- sim restarted
-    (False, True)  -> do
-      oldVertice <- Main.readBuffer vertexBufferId vertexBuffersLength
-      oldAltVertice <- Main.readBuffer altVertexBufferId vertexBuffersLength
-      refillBuffer vertexBufferId $ interpolate simTime oldVertice oldAltVertice
-      let (newVertice, newSeed) = rndVertexBufferData seed newCamera model
-      refillBuffer altVertexBufferId newVertice
-      -- updating geometries can be long, update realTime after
-      now2 <- get time
-      return state { camera = newCamera, realTime = now2, simTime = 0, seed = newSeed }
+    (Release, Press)   -> triggerReshape state { camera = newCamera }
+
+
+-- rotate model matrix on arrow keys released
+handleKeys :: GlobalState -> IO (GlobalState)
+handleKeys state = do
+  let modelMatrix = modelMat state
+  let ks@KeyState{..} = keys state
+
+  -- read key inputs
+  u <- GLFW.getKey GLFW.UP
+  d <- GLFW.getKey GLFW.DOWN
+  l <- GLFW.getKey GLFW.LEFT
+  r <- GLFW.getKey GLFW.RIGHT
+  let (uR, dR, lR, rR) = (released u up, released d down, released l left, released r right)
+
+  -- rotate model matrix when arrow key released
+  let newMat0 = case (uR, dR) of
+                 (False, False) -> modelMatrix
+                 (True, _) -> multMat negXRot modelMatrix
+                 (False, True) -> multMat posXRot modelMatrix
+
+  let newMat1 = case (lR, rR) of
+                 (False, False) -> newMat0
+                 (True, _) -> multMat negYRot newMat0
+                 (False, True) -> multMat posYRot newMat0
+
+  let newKS = ks { up = u, down = d, left = l, right = r }
+
+  -- if a rotation was applied, trigger reshape, else just update state
+  if uR || dR || lR || rR
+    then triggerReshape state { keys = newKS, modelMat = newMat1 }
+    else return state { keys = newKS, modelMat = newMat1 }
+
+  where released newK oldK = newK == Release && newK /= oldK
 
 
 loop :: Bool -> IO Action -> GlobalState -> IO ()
 loop static action state = do
 
-  -- read io actions
+  -- read mouse actions
   Action (action', camUpdater) <- action
 
+  -- read keyboard actions
+  newState0 <- handleKeys state
+
   -- update state with mouse actions
-  let camState0 = camUpdater $ camera state
+  let camState0 = camUpdater $ camera newState0
 
   -- apply zoom
-  let k = (zoom $ camera state) / (zoom camState0)
+  let k = (zoom $ camera newState0) / (zoom camState0)
   if (k /= 1)
     then do
-      let projRef = projMat $ camera state
+      let projRef = projMat $ camera newState0
       oldProjection <- get projRef
       projRef $= Geometry.scale (realToFrac k) oldProjection
     else return ()
@@ -469,13 +537,14 @@ loop static action state = do
 
   -- check for sim restart
   newState <- if static
-                then return state { camera = camState1 }
-                else updateState state camState1
+                then return newState0 { camera = camState1 }
+                else updateState newState0 camState1
 
   -- render
   projection <- get $ projMat camState1
 
-  render (simTime newState) (multMat projection $ viewMat camState1) (glids newState)
+  let mvp = projection `multMat` (viewMat camState1) `multMat` (modelMat newState)
+  render (simTime newState) mvp (glids newState)
 
   -- exit if window closed or Esc pressed
   esc <- GLFW.getKey GLFW.ESC
@@ -505,6 +574,9 @@ main = do
 
   -- invert back / front faces
   let invertFaces = boolArgument "--i" args
+
+  -- invert back / front faces
+  let bothFaces = boolArgument "--b" args
 
   -- model from json?
   json <- readJson $ listToMaybe $ drop 1 $ dropWhile ("--json" /=) args
@@ -539,12 +611,13 @@ main = do
   projMat <- newIORef identity
   let camState = (camStateWithMatrice defaultCamState projMat) { distance = realToFrac span * 1.1 }
   let bufferMaker = if static then (\ m s -> (regularVertexBufferData m, defaultSeed))
-                              else (\ m s -> rndVertexBufferData s camState m)
+                              else let camEye = camEyeForModel identity camState in
+                                   (\ m s -> rndVertexBufferData s camEye m)
   let (vertexBufferData, seed0) = bufferMaker model defaultSeed
   let centersBuffer = centerBufferData model
   let indiceBuffer = indexBufferData model
 
-  glids <- initGL invertFaces vertexBufferData indiceBuffer centersBuffer
+  glids <- initGL (bothFaces || not invertFaces) (bothFaces || invertFaces) vertexBufferData indiceBuffer centersBuffer
 
   -- init global state
   now <- get time
@@ -554,6 +627,8 @@ main = do
                           , glids = glids
                           , realTime = 0
                           , simTime = 0
+                          , keys = defaultKeyState
+                          , modelMat = identity
                           }
 
 
