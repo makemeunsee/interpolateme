@@ -599,8 +599,8 @@ main = do
   let bothFaces = boolArgument "--b" args
 
   let jsonArgs = listToMaybe $ drop 1 $ dropWhile ("--json" /=) args
-  let (jsonFile, indice) = maybe (Nothing, Nothing)
-                                 ((\ (x,y) -> (Just x, Just y)) . parseJsonArgs)
+  let (jsonFile, indice) = maybe (Nothing, [])
+                                 ((\ (x,y) -> (Just x, y)) . parseJsonArgs)
                                  jsonArgs
 
   -- model from json?
