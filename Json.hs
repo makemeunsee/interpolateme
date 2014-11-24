@@ -25,11 +25,11 @@ instance FromJSON Child where
   parseJSON _ = mzero
 
 
-data RootNode = RootNode { transformation :: [Float], children :: [Child] }
+data RootNode = RootNode { transformation :: [Float], children :: Maybe [Child] }
                 deriving (Show)
 
 instance FromJSON RootNode where
-  parseJSON (Object o) = RootNode <$> o .: "transformation" <*> o .: "children"
+  parseJSON (Object o) = RootNode <$> o .: "transformation" <*> o .:? "children"
   parseJSON _ = mzero
 
 
