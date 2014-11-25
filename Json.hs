@@ -95,13 +95,16 @@ transformOne (MeshList rt ms) meshId =
         -- extract root transform
         rootTransform = applyTransform $ transformation rt
 
-        -- each child transformation is applied to the root transformed mesh,
-        -- creating a new mesh for each child transformation
-        kids = maybe [] id (children rt)
-        relevantKids = filter (\ k -> elem meshId $ maybe [] id (meshIds k)) kids
-        kidTransforms = map cTransformation relevantKids
-        all = if kidTransforms == [] then [rootTransform]
-                                     else map (\ t -> rootTransform . applyTransform t ) kidTransforms
+        -- applying child transformations causes more problem than it solves...
+        all = [rootTransform]
+
+--        -- each child transformation is applied to the root transformed mesh,
+--        -- creating a new mesh for each child transformation
+--        kids = maybe [] id (children rt)
+--        relevantKids = filter (\ k -> elem meshId $ maybe [] id (meshIds k)) kids
+--        kidTransforms = map cTransformation relevantKids
+--        all = if kidTransforms == [] then [rootTransform]
+--                                     else map (\ t -> rootTransform . applyTransform t ) kidTransforms
 
 
 parseJson :: [Int] -> MeshList -> Model CFloat
