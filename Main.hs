@@ -662,7 +662,7 @@ main = do
   -- model from json?
   json <- readJson jsonFile
 
-  let rawModel@(Model vs fs) = maybe pentagonalHexecontahedron
+  let rawModel@(Model vs fs _) = maybe pentagonalHexecontahedron
                                      (parseJson indice)
                                      json
 

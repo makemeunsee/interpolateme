@@ -19,7 +19,7 @@ import qualified Data.Scientific as Scientific (toRealFloat)
 
 import FloretSphere
 import ListUtil
-import Geometry (Point3f (Point3f), Model (Model), combine, barycenter, times, add, rotateL)
+import Geometry (Point3f (Point3f), Model (Model), modelAutoNormals, combine, barycenter, times, add, rotateL)
 
 
 -- parseJSON instance for CFloat/GLfloat
@@ -60,11 +60,11 @@ instance FromJSON MeshList where
   parseJSON _ = mzero
 
 
-data Mesh = Mesh { vertice :: [CFloat], faces :: [[Int]] }
+data Mesh = Mesh { vertice :: [CFloat], faces :: [[Int]], normals :: Maybe [CFloat] }
             deriving (Show)
 
 instance FromJSON Mesh where
-  parseJSON (Object o) = Mesh <$> o .: "vertices" <*> o .: "faces"
+  parseJSON (Object o) = Mesh <$> o .: "vertices" <*> o .: "faces" <*> o .:? "normals"
   parseJSON _ = mzero
 
 
@@ -81,27 +81,33 @@ readJson (Just path) = do
 
 transformOne :: MeshList -> Int -> [Model CFloat]
 transformOne (MeshList rt ms) meshId =
-  map (\ v -> Model v fs) all
-  where Mesh vs fs = ms !! meshId
-        -- first apply root transform to the mesh
-        rootTransformed = applyTransform rootTransform
-        applyTransform t = map (\[x,y,z] -> rotateL t $ Point3f x y z) chopped
-        chopped = chop 3 vs
-        rootTransform = transformation rt
+  map toModel all
+  where Mesh vs fs ns = ms !! meshId
+        asP3f floats = map (\[x,y,z] -> Point3f x y z) $ chop 3 floats
+
+        toModel t = case ns of
+          Nothing     -> modelAutoNormals (t $ asP3f vs) fs
+          Just floats -> Model (t $ asP3f vs) fs (t $ asP3f floats)
+
+        -- apply transform = rotate converting given list to rot matrix
+        applyTransform t = map (rotateL t)
+
+        -- extract root transform
+        rootTransform = applyTransform $ transformation rt
 
         -- each child transformation is applied to the root transformed mesh,
         -- creating a new mesh for each child transformation
         kids = maybe [] id (children rt)
         relevantKids = filter (\ k -> elem meshId $ maybe [] id (meshIds k)) kids
         kidTransforms = map cTransformation relevantKids
-        all = if kidTransforms == [] then [rootTransformed]
-                                     else map applyTransform kidTransforms
+        all = if kidTransforms == [] then [rootTransform]
+                                     else map (\ t -> rootTransform . applyTransform t ) kidTransforms
 
 
 parseJson :: [Int] -> MeshList -> Model CFloat
-parseJson indice ml = Model centered fs
+parseJson indice ml = Model centered fs ns
   where ids = if indice == [] then allMeshIds else indice
         allMeshIds = take (length $ meshes ml) [0..]
-        Model vs fs = foldr1 combine $ concatMap (transformOne ml) ids
+        Model vs fs ns = foldr1 combine $ concatMap (transformOne ml) ids
         bary = barycenter vs
         centered = map ((-1) `times` bary `add`) vs

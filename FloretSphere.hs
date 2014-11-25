@@ -18,32 +18,42 @@ import Data.List (elemIndex)
 import Data.Maybe (fromJust)
 import ListUtil
 import Geometry
-import Geometry (Point3f, Normal, Model (Model))
+import Geometry (Point3f, Normal, modelAutoNormals)
 
 
 -- some polyhedrons created along the way...
 tetrahedron :: RealFloat a => Model a
-tetrahedron = Model tetrahedronPoints tetrahedronFaces
+tetrahedron = modelAutoNormals tetrahedronPoints tetrahedronFaces
+
 cube :: RealFloat a => Model a
-cube = Model cubePoints cubeFaces
+cube = modelAutoNormals cubePoints cubeFaces
+
 dodecahedron :: RealFloat a => Model a
-dodecahedron = Model dodecahedronPoints dodecahedronFaces
+dodecahedron = modelAutoNormals dodecahedronPoints dodecahedronFaces
+
 stubRhombicosidodecahedron :: RealFloat a => Model a
-stubRhombicosidodecahedron = Model stubRhombicosidodecahedronPoints rhombicosidodecahedronFaces
+stubRhombicosidodecahedron = modelAutoNormals stubRhombicosidodecahedronPoints rhombicosidodecahedronFaces
+
 rhombicosidodecahedron :: RealFloat a => Model a
-rhombicosidodecahedron = Model rhombicosidodecahedronPoints rhombicosidodecahedronFaces
+rhombicosidodecahedron = modelAutoNormals rhombicosidodecahedronPoints rhombicosidodecahedronFaces
+
 snubDodecahedron :: RealFloat a => Model a
-snubDodecahedron = Model snubDodecahedronPoints snubDodecahedronFaces
+snubDodecahedron = modelAutoNormals snubDodecahedronPoints snubDodecahedronFaces
+
 pentagonalHexecontahedron :: RealFloat a => Model a
-pentagonalHexecontahedron = Model pentagonalHexecontahedronPoints pentagonalHexecontahedronFaces
+pentagonalHexecontahedron = modelAutoNormals pentagonalHexecontahedronPoints pentagonalHexecontahedronFaces
+
 icosahedron :: RealFloat a => Model a
-icosahedron = Model icosahedronPoints icosahedronFaces
+icosahedron = modelAutoNormals icosahedronPoints icosahedronFaces
+
 snubRhombiMix :: RealFloat a => Model a
-snubRhombiMix = Model snubDodecahedronPoints rhombicosidodecahedronFaces
+snubRhombiMix = modelAutoNormals snubDodecahedronPoints rhombicosidodecahedronFaces
+
 thinFloret :: RealFloat a => Model a
-thinFloret = Model thinFloretPoints thinFloretFaces
+thinFloret = modelAutoNormals thinFloretPoints thinFloretFaces
+
 pentaFloret :: RealFloat a => Model a
-pentaFloret = Model pentaFloretPoints pentaFloretFaces
+pentaFloret = modelAutoNormals pentaFloretPoints pentaFloretFaces
 
 
 polyhedrons :: RealFloat a => [Model a]

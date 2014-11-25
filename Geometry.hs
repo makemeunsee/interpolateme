@@ -15,6 +15,7 @@ module Geometry ( Point3f(Point3f), Normal
                 , facesToFlatIndice
                 , facesToFlatTriangles
                 , facesToCenterFlags
+                , modelAutoNormals
                 )
 where
 
@@ -26,15 +27,21 @@ import ListUtil
 data Point3f a = Point3f a a a
 
 
-data Model a = Model { vertice :: [Point3f a], faces :: [[Int]] }
+data Model a = Model { vertice :: [Point3f a], faces :: [[Int]], normals :: [Normal a] }
 
 
 -- combine 2 models
 combine :: RealFloat a => Model a -> Model a -> Model a
-combine (Model v0 f0) (Model v1 f1) =
-  Model (v0 ++ v1) (f0 ++ offset)
+combine (Model v0 f0 n0) (Model v1 f1 n1) =
+  Model (v0 ++ v1) (f0 ++ offset) (n0 ++ n1)
   where offset = map (map (idCount0 +)) f1
         idCount0 = length v0
+
+
+modelAutoNormals :: RealFloat a => [Point3f a] -> [[Int]] -> Model a
+modelAutoNormals vs fs = Model vs fs ns
+  where ns = map faceNormal fs
+        faceNormal = normalized . faceBarycenter vs
 
 
 -- model conversion functions
