@@ -79,24 +79,29 @@ readJson (Just path) = do
                    return Nothing
 
 
-transformOne :: MeshList -> Int -> Model CFloat
+transformOne :: MeshList -> Int -> [Model CFloat]
 transformOne (MeshList rt ms) meshId =
-  Model transformed fs
+  map (\ v -> Model v fs) all
   where Mesh vs fs = ms !! meshId
-        transformed = map (\[x,y,z] -> transform $ Point3f x y z) $ chop 3 vs
-        tRoot = transformation rt
-        transform = rotateL tRoot
-        -- unsure how to apply mesh specific transformations yet
---        tChild = map cTransformation $ filter (\c -> contains meshId $ meshIds c) $ children rt
---        transform = foldl (\f t -> f . (rotateL t)) (rotateL tRoot) tChild
---        tChild = listToMaybe $ map cTransformation $ filter (\c -> contains meshId $ meshIds c) $ children rt
---        transform = rotateL tRoot . maybe id (\t -> rotateL t) tChild
+        -- first apply root transform to the mesh
+        rootTransformed = applyTransform rootTransform
+        applyTransform t = map (\[x,y,z] -> rotateL t $ Point3f x y z) chopped
+        chopped = chop 3 vs
+        rootTransform = transformation rt
+
+        -- each child transformation is applied to the root transformed mesh,
+        -- creating a new mesh for each child transformation
+        kids = maybe [] id (children rt)
+        relevantKids = filter (\ k -> elem meshId $ maybe [] id (meshIds k)) kids
+        kidTransforms = map cTransformation relevantKids
+        all = if kidTransforms == [] then [rootTransformed]
+                                     else map applyTransform kidTransforms
 
 
 parseJson :: [Int] -> MeshList -> Model CFloat
 parseJson indice ml = Model centered fs
   where ids = if indice == [] then allMeshIds else indice
         allMeshIds = take (length $ meshes ml) [0..]
-        Model vs fs = foldr1 combine $ map (transformOne ml) ids
+        Model vs fs = foldr1 combine $ concatMap (transformOne ml) ids
         bary = barycenter vs
         centered = map ((-1) `times` bary `add`) vs
