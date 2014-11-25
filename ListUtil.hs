@@ -1,19 +1,13 @@
 module ListUtil where
 
 
+-- chop down a list into sublists of size n
 chop :: Int -> [a] -> [[a]]
 chop _ [] = []
 chop n xs = take n xs : chop n (drop n xs)
 
 
-contains :: Eq a => a -> [a] -> Bool
-contains x xs = any (\e -> x == e) xs
-
-
-notContains :: Eq a => a -> [a] -> Bool
-notContains x xs = all (\e -> x /= e) xs
-
-
+-- [0,1,2] -> [(0,1),(1,2),(2,0)]
 cyclicConsecutivePairs :: [a] -> [(a,a)]
 cyclicConsecutivePairs [] = []
 cyclicConsecutivePairs xs = cyclicPairs0 (head xs) xs

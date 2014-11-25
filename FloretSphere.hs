@@ -322,7 +322,7 @@ findTriangleStrip triangles notK (i, j) =
 
 findTriangle :: Int -> Int -> Int -> [[Int]] -> [Int]
 findTriangle i j notK triangles = if result == [] then [] else head result
-  where result = filter (notContains notK) $ filter (contains i) $ filter (contains j) triangles
+  where result = filter (notElem notK) $ filter (elem i) $ filter (elem j) triangles
 
 
 -- icosahedron
