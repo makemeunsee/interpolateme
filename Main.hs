@@ -98,6 +98,7 @@ data GlobalState = GlobalState { camera :: CameraState
                                , realTime :: GLfloat
                                , simTime :: GLfloat
                                , keys :: KeyState
+                               , scaleMat :: Mat44f
                                , modelMat :: Mat44f
                                , vertexCountPerFace :: [Int]
                                }
@@ -419,9 +420,9 @@ camToPoint3f cam = Point3f x y z
   where (x,y,z) = camPos cam
 
 
-camEyeForModel :: Mat44f -> CameraState -> Point3GL
-camEyeForModel modelMatrix state = vec4ToPoint3f modelCamEye
-  where modelCamEye = multInvMatV modelMatrix $ vec4 ex ey ez
+camEyeForModel :: Mat44f -> Mat44f -> CameraState -> Point3GL
+camEyeForModel scaleMatrix modelMatrix state = vec4ToPoint3f modelCamEye
+  where modelCamEye = multInvMatV scaleMatrix $ multInvMatV modelMatrix $ vec4 ex ey ez
         camEye@(Point3f ex ey ez) = camLookAxis state
 
 
@@ -536,7 +537,7 @@ triggerReshape state@GlobalState{..} = do
   refillBuffer vertexBufferId $ interpolate simTime oldVertice oldAltVertice
 
   -- create new alt vertice ligned with the cam
-  let (newVertice, newSeed) = rndVertexBufferData seed (camEyeForModel modelMat camera) model vertexCountPerFace
+  let (newVertice, newSeed) = rndVertexBufferData seed (camEyeForModel scaleMat modelMat camera) model vertexCountPerFace
   refillBuffer altVertexBufferId newVertice
 
   -- updating geometries can be long, update realTime after
@@ -607,7 +608,7 @@ loop static action state = do
   -- apply zoom
   let k = (zoom $ camera newState0) / (zoom camState0)
   let newState1 = if (k /= 1)
-                    then newState0 { modelMat = Geometry.scale k $ modelMat newState0 }
+                    then newState0 { scaleMat = Geometry.scale k $ scaleMat newState0 }
                     else newState0
 
   -- update camera
@@ -626,7 +627,7 @@ loop static action state = do
   projection <- get $ projMat camState1
 
   let vp = projection `multMat` viewMat camState1
-  let mvp = vp `multMat` (modelMat newState)
+  let mvp = vp `multMat` (scaleMat newState) `multMat` (modelMat newState)
   render (simTime newState) projection mvp (glids newState)
 
   -- exit if window closed or Esc pressed
@@ -719,7 +720,7 @@ main = do
   let camState = (camStateWithMatrice defaultCamState projMat) { distance = span * 1.1 }
 
   let bufferMaker = if static then (\ m _ -> (vertice m, defaultSeed))
-                              else let camEye = camEyeForModel identity camState in
+                              else let camEye = camEyeForModel identity identity camState in
                                    (\ m s -> rndVertexBufferData s camEye m vertexCountPerFace)
   let (vertexBufferData, seed0) = bufferMaker model defaultSeed
 
@@ -740,6 +741,7 @@ main = do
                           , simTime = 0
                           , keys = defaultKeyState
                           , modelMat = identity
+                          , scaleMat = identity
                           , vertexCountPerFace = vertexCountPerFace -- barycenter added to original faces
                           }
 
