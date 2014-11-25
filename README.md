@@ -10,17 +10,29 @@ Usage
 
 "cabal configure" then "cabal run" or "cabal install"
 
-run with "--f" for fullscreen
+Run with:
+
+* "--f" for fullscreen
+* "--s" for static mode, with no animation / randomization
+* "--i" to draw back faces, cull front faces (inverse of default rendering)
+* "--b" to draw both faces, back and front
+* "--json file(,i)*" to render the ASSIMP formatted model from the json file. Optional indice allow to select which meshes to draw. By default, all meshes are combined into one.
 
 Features
 --------
 
-Currently none but dragging the mouse to rotate a polyhedron.
+Drag the mouse to rotate the view.
+
+Use arrow keys to rotate the model (useful when model is facing downward or upward).
+
+Upon mouse / key release, the model reconstructs itself to appear intact to the viewer (in default mode, in static mode, the model is loaded and displayed verbatim).
+
+Misc: esc or q to exit, mouse wheel to zoom in/out.
 
 In the works
 ------------
 
-Shader lighting, geometry interpolation and animation.
+Shader lighting.
 
 Credits
 -------
