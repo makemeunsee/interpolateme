@@ -75,6 +75,8 @@ data KeyState = KeyState { up :: KeyButtonState
                          , down :: KeyButtonState
                          , left :: KeyButtonState
                          , right :: KeyButtonState
+                         , pgup :: KeyButtonState
+                         , pgdn :: KeyButtonState
                          }
 
 
@@ -97,6 +99,7 @@ data GlobalState = GlobalState { camera :: CameraState
                                , glids :: GLIDs
                                , realTime :: GLfloat
                                , simTime :: GLfloat
+                               , lightIntensity :: GLfloat
                                , keys :: KeyState
                                , scaleMat :: Mat44f
                                , modelMat :: Mat44f
@@ -271,8 +274,8 @@ bindUniformMatrix prog uName mat = do
   with mat $ glUniformMatrix4fv mvpLoc 1 (fromBool True) . castPtr
 
 
-render :: GLfloat -> Mat44f -> Mat44f -> GLIDs -> IO ()
-render t pMat mvpMat glids@GLIDs{..} = do
+render :: GLfloat -> GLfloat -> Mat44f -> Mat44f -> GLIDs -> IO ()
+render t lightIntensity pMat mvpMat glids@GLIDs{..} = do
   GL.clear [GL.ColorBuffer, GL.DepthBuffer]
 
   currentProgram $= Just prog
@@ -290,6 +293,10 @@ render t pMat mvpMat glids@GLIDs{..} = do
   -- bind time
   timeLoc <- get $ uniformLocation prog "u_time"
   uniform timeLoc $= Index1 t
+
+  -- bind light intensity
+  lightLoc <- get $ uniformLocation prog "u_lightIntensity"
+  uniform lightLoc $= Index1 lightIntensity
 
   -- bind attributes (position and alt position and center flags)
   bindGeometry glids
@@ -386,7 +393,7 @@ loadProgram vertShader fragShader = do
 
 
 defaultKeyState :: KeyState
-defaultKeyState = KeyState Release Release Release Release
+defaultKeyState = KeyState Release Release Release Release Release Release
 
 
 defaultCamState :: CameraState
@@ -563,6 +570,7 @@ updateState state@GlobalState{..} newCamera = do
 handleKeys :: GlobalState -> IO (GlobalState)
 handleKeys state = do
   let modelMatrix = modelMat state
+  let lIntensity = lightIntensity state
   let ks@KeyState{..} = keys state
 
   -- read key inputs
@@ -570,7 +578,16 @@ handleKeys state = do
   d <- GLFW.getKey GLFW.DOWN
   l <- GLFW.getKey GLFW.LEFT
   r <- GLFW.getKey GLFW.RIGHT
-  let (uR, dR, lR, rR) = (released u up, released d down, released l left, released r right)
+  pu <- GLFW.getKey GLFW.PAGEUP
+  pd <- GLFW.getKey GLFW.PAGEDOWN
+
+  let (uR, dR, lR, rR, puR, pdR) = ( released u up
+                                   , released d down
+                                   , released l left
+                                   , released r right
+                                   , released pu pgup
+                                   , released pd pgdn
+                                   )
 
   -- rotate model matrix when arrow key released
   let newMat0 = case (uR, dR) of
@@ -583,12 +600,18 @@ handleKeys state = do
                  (True, _) -> multMat negYRot newMat0
                  (False, True) -> multMat posYRot newMat0
 
-  let newKS = ks { up = u, down = d, left = l, right = r }
+  let newKS = ks { up = u, down = d, left = l, right = r, pgup = pu, pgdn = pd }
+
+  let newState0 = if puR
+                    then state { lightIntensity = lIntensity * 1.2 }
+                    else if pdR
+                      then state { lightIntensity = lIntensity / 1.2 }
+                      else state
 
   -- if a rotation was applied, trigger reshape, else just update state
   if uR || dR || lR || rR
-    then triggerReshape state { keys = newKS, modelMat = newMat1 }
-    else return state { keys = newKS, modelMat = newMat1 }
+    then triggerReshape newState0 { keys = newKS, modelMat = newMat1 }
+    else return newState0 { keys = newKS, modelMat = newMat1 }
 
   where released newK oldK = newK == Release && newK /= oldK
 
@@ -628,7 +651,7 @@ loop static action state = do
 
   let vp = projection `multMat` viewMat camState1
   let mvp = vp `multMat` (scaleMat newState) `multMat` (modelMat newState)
-  render (simTime newState) projection mvp (glids newState)
+  render (simTime newState) (lightIntensity newState) projection mvp (glids newState)
 
   -- exit if window closed or Esc pressed
   esc <- GLFW.getKey GLFW.ESC
@@ -739,6 +762,7 @@ main = do
                           , glids = glids
                           , realTime = 0
                           , simTime = 0
+                          , lightIntensity = 15
                           , keys = defaultKeyState
                           , modelMat = identity
                           , scaleMat = identity

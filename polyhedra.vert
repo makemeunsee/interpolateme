@@ -7,6 +7,7 @@ in float a_barycentric;
 
 uniform mat4 u_mvpMat;
 uniform mat4 u_pMat;
+uniform float u_lightIntensity;
 
 uniform float u_time;
 
@@ -16,7 +17,7 @@ out float intensity;
 void main()
 {
     // static light almost from the cam
-    vec4 l_dir = u_pMat * vec4(0.2,0.5,15,0.0);
+    vec4 l_dir = u_lightIntensity * u_pMat * vec4(0.01, 0.03, 2.0, 0.0);
     vec4 n = normalize(u_mvpMat * vec4(normal,0.0));
     intensity = max(dot(n, l_dir), 0.15);
 

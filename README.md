@@ -27,7 +27,7 @@ Use arrow keys to rotate the model (useful when model is facing downward or upwa
 
 Upon mouse / key release, the model reconstructs itself to appear intact to the viewer (in default mode, in static mode, the model is loaded and displayed verbatim).
 
-Misc: esc or q to exit, mouse wheel to zoom in/out.
+Misc: esc or q to exit, mouse wheel to zoom in/out, page up/down to adjust the light level.
 
 In the works
 ------------
