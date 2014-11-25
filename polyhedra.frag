@@ -4,6 +4,7 @@ uniform vec4 u_color;
 uniform vec4 u_borderColor;
 
 in float v_barycenter;
+in float intensity;
 
 out vec4 color;
 
@@ -17,10 +18,11 @@ float edgeFactor(const float thickness, const float bary)
 
 void main()
 {
-    color = mix(
+    vec4 tmpCol = intensity * mix(
         u_borderColor,
         u_color,
         edgeFactor(1.2, v_barycenter)
     );
+    color = vec4(tmpCol.rgb, 1.0);
     //color = vec4(smoothstep(vec3(0.0), fwidth(v_barycenter)*5, v_barycenter) , 1.0);
 }

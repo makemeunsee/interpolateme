@@ -11,10 +11,7 @@ module Geometry ( Point3f(Point3f), Normal
                 , rotate
                 , rotateM, rotateL
                 , negXRot, posXRot, negYRot, posYRot
-                , barycenter
-                , facesToFlatIndice
-                , facesToFlatTriangles
-                , facesToCenterFlags
+                , barycenter, faceBarycenter
                 , modelAutoNormals
                 )
 where
@@ -38,60 +35,11 @@ combine (Model v0 f0 n0) (Model v1 f1 n1) =
         idCount0 = length v0
 
 
+-- provide a normal for each face
 modelAutoNormals :: RealFloat a => [Point3f a] -> [[Int]] -> Model a
 modelAutoNormals vs fs = Model vs fs ns
   where ns = map faceNormal fs
         faceNormal = normalized . faceBarycenter vs
-
-
--- model conversion functions
-
-
--- flatten faces into an indice list.
--- faces are tessellated into triangles, each having the face barycenter as first point.
--- indice used in the parameter and result WILL NOT match.
--- to use along 'facesToFlatTriangles'.
--- eg: [7 9 8] -> [0 1 2 0 2 3 0 3 1] where 0 <- index of barycenter of the triangle
---                                          1 <- 7
---                                          2 <- 9
---                                          3 <- 8
-facesToFlatIndice :: [[Int]] -> [Int]
-facesToFlatIndice faces = facesToFlatIndice0 0 faces
-  where
-    facesToFlatIndice0 :: Int -> [[Int]] -> [Int]
-    facesToFlatIndice0 _ [] = []
-    facesToFlatIndice0 count (arr:arrs) = offsetTriangles ++ facesToFlatIndice0 (count+l+1) arrs
-      where
-        l = length arr
-        triangles = firstWithEveryPair $ take (l+1) [0..]
-        offsetTriangles = map (count+) triangles
-
-
--- concat triplets made of the input head, and each consecutive pair in the cycling input tail
-firstWithEveryPair :: [a] -> [a]
-firstWithEveryPair [] = []
-firstWithEveryPair (f:r) = concatMap (\ (i,j) -> [f,i,j]) $ cyclicConsecutivePairs r
-
-
--- use vertex data (pts) and face data to create flat, tessellated vertex data
--- eg: [p0, p1, p2] [[0,2,1]] -> [ b.x, b.y, b.z, p0.x, p0.y, p0.z, p2.x, p2.y, p2.z,
---                                 b.x, b.y, b.z, p2.x, p2.y, p2.z, p1.x, p1.y, p1.z,
---                                 b.x, b.y, b.z, p1.x, p1.y, p1.z, p0.x, p0.y, p0.z ]
--- where b = (p0 + p1 + p2) / 3 (barycenter)
--- to use along 'facesToFlatIndice'.
-facesToFlatTriangles :: RealFloat a => [Point3f a] -> [[Int]] -> [a]
-facesToFlatTriangles _ [] = []
-facesToFlatTriangles pts (arr:arrs) =
-  (concatMap pointToArr (faceBarycenter pts arr : map ((!!) pts) arr)) ++ facesToFlatTriangles pts arrs
-
-
--- flags vertice which are a barycenter and not part of the original face.
--- each face gets 1 barycenter and as many normal points as it originally contains.
--- to use along 'facesToFlatIndice' and 'facesToFlatTriangles'.
-facesToCenterFlags :: RealFloat a => [[Int]] -> [a]
-facesToCenterFlags [] = []
-facesToCenterFlags (arr:arrs) =
-  1 : (take (length arr) $ iterate id 0) ++ facesToCenterFlags arrs
 
 
 -- using vertex data and a face, creates the barycenter of this face

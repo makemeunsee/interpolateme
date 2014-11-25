@@ -11,7 +11,6 @@ import Graphics.Rendering.OpenGL.GLU as GLU
 import Graphics.UI.GLFW as GLFW
 import Graphics.Rendering.OpenGL (($=))
 import Graphics.Rendering.OpenGL.Raw ( glUniformMatrix4fv
-                                     , glUniform1f
                                      , glEnableVertexAttribArray
                                      , glBindBuffer
                                      , gl_ARRAY_BUFFER
@@ -26,10 +25,10 @@ import Graphics.Rendering.OpenGL.Raw ( glUniformMatrix4fv
                                      )
 import Graphics.GLUtil
 
+import Control.Exception
 import Foreign
 import Foreign.C.Types (CFloat)
 import Data.Maybe (listToMaybe)
-import Data.ByteString.Char8 (pack)
 import Data.IORef (IORef, newIORef)
 import Data.Vec (Mat44, identity)
 import Data.List.Split (splitOn)
@@ -39,9 +38,6 @@ import FloretSphere
 import Geometry ( Point3f (Point3f)
                 , Model (Model)
                 , normalized, cross, times, norm
-                , facesToFlatTriangles
-                , facesToCenterFlags
-                , facesToFlatIndice
                 , scale
                 , lookAtMatrix
                 , orthoMatrix
@@ -49,6 +45,11 @@ import Geometry ( Point3f (Point3f)
                 , negXRot, posXRot, negYRot, posYRot
                 , vec3, vec4, vec4ToPoint3f
                 )
+import FlatModel ( facesToFlatTriangles
+                 , facesToCenterFlags
+                 , facesToFlatIndice
+                 , normalsToFlatNormals
+                 )
 import ListUtil
 import Json
 
@@ -67,7 +68,7 @@ type Point3GL = Point3f GLfloat
 data Action = Action (IO Action, CameraState -> CameraState)
 
 
-data FlatModel = FlatModel { vertice :: [GLfloat], faces :: [Int] }
+data FlatModel = FlatModel { vertice :: [GLfloat], faces :: [Int], normals :: [GLfloat] }
 
 
 data KeyState = KeyState { up :: KeyButtonState
@@ -193,6 +194,8 @@ data GLIDs = GLIDs { prog :: Program
                    , vertexBuffersLength :: Int
                    , vertexBufferId :: GLuint
                    , vertexAttrib :: GLuint
+                   , normalBufferId :: GLuint
+                   , normalAttrib :: GLuint
                    , altVertexBufferId :: GLuint
                    , altVertexAttrib :: GLuint
                    , centerBufferId :: GLuint
@@ -200,8 +203,8 @@ data GLIDs = GLIDs { prog :: Program
                    }
 
 
-initGL :: Bool -> Bool -> [GLfloat] -> [GLuint] -> [GLfloat] -> IO GLIDs
-initGL drawFront drawBack verticeData indiceData centersData = do
+initGL :: Bool -> Bool -> [GLfloat] -> [GLfloat] -> [GLuint] -> [GLfloat] -> IO GLIDs
+initGL drawFront drawBack verticeData normalData indiceData centersData = do
   GL.depthFunc $= Just GL.Less
   GL.blend $= Enabled
   GL.blendFunc $= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
@@ -220,6 +223,7 @@ initGL drawFront drawBack verticeData indiceData centersData = do
   -- make shaders & data
   prog <- loadProgram "polyhedra.vert" "polyhedra.frag"
   (AttribLocation vertexAttrib) <- get (attribLocation prog "position")
+  (AttribLocation normalAttrib) <- get (attribLocation prog "normal")
   (AttribLocation altVertexAttrib) <- get (attribLocation prog "alt_position")
   (AttribLocation centerAttrib) <- get (attribLocation prog "a_barycentric")
   indice <- makeBuffer ElementArrayBuffer indiceData
@@ -228,6 +232,7 @@ initGL drawFront drawBack verticeData indiceData centersData = do
   -- initially, vertice and alt vertice are equal
   let vertexBuffersLength = length verticeData
   vertexBufferId <- fillNewBuffer verticeData
+  normalBufferId <- fillNewBuffer normalData
   altVertexBufferId <- fillNewBuffer verticeData
   centerBufferId <- fillNewBuffer centersData
 
@@ -237,6 +242,7 @@ initGL drawFront drawBack verticeData indiceData centersData = do
 cleanUpGLStuff :: GLIDs -> IO ()
 cleanUpGLStuff GLIDs{..} = do
   with vertexBufferId $ glDeleteBuffers 1
+  with normalBufferId $ glDeleteBuffers 1
   with altVertexBufferId $ glDeleteBuffers 1
   with centerBufferId $ glDeleteBuffers 1
 
@@ -246,25 +252,33 @@ cleanUpGLStuff GLIDs{..} = do
 
 bindGeometry :: GLIDs -> IO ()
 bindGeometry GLIDs{..} = do bindFloatBufferToAttrib 3 vertexBufferId vertexAttrib
+                            bindFloatBufferToAttrib 3 normalBufferId normalAttrib
                             bindFloatBufferToAttrib 3 altVertexBufferId altVertexAttrib
                             bindFloatBufferToAttrib 1 centerBufferId centerAttrib
 
 
 unbindGeometry :: GLIDs -> IO ()
 unbindGeometry GLIDs{..} = do glDisableVertexAttribArray vertexAttrib
+                              glDisableVertexAttribArray normalAttrib
                               glDisableVertexAttribArray altVertexAttrib
                               glDisableVertexAttribArray centerAttrib
 
 
-render :: GLfloat -> Mat44f -> GLIDs -> IO ()
-render t mvMat glids@GLIDs{..} = do
+bindUniformMatrix :: Program -> String -> Mat44f -> IO ()
+bindUniformMatrix prog uName mat = do
+  (UniformLocation mvpLoc) <- get $ uniformLocation prog uName
+  with mat $ glUniformMatrix4fv mvpLoc 1 (fromBool True) . castPtr
+
+
+render :: GLfloat -> Mat44f -> Mat44f -> GLIDs -> IO ()
+render t pMat mvpMat glids@GLIDs{..} = do
   GL.clear [GL.ColorBuffer, GL.DepthBuffer]
 
   currentProgram $= Just prog
 
-  -- bind view projection matrix
-  (UniformLocation mvpLoc) <- get $ uniformLocation prog "u_worldView"
-  with mvMat $ glUniformMatrix4fv mvpLoc 1 (fromBool True) . castPtr
+  -- bind matrices
+  bindUniformMatrix prog "u_mvpMat" mvpMat
+  bindUniformMatrix prog "u_pMat" pMat
 
   -- bind uniform colors
   colLoc <- get $ uniformLocation prog "u_color"
@@ -592,12 +606,9 @@ loop static action state = do
 
   -- apply zoom
   let k = (zoom $ camera newState0) / (zoom camState0)
-  if (k /= 1)
-    then do
-      let projRef = projMat $ camera newState0
-      oldProjection <- get projRef
-      projRef $= Geometry.scale k oldProjection
-    else return ()
+  let newState1 = if (k /= 1)
+                    then newState0 { modelMat = Geometry.scale k $ modelMat newState0 }
+                    else newState0
 
   -- update camera
   let (Point3f px py pz) = camToPoint3f camState0
@@ -608,14 +619,15 @@ loop static action state = do
 
   -- check for sim restart
   newState <- if static
-                then return newState0 { camera = camState1 }
-                else updateState newState0 camState1
+                then return newState1 { camera = camState1 }
+                else updateState newState1 camState1
 
   -- render
   projection <- get $ projMat camState1
 
-  let mvp = projection `multMat` (viewMat camState1) `multMat` (modelMat newState)
-  render (simTime newState) mvp (glids newState)
+  let vp = projection `multMat` viewMat camState1
+  let mvp = vp `multMat` (modelMat newState)
+  render (simTime newState) projection mvp (glids newState)
 
   -- exit if window closed or Esc pressed
   esc <- GLFW.getKey GLFW.ESC
@@ -662,13 +674,21 @@ main = do
   -- model from json?
   json <- readJson jsonFile
 
-  let rawModel@(Model vs fs _) = maybe pentagonalHexecontahedron
-                                     (parseJson indice)
-                                     json
+  let rawModel@(Model vs fs ns) = maybe snubRhombiMix
+                                        (parseJson indice)
+                                        json
+
+  putStr "Model data summary - vertex count: "
+  putStr $ show $ length vs
+  putStr ", face count: "
+  putStrLn $ show $ length fs
 
   let span = maximum $ map norm vs
+  let model = FlatModel (facesToFlatTriangles vs fs) (facesToFlatIndice fs) (normalsToFlatNormals ns fs)
 
-  let model = FlatModel (facesToFlatTriangles vs fs) (facesToFlatIndice fs)
+  putStr "'Enhanced' model data summary - vertex count: "
+  putStrLn $ show $ length $ vertice model
+
   let vertexCountPerFace = map ((1 +) . length) fs -- barycenter added to original faces
   let centersBuffer = centerBufferData fs
   let indiceBuffer = indexBufferData fs
@@ -703,7 +723,12 @@ main = do
                                    (\ m s -> rndVertexBufferData s camEye m vertexCountPerFace)
   let (vertexBufferData, seed0) = bufferMaker model defaultSeed
 
-  glids <- initGL (bothFaces || not invertFaces) (bothFaces || invertFaces) vertexBufferData indiceBuffer centersBuffer
+  glids <- initGL (bothFaces || not invertFaces)
+                  (bothFaces || invertFaces)
+                  vertexBufferData
+                  (normals model)
+                  indiceBuffer
+                  centersBuffer
 
   -- init global state
   now <- get time
