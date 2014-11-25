@@ -14,16 +14,13 @@ module Geometry ( Point3f(Point3f), Normal
                 , barycenter
                 , facesToFlatIndice
                 , facesToFlatTriangles
-                , axisRndFacesToFlatTriangles
                 , facesToCenterFlags
-                , defaultSeed
                 )
 where
 
 import qualified Data.Vec as V
 import Data.Word
 import Data.Maybe (fromJust)
-import Random.MWC.Pure
 import ListUtil
 
 data Point3f a = Point3f a a a
@@ -81,14 +78,6 @@ facesToFlatTriangles pts (arr:arrs) =
   (concatMap pointToArr (faceBarycenter pts arr : map ((!!) pts) arr)) ++ facesToFlatTriangles pts arrs
 
 
-axisRndFacesToFlatTriangles :: RealFloat a => Seed -> a -> Point3f a -> [Point3f a] -> [[Int]] -> ([a], Seed)
-axisRndFacesToFlatTriangles seed _ _ _ [] = ([], seed)
-axisRndFacesToFlatTriangles seed span normedAxis pts (arr:arrs) =
-  ((concatMap pointToArr rndFace) ++ rndRemainder, finalSeed)
-  where (rndFace, newSeed) = randomizeDepthAlongAxis seed span normedAxis (faceBarycenter pts arr : map ((!!) pts) arr)
-        (rndRemainder, finalSeed) = axisRndFacesToFlatTriangles newSeed span normedAxis pts arrs
-
-
 -- flags vertice which are a barycenter and not part of the original face.
 -- each face gets 1 barycenter and as many normal points as it originally contains.
 -- to use along 'facesToFlatIndice' and 'facesToFlatTriangles'.
@@ -106,23 +95,6 @@ faceBarycenter pts faceIds = barycenter $ map (pts !!) faceIds
 -- average on a point3f list
 barycenter :: RealFloat a => [Point3f a] -> Point3f a
 barycenter = uncurry (divBy) . foldr (\e (c,s) -> (c+1, e `add` s)) (0, Point3f 0 0 0)
-
-
--- randomize face functions
-
-
-defaultSeed :: Seed
-defaultSeed = seed $ map charToWord32 "defaultSeed"
- where charToWord32 c = fromIntegral $ fromEnum c
-
-
--- randomize 'depth' of face along given axis.
-randomizeDepthAlongAxis :: RealFloat a => Seed -> a -> Point3f a -> [Point3f a] -> ([Point3f a], Seed)
-randomizeDepthAlongAxis seed span normedAxis face = (translatedFace, newSeed)
-  where originalDistToOrigin = head face `dot` normedAxis
-        translatedFace = map (add (times alpha $ normedAxis)) face
-        alpha = (fromIntegral k) * signum originalDistToOrigin / 100.0 * span
-        (k, newSeed) = range_random (0, 100) seed :: (Int, Seed)
 
 
 -- basic geometry functions

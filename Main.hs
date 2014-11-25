@@ -33,14 +33,13 @@ import Data.ByteString.Char8 (pack)
 import Data.IORef (IORef, newIORef)
 import Data.Vec (Mat44, identity)
 import Data.List.Split (splitOn)
-import Random.MWC.Pure (Seed)
+import qualified Random.MWC.Pure as RND
 
 import FloretSphere
 import Geometry ( Point3f (Point3f)
-                , Model (Model), vertice, faces
+                , Model (Model)
                 , normalized, cross, times, norm
                 , facesToFlatTriangles
-                , axisRndFacesToFlatTriangles
                 , facesToCenterFlags
                 , facesToFlatIndice
                 , scale
@@ -49,7 +48,6 @@ import Geometry ( Point3f (Point3f)
                 , multMat, multInvMatV
                 , negXRot, posXRot, negYRot, posYRot
                 , vec3, vec4, vec4ToPoint3f
-                , defaultSeed
                 )
 import ListUtil
 import Json
@@ -62,18 +60,22 @@ instance NearZero CFloat where
   {-# INLINE nearZero #-}
 
 
+type Mat44f = Mat44 GLfloat
+type Point3GL = Point3f GLfloat
+
+
 data Action = Action (IO Action, CameraState -> CameraState)
 
-type Mat44f = Mat44 GLfloat
 
-type Point3GL = Point3f GLfloat
-type ModelGL = Model GLfloat
+data FlatModel = FlatModel { vertice :: [GLfloat], faces :: [Int] }
+
 
 data KeyState = KeyState { up :: KeyButtonState
                          , down :: KeyButtonState
                          , left :: KeyButtonState
                          , right :: KeyButtonState
                          }
+
 
 data CameraState = CameraState { theta :: GLfloat
                                , phi :: GLfloat
@@ -87,36 +89,63 @@ data CameraState = CameraState { theta :: GLfloat
                                , viewMat :: Mat44f
                                }
 
+
 data GlobalState = GlobalState { camera :: CameraState
-                               , model :: ModelGL
-                               , seed :: Seed
+                               , model :: FlatModel
+                               , seed :: RND.Seed
                                , glids :: GLIDs
                                , realTime :: GLfloat
                                , simTime :: GLfloat
                                , keys :: KeyState
                                , modelMat :: Mat44f
+                               , vertexCountPerFace :: [Int]
                                }
+
+
+defaultSeed :: RND.Seed
+defaultSeed = RND.seed $ map charToWord32 "defaultSeed"
+  where charToWord32 c = fromIntegral $ fromEnum c
+
 
 -- data buffers
 
+-- GLfloat RangeRandom instance
+instance RND.RangeRandom CFloat where
+  range_random (x0, x1) s = (realToFrac r, s')
+    where (r, s') = RND.range_random(realToFrac x0 :: Float, realToFrac x1 :: Float) s
+
+
+-- random translate faces along an axis.
+axisRndFacesToFlatTriangles :: RND.Seed -> GLfloat -> Point3GL -> [GLfloat] -> [Int] -> ([GLfloat], RND.Seed)
+axisRndFacesToFlatTriangles seed span (Point3f nx ny nz) vertice vertexCountPerFace =
+  (recurse vertice $ zip rnds vertexCountPerFace, newSeed)
+  where (rnds, newSeed) = RND.random_list (\ s -> RND.range_random (0, span) s) faceCount seed
+        faceCount = length vertexCountPerFace
+        recurse [] [] = []
+        recurse vs ((r, count) : rfs) = translated ++ recurse rValues rfs
+          where floatCount = 3*count
+                values = take floatCount vs
+                rValues = drop floatCount vs
+                -- closer faces move closer, farther faces move farther -> minimize overlapping faces
+                alpha = signum $ nx * values !! 0 + ny * values !! 1 + nz * values !! 2
+                translation = take floatCount $ cycle [alpha*r*nx, alpha*r*ny, alpha*r*nz]
+                translated = map (\(v,t) -> v+t) $ zip values translation
+
 
 -- randomize the position of a polyhedron faces in a way imperceptible to the given (ortho) camera, relative to model transform
-rndVertexBufferData :: Seed -> Point3GL -> ModelGL -> ([GLfloat], Seed)
-rndVertexBufferData seed camEye poly =
-  axisRndFacesToFlatTriangles seed (norm camEye) (normalized camEye) (vertice poly) (faces poly)
+rndVertexBufferData :: RND.Seed -> Point3GL -> FlatModel -> [Int] -> ([GLfloat], RND.Seed)
+rndVertexBufferData seed camEye model vertexCountPerFace =
+  axisRndFacesToFlatTriangles seed (norm camEye) (normalized camEye) (vertice model) vertexCountPerFace
 
-
-regularVertexBufferData :: ModelGL -> [GLfloat]
-regularVertexBufferData poly = facesToFlatTriangles (vertice poly) (faces poly)
 
 -- attribute buffer to distinguish edge points from face center points
-centerBufferData :: ModelGL -> [GLfloat]
-centerBufferData poly = facesToCenterFlags $ faces poly
+centerBufferData :: [[Int]] -> [GLfloat]
+centerBufferData faces = facesToCenterFlags faces
 
 
 -- indice linked to the vertex buffer
-indexBufferData :: ModelGL -> [GLuint]
-indexBufferData poly = map fromIntegral $ facesToFlatIndice $ faces poly
+indexBufferData :: [[Int]] -> [GLuint]
+indexBufferData faces = map fromIntegral $ facesToFlatIndice faces
 
 
 -- how many to draw
@@ -387,8 +416,8 @@ limitAngle :: (Floating a, Ord a) => a -> a
 limitAngle angle =
   if angle < 0.01
     then 0.01
-    else if angle > pi
-      then pi
+    else if angle > pi - 0.01
+      then pi - 0.01
       else angle
 
 
@@ -411,7 +440,8 @@ onClick newX newY newWheel state =
 
 
 mouseSpeed :: Floating a => a
-mouseSpeed = 0.001
+mouseSpeed = 0.005
+
 
 applyMouseMove :: KeyButtonState -> GLint -> GLint -> Int -> CameraState -> CameraState
 applyMouseMove leftButtonDown newX newY newWheel state =
@@ -466,7 +496,7 @@ triggerReshape state@GlobalState{..} = do
   refillBuffer vertexBufferId $ interpolate simTime oldVertice oldAltVertice
 
   -- create new alt vertice ligned with the cam
-  let (newVertice, newSeed) = rndVertexBufferData seed (camEyeForModel modelMat camera) model
+  let (newVertice, newSeed) = rndVertexBufferData seed (camEyeForModel modelMat camera) model vertexCountPerFace
   refillBuffer altVertexBufferId newVertice
 
   -- updating geometries can be long, update realTime after
@@ -606,10 +636,16 @@ main = do
   -- model from json?
   json <- readJson jsonFile
 
-  let model = maybe tetrahedron
-                    (parseJson indice)
-                    json
-  let span = maximum $ map norm $ vertice model
+  let rawModel@(Model vs fs) = maybe pentagonalHexecontahedron
+                                     (parseJson indice)
+                                     json
+
+  let span = maximum $ map norm vs
+
+  let model = FlatModel (facesToFlatTriangles vs fs) (facesToFlatIndice fs)
+  let vertexCountPerFace = map ((1 +) . length) fs -- barycenter added to original faces
+  let centersBuffer = centerBufferData fs
+  let indiceBuffer = indexBufferData fs
 
 
   -- initialize
@@ -635,12 +671,11 @@ main = do
   -- init GL state
   projMat <- newIORef identity
   let camState = (camStateWithMatrice defaultCamState projMat) { distance = span * 1.1 }
-  let bufferMaker = if static then (\ m s -> (regularVertexBufferData m, defaultSeed))
+
+  let bufferMaker = if static then (\ m _ -> (vertice m, defaultSeed))
                               else let camEye = camEyeForModel identity camState in
-                                   (\ m s -> rndVertexBufferData s camEye m)
+                                   (\ m s -> rndVertexBufferData s camEye m vertexCountPerFace)
   let (vertexBufferData, seed0) = bufferMaker model defaultSeed
-  let centersBuffer = centerBufferData model
-  let indiceBuffer = indexBufferData model
 
   glids <- initGL (bothFaces || not invertFaces) (bothFaces || invertFaces) vertexBufferData indiceBuffer centersBuffer
 
@@ -654,6 +689,7 @@ main = do
                           , simTime = 0
                           , keys = defaultKeyState
                           , modelMat = identity
+                          , vertexCountPerFace = vertexCountPerFace -- barycenter added to original faces
                           }
 
 
