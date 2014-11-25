@@ -102,12 +102,13 @@ data GlobalState = GlobalState { camera :: CameraState
                                }
 
 
+-- rnd / num distribution functions
+
+
 defaultSeed :: RND.Seed
 defaultSeed = RND.seed $ map charToWord32 "defaultSeed"
   where charToWord32 c = fromIntegral $ fromEnum c
 
-
--- data buffers
 
 -- GLfloat RangeRandom instance
 instance RND.RangeRandom CFloat where
@@ -115,11 +116,36 @@ instance RND.RangeRandom CFloat where
     where (r, s') = RND.range_random(realToFrac x0 :: Float, realToFrac x1 :: Float) s
 
 
+gaussianNoise :: RealFloat a => a -> a -> a -> (a, a)
+gaussianNoise variance r0 r1 = (root * cos r12Pi, root * sin r12Pi)
+  where root = -2 * log r0 * variance
+        r12Pi = r1 * 2 * pi
+
+
+gaussianList :: RealFloat a => a -> [a] -> [a]
+gaussianList variance (x0:x1:xs) = (g0 : g1 : gaussianList variance xs)
+                                    where (g0, g1) = gaussianNoise variance x0 x1
+gaussianList _ l = l
+
+
+clamped :: RealFloat a => a -> [a] -> [a]
+clamped a = if a < 0 then clamped0 (-a)
+                     else clamped0 a
+             where clamped0 _ [] = []
+                   clamped0 absMax (x : xs) = (min (max (-absMax) x) absMax) : clamped0 absMax xs
+
+
+-- data buffer functions
+
+
 -- random translate faces along an axis.
 axisRndFacesToFlatTriangles :: RND.Seed -> GLfloat -> Point3GL -> [GLfloat] -> [Int] -> ([GLfloat], RND.Seed)
 axisRndFacesToFlatTriangles seed span (Point3f nx ny nz) vertice vertexCountPerFace =
   (recurse vertice $ zip rnds vertexCountPerFace, newSeed)
-  where (rnds, newSeed) = RND.random_list (\ s -> RND.range_random (0, span) s) faceCount seed
+  where -- clamped gaussian distribution
+        rnds = clamped (2*span) $ gaussianList (sqrt $ span) rawRnds
+        -- uniform distribution
+        (rawRnds, newSeed) = RND.random_list (\ s -> RND.range_random (0, span) s) faceCount seed
         faceCount = length vertexCountPerFace
         recurse [] [] = []
         recurse vs ((r, count) : rfs) = translated ++ recurse rValues rfs
@@ -127,8 +153,8 @@ axisRndFacesToFlatTriangles seed span (Point3f nx ny nz) vertice vertexCountPerF
                 values = take floatCount vs
                 rValues = drop floatCount vs
                 -- closer faces move closer, farther faces move farther -> minimize overlapping faces
-                alpha = signum $ nx * values !! 0 + ny * values !! 1 + nz * values !! 2
-                translation = take floatCount $ cycle [alpha*r*nx, alpha*r*ny, alpha*r*nz]
+                alpha = r * (signum r) * (signum $ nx * values !! 0 + ny * values !! 1 + nz * values !! 2)
+                translation = take floatCount $ cycle [alpha*nx, alpha*ny, alpha*nz]
                 translated = map (\(v,t) -> v+t) $ zip values translation
 
 
@@ -395,8 +421,8 @@ resize span projMatRef size@(Size w h) = do
   GL.viewport   $= (Position 0 0, size)
 
   let s = span * 1.5
-  let far = 3*s
-  let near = -s
+  let far = 5*s
+  let near = -3*s
   let right = s * aspect
   let top = s
   let left = -right
