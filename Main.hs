@@ -65,7 +65,7 @@ type Mat44f = Mat44 GLfloat
 type Point3GL = Point3f GLfloat
 
 
-data Action = Action (IO Action, CameraState -> CameraState)
+data Action = Action (IO Action, MouseState -> MouseState)
 
 
 data FlatModel = FlatModel { vertice :: [GLfloat], faces :: [Int], normals :: [GLfloat] }
@@ -80,20 +80,25 @@ data KeyState = KeyState { up :: KeyButtonState
                          }
 
 
-data CameraState = CameraState { theta :: GLfloat
-                               , phi :: GLfloat
-                               , distance :: GLfloat
-                               , mouseX :: GLint
-                               , mouseY :: GLint
-                               , wheel :: Int
-                               , zoom :: GLfloat
-                               , leftButton :: KeyButtonState
-                               , projMat :: IORef Mat44f
-                               , viewMat :: Mat44f
-                               }
+data OrbitingState = OrbitingState { theta :: GLfloat
+                                   , phi :: GLfloat
+                                   , distance :: GLfloat
+                                   , zoom :: GLfloat
+                                   , viewMat :: Mat44f
+                                   }
 
 
-data GlobalState = GlobalState { camera :: CameraState
+data MouseState = MouseState { mouseX :: GLint
+                             , mouseY :: GLint
+                             , wheel :: Int
+                             , leftButton :: KeyButtonState
+                             }
+                  deriving Show
+
+
+data GlobalState = GlobalState { camera :: OrbitingState
+--                               , light :: OrbitingState
+                               , mouse :: MouseState
                                , model :: FlatModel
                                , seed :: RND.Seed
                                , glids :: GLIDs
@@ -101,10 +106,35 @@ data GlobalState = GlobalState { camera :: CameraState
                                , simTime :: GLfloat
                                , lightIntensity :: GLfloat
                                , keys :: KeyState
+                               , projMat :: IORef Mat44f
                                , scaleMat :: Mat44f
                                , modelMat :: Mat44f
                                , vertexCountPerFace :: [Int]
                                }
+
+
+-- state inits
+
+
+defaultKeyState :: KeyState
+defaultKeyState = KeyState Release Release Release Release Release Release
+
+
+defaultMouseState :: MouseState
+defaultMouseState = MouseState { mouseX = 0
+                               , mouseY = 0
+                               , wheel = 0
+                               , leftButton = Release
+                               }
+
+
+defaultCamState :: OrbitingState
+defaultCamState = OrbitingState { theta = pi/2    -- angle between x axis and the orbiting point projected on the xz plane
+                                , phi = pi/2      -- angle between y axis and the orbiting point
+                                , distance = 50
+                                , zoom = 1
+                                , viewMat = identity
+                                }
 
 
 -- rnd / num distribution functions
@@ -392,45 +422,32 @@ loadProgram vertShader fragShader = do
 -- camera functions
 
 
-defaultKeyState :: KeyState
-defaultKeyState = KeyState Release Release Release Release Release Release
+updateViewMat :: OrbitingState -> OrbitingState
+updateViewMat orbit = orbit { viewMat = newViewMat }
+  where (Point3f px py pz) = orbitingPosition orbit
+        newViewMat = lookAtMatrix (vec3 px py pz)
+                                  (vec3 0 0 0)
+                                  (vec3 0 1 0)
 
 
-defaultCamState :: CameraState
-defaultCamState = CameraState { theta = pi / 2
-                              , phi = pi / 2
-                              , distance = 50
-                              , mouseX = 0
-                              , mouseY = 0
-                              , wheel = 0
-                              , zoom = 1
-                              , leftButton = Release
-                              , viewMat = identity
-                              }
+-- direction to origin from orbiting position
+orbitCenterDirection :: OrbitingState -> Point3GL
+orbitCenterDirection orbit = (-1) `times` (orbitingPosition orbit)
 
 
-camStateWithMatrice :: CameraState -> IORef Mat44f -> CameraState
-camStateWithMatrice state projMat = state { projMat = projMat }
+-- orbiting point position
+orbitingPosition :: OrbitingState -> Point3GL
+orbitingPosition orbit = Point3f x y z
+  where (x,y,z) = ( d * sin (phi orbit) * cos (theta orbit)
+                  , d * cos (phi orbit)
+                  , d * sin (phi orbit) * sin (theta orbit))
+        d = distance orbit
 
 
-camPos :: CameraState -> (GLfloat, GLfloat, GLfloat)
-camPos cam = (d * sin (phi cam) * cos (theta cam), d * cos (phi cam), d * sin (phi cam) * sin (theta cam))
-  where d = distance cam
-
-
-camLookAxis :: CameraState -> Point3GL
-camLookAxis state = (-1) `times` (camToPoint3f state)
-
-
-camToPoint3f :: CameraState -> Point3GL
-camToPoint3f cam = Point3f x y z
-  where (x,y,z) = camPos cam
-
-
-camEyeForModel :: Mat44f -> Mat44f -> CameraState -> Point3GL
-camEyeForModel scaleMatrix modelMatrix state = vec4ToPoint3f modelCamEye
-  where modelCamEye = multInvMatV scaleMatrix $ multInvMatV modelMatrix $ vec4 ex ey ez
-        camEye@(Point3f ex ey ez) = camLookAxis state
+orbitingEyeForModel :: Mat44f -> Mat44f -> OrbitingState -> Point3GL
+orbitingEyeForModel scaleMatrix modelMatrix orbit = vec4ToPoint3f orbitEye
+  where orbitEye = multInvMatV scaleMatrix $ multInvMatV modelMatrix $ vec4 ex ey ez
+        Point3f ex ey ez = orbitCenterDirection orbit
 
 
 -- input handling / UI
@@ -469,51 +486,61 @@ limitAngle angle =
       else angle
 
 
-updateZoom :: Int -> CameraState -> CameraState
-updateZoom newWheel state = state { wheel = newWheel
-                                  , zoom = newZoom
-                                  }
+updateZoom :: Int -> OrbitingState -> OrbitingState
+updateZoom wheelDiff orbit = orbit { zoom = newZoom }
   where newZoom = max (min (zoom0*a) 8) 0.125
-        zoom0 = zoom state
-        oldWheel = wheel state
-        a = 1.1 ** fromIntegral (oldWheel-newWheel)
+        zoom0 = zoom orbit
+        a = 1.1 ** fromIntegral wheelDiff
 
 
-onClick :: GLint -> GLint -> Int -> CameraState -> CameraState
+updateAngles :: GLint -> GLint -> OrbitingState -> OrbitingState
+updateAngles diffX diffY orbit = orbit { theta = (theta orbit) + (fromIntegral diffX) * mouseSpeed
+                                       , phi = limitAngle $ (phi orbit) + (fromIntegral diffY) * mouseSpeed
+                                       }
+
+
+updateCam :: MouseState -> MouseState -> OrbitingState -> OrbitingState
+updateCam oldMouse newMouse orbit =
+  updateZoom diffWheel withAngles
+  where diffX = (mouseX newMouse) - (mouseX oldMouse)
+        diffY = (mouseY oldMouse) - (mouseY newMouse)
+        diffWheel = (wheel oldMouse) - (wheel newMouse)
+        withAngles = if leftButton newMouse == Press
+                       then updateAngles diffX diffY orbit
+                       else orbit
+
+
+onClick :: GLint -> GLint -> Int -> MouseState -> MouseState
 onClick newX newY newWheel state =
-  updateZoom newWheel state { mouseX = newX
-                            , mouseY = newY
-                            , leftButton = Press
-                            }
+  updateCoordsAndWheel newX newY newWheel state { leftButton = Press }
+
+
+applyMouseMove :: KeyButtonState -> GLint -> GLint -> Int -> MouseState -> MouseState
+applyMouseMove leftButtonDown newX newY newWheel state =
+  updateCoordsAndWheel newX newY newWheel state  { leftButton = leftButtonDown }
+
+
+updateCoordsAndWheel :: GLint -> GLint -> Int -> MouseState -> MouseState
+updateCoordsAndWheel newX newY newWheel state = state { mouseX = newX
+                                                      , mouseY = newY
+                                                      , wheel = newWheel
+                                                      }
 
 
 mouseSpeed :: Floating a => a
 mouseSpeed = 0.005
 
 
-applyMouseMove :: KeyButtonState -> GLint -> GLint -> Int -> CameraState -> CameraState
-applyMouseMove leftButtonDown newX newY newWheel state =
-  updateZoom newWheel state  { mouseX = newX
-                             , mouseY = newY
-                             , leftButton = leftButtonDown
-                             , theta = (theta state) + (fromIntegral diffX) * mouseSpeed
-                             , phi = limitAngle $ (phi state) + (fromIntegral diffY) * mouseSpeed
-                             }
-  where
-    diffX = newX - mouseX state
-    diffY = -newY + mouseY state
-
-
 waitForPress :: IO Action
 waitForPress = do
-  b <- GLFW.getMouseButton GLFW.ButtonLeft
+  (GL.Position x y) <- GL.get GLFW.mousePos
   wheel <- get mouseWheel
+  b <- GLFW.getMouseButton GLFW.ButtonLeft
   case b of
-    GLFW.Release -> return (Action (waitForPress, updateZoom wheel))
+    GLFW.Release -> return (Action (waitForPress, updateCoordsAndWheel x y wheel))
     GLFW.Press   -> do
       -- when left mouse button is pressed,
       -- switch to waitForRelease action.
-      (GL.Position x y) <- GL.get GLFW.mousePos
       return $ Action (waitForRelease, onClick x y wheel)
 
 
@@ -544,7 +571,7 @@ triggerReshape state@GlobalState{..} = do
   refillBuffer vertexBufferId $ interpolate simTime oldVertice oldAltVertice
 
   -- create new alt vertice ligned with the cam
-  let (newVertice, newSeed) = rndVertexBufferData seed (camEyeForModel scaleMat modelMat camera) model vertexCountPerFace
+  let (newVertice, newSeed) = rndVertexBufferData seed (orbitingEyeForModel scaleMat modelMat camera) model vertexCountPerFace
   refillBuffer altVertexBufferId newVertice
 
   -- updating geometries can be long, update realTime after
@@ -552,18 +579,18 @@ triggerReshape state@GlobalState{..} = do
   return state { realTime = realToFrac now, simTime = 0, seed = newSeed }
 
 
-updateState :: GlobalState -> CameraState -> IO (GlobalState)
-updateState state@GlobalState{..} newCamera = do
+updateSimState :: MouseState -> GlobalState -> IO (GlobalState)
+updateSimState newMouse state@GlobalState{..} = do
   t <- get time
   let now = realToFrac t
   let dt = now - realTime
-  case (leftButton newCamera, leftButton camera) of
+  case (leftButton newMouse, leftButton mouse) of
     -- sim paused, do nothing
-    (Press, _)         -> return state { camera = newCamera, realTime = now }
+    (Press, _)         -> return state { mouse = newMouse, realTime = now }
     -- sim runs, but max sim time is pi, so that interpolation stops matching the alt vertice
-    (Release, Release) -> return state { camera = newCamera, realTime = now, simTime = min pi (simTime + dt) }
+    (Release, Release) -> return state { mouse = newMouse, realTime = now, simTime = min pi (simTime + dt) }
     -- sim restarted
-    (Release, Press)   -> triggerReshape state { camera = newCamera }
+    (Release, Press)   -> triggerReshape state { mouse = newMouse }
 
 
 -- rotate model matrix on arrow keys released
@@ -616,49 +643,58 @@ handleKeys state = do
   where released newK oldK = newK == Release && newK /= oldK
 
 
+updateCamState :: MouseState -> GlobalState -> GlobalState
+updateCamState newMouseState global =
+  newGlobal { camera = newCamera }
+  where
+    -- get new cam state from mouse actions
+    newCamera0 = updateCam (mouse global) newMouseState (camera global)
+
+    -- apply zoom
+    k = (zoom $ camera global) / (zoom newCamera0)
+    newGlobal = if (k /= 1)
+                  then global { scaleMat = Geometry.scale k $ scaleMat global }
+                  else global
+
+    -- update view matrix in camera
+    newCamera = updateViewMat newCamera0
+
+
 loop :: Bool -> IO Action -> GlobalState -> IO ()
-loop static action state = do
+loop static action global = do
+
+  -- read keyboard actions & update global state
+  newGlobal0 <- handleKeys global
 
   -- read mouse actions
-  Action (action', camUpdater) <- action
+  Action (action', mouseStateUpdater) <- action
 
-  -- read keyboard actions
-  newState0 <- handleKeys state
+  -- get new mouse state from mouse actions
+  let newMouseState = mouseStateUpdater $ mouse newGlobal0
 
-  -- update state with mouse actions
-  let camState0 = camUpdater $ camera newState0
+  -- update the camera in the global state
+  let newGlobal1 = updateCamState newMouseState newGlobal0
 
-  -- apply zoom
-  let k = (zoom $ camera newState0) / (zoom camState0)
-  let newState1 = if (k /= 1)
-                    then newState0 { scaleMat = Geometry.scale k $ scaleMat newState0 }
-                    else newState0
+  -- check for sim restart, update sim & gl states if necessary
+  newGlobal <- if static
+                 then return newGlobal1 { mouse = newMouseState }
+                 else updateSimState newMouseState newGlobal1
 
-  -- update camera
-  let (Point3f px py pz) = camToPoint3f camState0
-  let camState1 = camState0 { viewMat = lookAtMatrix (vec3 px py pz)
-                                                     (vec3 0 0 0)
-                                                     (vec3 0 1 0)
-                            }
-
-  -- check for sim restart
-  newState <- if static
-                then return newState1 { camera = camState1 }
-                else updateState newState1 camState1
+  -- prepare matrices for rendering
+  projection <- get $ projMat newGlobal
+  let view = viewMat $ camera newGlobal
+  let vp = projection `multMat` view
+  let mvp = vp `multMat` (scaleMat newGlobal) `multMat` (modelMat newGlobal)
 
   -- render
-  projection <- get $ projMat camState1
-
-  let vp = projection `multMat` viewMat camState1
-  let mvp = vp `multMat` (scaleMat newState) `multMat` (modelMat newState)
-  render (simTime newState) (lightIntensity newState) projection mvp (glids newState)
+  render (simTime newGlobal) (lightIntensity newGlobal) projection mvp (glids newGlobal)
 
   -- exit if window closed or Esc pressed
   esc <- GLFW.getKey GLFW.ESC
   q <- GLFW.getKey 'Q'
   open <- GLFW.getParam GLFW.Opened
   if open && esc /= GLFW.Press && q /= GLFW.Press
-    then loop static action' newState
+    then loop static action' newGlobal
     else return ()
 
 
@@ -739,11 +775,10 @@ main = do
   GLFW.windowPos      $= Position 200 200
 
   -- init GL state
-  projMat <- newIORef identity
-  let camState = (camStateWithMatrice defaultCamState projMat) { distance = span * 1.1 }
+  let camState = updateViewMat $ defaultCamState { distance = span * 1.1 }
 
   let bufferMaker = if static then (\ m _ -> (vertice m, defaultSeed))
-                              else let camEye = camEyeForModel identity identity camState in
+                              else let camEye = orbitingEyeForModel identity identity camState in
                                    (\ m s -> rndVertexBufferData s camEye m vertexCountPerFace)
   let (vertexBufferData, seed0) = bufferMaker model defaultSeed
 
@@ -756,14 +791,17 @@ main = do
 
   -- init global state
   now <- get time
+  projMat <- newIORef identity
   let state = GlobalState { camera = camState
                           , model = model
+                          , mouse = defaultMouseState
                           , seed = seed0
                           , glids = glids
                           , realTime = 0
                           , simTime = 0
                           , lightIntensity = 15
                           , keys = defaultKeyState
+                          , projMat = projMat
                           , modelMat = identity
                           , scaleMat = identity
                           , vertexCountPerFace = vertexCountPerFace -- barycenter added to original faces
