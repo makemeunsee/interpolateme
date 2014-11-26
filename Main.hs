@@ -80,10 +80,9 @@ data KeyState = KeyState { up :: KeyButtonState
                          }
 
 
-data OrbitingState = OrbitingState { theta :: GLfloat
-                                   , phi :: GLfloat
-                                   , distance :: GLfloat
-                                   , zoom :: GLfloat
+data OrbitingState = OrbitingState { theta :: GLfloat    -- angle between x axis and the orbiting point projected on the xz plane
+                                   , phi :: GLfloat      -- angle between y axis and the orbiting point
+                                   , distance :: GLfloat -- orbiting distance
                                    , viewMat :: Mat44f
                                    }
 
@@ -99,6 +98,9 @@ data MouseState = MouseState { mouseX :: GLint
 data GlobalState = GlobalState { camera :: OrbitingState
 --                               , light :: OrbitingState
                                , mouse :: MouseState
+                               , zoom :: GLfloat     -- scale for the model
+                               , scaleMat :: Mat44f  --
+                               , modelMat :: Mat44f
                                , model :: FlatModel
                                , seed :: RND.Seed
                                , glids :: GLIDs
@@ -107,8 +109,6 @@ data GlobalState = GlobalState { camera :: OrbitingState
                                , lightIntensity :: GLfloat
                                , keys :: KeyState
                                , projMat :: IORef Mat44f
-                               , scaleMat :: Mat44f
-                               , modelMat :: Mat44f
                                , vertexCountPerFace :: [Int]
                                }
 
@@ -129,10 +129,9 @@ defaultMouseState = MouseState { mouseX = 0
 
 
 defaultCamState :: OrbitingState
-defaultCamState = OrbitingState { theta = pi/2    -- angle between x axis and the orbiting point projected on the xz plane
-                                , phi = pi/2      -- angle between y axis and the orbiting point
+defaultCamState = OrbitingState { theta = pi/2
+                                , phi = pi/2
                                 , distance = 50
-                                , zoom = 1
                                 , viewMat = identity
                                 }
 
@@ -486,13 +485,6 @@ limitAngle angle =
       else angle
 
 
-updateZoom :: Int -> OrbitingState -> OrbitingState
-updateZoom wheelDiff orbit = orbit { zoom = newZoom }
-  where newZoom = max (min (zoom0*a) 8) 0.125
-        zoom0 = zoom orbit
-        a = 1.1 ** fromIntegral wheelDiff
-
-
 updateAngles :: GLint -> GLint -> OrbitingState -> OrbitingState
 updateAngles diffX diffY orbit = orbit { theta = (theta orbit) + (fromIntegral diffX) * mouseSpeed
                                        , phi = limitAngle $ (phi orbit) + (fromIntegral diffY) * mouseSpeed
@@ -501,13 +493,23 @@ updateAngles diffX diffY orbit = orbit { theta = (theta orbit) + (fromIntegral d
 
 updateCam :: MouseState -> MouseState -> OrbitingState -> OrbitingState
 updateCam oldMouse newMouse orbit =
-  updateZoom diffWheel withAngles
+  if leftButton newMouse == Press
+    then updateAngles diffX diffY orbit
+    else orbit
   where diffX = (mouseX newMouse) - (mouseX oldMouse)
         diffY = (mouseY oldMouse) - (mouseY newMouse)
-        diffWheel = (wheel oldMouse) - (wheel newMouse)
-        withAngles = if leftButton newMouse == Press
-                       then updateAngles diffX diffY orbit
-                       else orbit
+
+
+updateZoom :: MouseState -> MouseState -> GlobalState -> GlobalState
+updateZoom oldMouse newMouse global = global { zoom = newZoom, scaleMat = newScaleMat }
+  where newZoom = max (min (zoom0*a) 8) 0.125
+        zoom0 = zoom global
+        a = 1.1 ** fromIntegral wheelDiff
+        wheelDiff = (wheel oldMouse) - (wheel newMouse)
+        k = newZoom / zoom0
+        newScaleMat = if (k /= 1)
+                      then Geometry.scale k $ scaleMat global
+                      else scaleMat global
 
 
 onClick :: GLint -> GLint -> Int -> MouseState -> MouseState
@@ -643,18 +645,16 @@ handleKeys state = do
   where released newK oldK = newK == Release && newK /= oldK
 
 
-updateCamState :: MouseState -> GlobalState -> GlobalState
-updateCamState newMouseState global =
+updateView :: MouseState -> GlobalState -> GlobalState
+updateView newMouseState global =
   newGlobal { camera = newCamera }
   where
+    oldMouse = mouse global
     -- get new cam state from mouse actions
-    newCamera0 = updateCam (mouse global) newMouseState (camera global)
+    newCamera0 = updateCam oldMouse newMouseState (camera global)
 
     -- apply zoom
-    k = (zoom $ camera global) / (zoom newCamera0)
-    newGlobal = if (k /= 1)
-                  then global { scaleMat = Geometry.scale k $ scaleMat global }
-                  else global
+    newGlobal = updateZoom oldMouse newMouseState global
 
     -- update view matrix in camera
     newCamera = updateViewMat newCamera0
@@ -672,8 +672,8 @@ loop static action global = do
   -- get new mouse state from mouse actions
   let newMouseState = mouseStateUpdater $ mouse newGlobal0
 
-  -- update the camera in the global state
-  let newGlobal1 = updateCamState newMouseState newGlobal0
+  -- update the view related properties in the global state
+  let newGlobal1 = updateView newMouseState newGlobal0
 
   -- check for sim restart, update sim & gl states if necessary
   newGlobal <- if static
@@ -803,6 +803,7 @@ main = do
                           , keys = defaultKeyState
                           , projMat = projMat
                           , modelMat = identity
+                          , zoom = 1
                           , scaleMat = identity
                           , vertexCountPerFace = vertexCountPerFace -- barycenter added to original faces
                           }
