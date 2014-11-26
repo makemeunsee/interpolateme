@@ -18,11 +18,17 @@ float edgeFactor(const float thickness, const float bary)
 
 void main()
 {
-    vec4 tmpCol = intensity * mix(
+    float f = edgeFactor(1.2, v_barycenter);
+    vec4 ambient = 0.15 * mix(
+        u_color,
+        u_borderColor,
+        f
+    );
+    vec4 diffuse = intensity * mix(
         u_borderColor,
         u_color,
-        edgeFactor(1.2, v_barycenter)
+        f
     );
-    color = vec4(tmpCol.rgb, 1.0);
+    color = vec4(max(diffuse.rgb, ambient.rgb), 1.0);
     //color = vec4(smoothstep(vec3(0.0), fwidth(v_barycenter)*5, v_barycenter) , 1.0);
 }

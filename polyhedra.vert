@@ -17,9 +17,9 @@ out float intensity;
 void main()
 {
     // static light almost from the cam
-    vec4 l_dir = u_lightIntensity * u_pMat * vec4(0.01, 0.03, 2.0, 0.0);
+    vec4 l_dir = u_lightIntensity * u_pMat * vec4(0.0, 0.0, 1.0, 0.0);
     vec4 n = normalize(u_mvpMat * vec4(normal,0.0));
-    intensity = max(dot(n, l_dir), 0.15);
+    intensity = max(dot(n, l_dir), 0.0);
 
     float alpha = 0.5 + 0.5 * cos(u_time);
     gl_Position = u_mvpMat * vec4(alpha*position + (1-alpha)*alt_position, 1.0);
