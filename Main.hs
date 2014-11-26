@@ -99,7 +99,6 @@ data GlobalState = GlobalState { camera :: OrbitingState
 --                               , light :: OrbitingState
                                , mouse :: MouseState
                                , zoom :: GLfloat     -- scale for the model
-                               , scaleMat :: Mat44f  --
                                , modelMat :: Mat44f
                                , model :: FlatModel
                                , seed :: RND.Seed
@@ -111,6 +110,10 @@ data GlobalState = GlobalState { camera :: OrbitingState
                                , projMat :: IORef Mat44f
                                , vertexCountPerFace :: [Int]
                                }
+
+
+scaledModelMat :: GlobalState -> Mat44f
+scaledModelMat global = Geometry.scale (zoom global) identity `multMat` (modelMat global)
 
 
 -- state inits
@@ -443,9 +446,9 @@ orbitingPosition orbit = Point3f x y z
         d = distance orbit
 
 
-orbitingEyeForModel :: Mat44f -> Mat44f -> OrbitingState -> Point3GL
-orbitingEyeForModel scaleMatrix modelMatrix orbit = vec4ToPoint3f orbitEye
-  where orbitEye = multInvMatV scaleMatrix $ multInvMatV modelMatrix $ vec4 ex ey ez
+orbitingEyeForModel :: Mat44f -> OrbitingState -> Point3GL
+orbitingEyeForModel modelMatrix orbit = vec4ToPoint3f orbitEye
+  where orbitEye = multInvMatV modelMatrix $ vec4 ex ey ez
         Point3f ex ey ez = orbitCenterDirection orbit
 
 
@@ -501,15 +504,11 @@ updateCam oldMouse newMouse orbit =
 
 
 updateZoom :: MouseState -> MouseState -> GlobalState -> GlobalState
-updateZoom oldMouse newMouse global = global { zoom = newZoom, scaleMat = newScaleMat }
+updateZoom oldMouse newMouse global = global { zoom = newZoom }
   where newZoom = max (min (zoom0*a) 8) 0.125
         zoom0 = zoom global
         a = 1.1 ** fromIntegral wheelDiff
-        wheelDiff = (wheel oldMouse) - (wheel newMouse)
-        k = newZoom / zoom0
-        newScaleMat = if (k /= 1)
-                      then Geometry.scale k $ scaleMat global
-                      else scaleMat global
+        wheelDiff = (wheel newMouse) - (wheel oldMouse)
 
 
 onClick :: GLint -> GLint -> Int -> MouseState -> MouseState
@@ -573,7 +572,7 @@ triggerReshape state@GlobalState{..} = do
   refillBuffer vertexBufferId $ interpolate simTime oldVertice oldAltVertice
 
   -- create new alt vertice ligned with the cam
-  let (newVertice, newSeed) = rndVertexBufferData seed (orbitingEyeForModel scaleMat modelMat camera) model vertexCountPerFace
+  let (newVertice, newSeed) = rndVertexBufferData seed (orbitingEyeForModel (scaledModelMat state) camera) model vertexCountPerFace
   refillBuffer altVertexBufferId newVertice
 
   -- updating geometries can be long, update realTime after
@@ -684,7 +683,7 @@ loop static action global = do
   projection <- get $ projMat newGlobal
   let view = viewMat $ camera newGlobal
   let vp = projection `multMat` view
-  let mvp = vp `multMat` (scaleMat newGlobal) `multMat` (modelMat newGlobal)
+  let mvp = vp `multMat` (scaledModelMat newGlobal)
 
   -- render
   render (simTime newGlobal) (lightIntensity newGlobal) projection mvp (glids newGlobal)
@@ -778,7 +777,7 @@ main = do
   let camState = updateViewMat $ defaultCamState { distance = span * 1.1 }
 
   let bufferMaker = if static then (\ m _ -> (vertice m, defaultSeed))
-                              else let camEye = orbitingEyeForModel identity identity camState in
+                              else let camEye = orbitingEyeForModel identity camState in
                                    (\ m s -> rndVertexBufferData s camEye m vertexCountPerFace)
   let (vertexBufferData, seed0) = bufferMaker model defaultSeed
 
@@ -804,7 +803,6 @@ main = do
                           , projMat = projMat
                           , modelMat = identity
                           , zoom = 1
-                          , scaleMat = identity
                           , vertexCountPerFace = vertexCountPerFace -- barycenter added to original faces
                           }
 
