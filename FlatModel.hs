@@ -76,7 +76,7 @@ flatVertexNormals normals (face:faces) =
 -- flags vertice which are a barycenter and not part of the original face.
 -- each face gets 1 barycenter and as many normal points as it originally contains.
 -- to use along 'facesToFlatIndice' and 'facesToFlatTriangles'.
-facesToCenterFlags :: RealFloat a => [[Int]] -> [a]
+facesToCenterFlags :: Integral a => [[Int]] -> [a]
 facesToCenterFlags [] = []
 facesToCenterFlags (arr:arrs) =
   1 : (take (length arr) $ iterate id 0) ++ facesToCenterFlags arrs

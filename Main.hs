@@ -28,7 +28,7 @@ import Graphics.GLUtil
 
 import Control.Exception
 import Foreign
-import Foreign.C.Types (CFloat)
+import Foreign.C.Types (CFloat, CInt)
 import Data.Maybe (listToMaybe)
 import Data.IORef (IORef, newIORef)
 import Data.Vec (Mat44, Vec4, multmv, identity)
@@ -140,8 +140,8 @@ updateViewMat orbit = orbit { viewMat = newViewMat }
 
 
 defaultLightState :: OrbitingState
-defaultLightState = updateViewMat OrbitingState { theta = pi/3
-                                                , phi = pi/3
+defaultLightState = updateViewMat OrbitingState { theta = 0.55*pi
+                                                , phi = 0.55*pi
                                                 , distance = 1
                                                 , viewMat = identity
                                                 }
@@ -167,6 +167,12 @@ defaultSeed = RND.seed $ map charToWord32 "defaultSeed"
 instance RND.RangeRandom CFloat where
   range_random (x0, x1) s = (realToFrac r, s')
     where (r, s') = RND.range_random(realToFrac x0 :: Float, realToFrac x1 :: Float) s
+
+
+-- GLint RangeRandom instance
+instance RND.RangeRandom CInt where
+  range_random (x0, x1) s = (fromIntegral r, s')
+    where (r, s') = RND.range_random(fromIntegral x0 :: Int, fromIntegral x1 :: Int) s
 
 
 gaussianNoise :: RealFloat a => a -> a -> a -> (a, a)
@@ -211,6 +217,16 @@ axisRndFacesToFlatTriangles seed span (Point3f nx ny nz) vertice vertexCountPerF
                 translated = map (\(v,t) -> v+t) $ zip values translation
 
 
+-- assign a random code between 0 and 3 to each vertex
+-- vertice of the a single face have the same code
+rndAnimationCodeData :: RND.Seed -> GLint -> [[Int]] -> ([GLint], RND.Seed)
+rndAnimationCodeData seed _ [] = ([], seed)
+rndAnimationCodeData seed k (face:faces) = (replicate l rnd ++ rem, lastSeed)
+  where (rnd, newSeed) = RND.range_random (0, k) seed
+        l = length faces
+        (rem, lastSeed) = rndAnimationCodeData newSeed k faces
+
+
 -- randomize the position of a polyhedron faces in a way imperceptible to the given (ortho) camera, relative to model transform
 rndVertexBufferData :: RND.Seed -> Point3GL -> FlatModel -> [Int] -> ([GLfloat], RND.Seed)
 rndVertexBufferData seed camEye model vertexCountPerFace =
@@ -218,7 +234,7 @@ rndVertexBufferData seed camEye model vertexCountPerFace =
 
 
 -- attribute buffer to distinguish edge points from face center points
-centerBufferData :: [[Int]] -> [GLfloat]
+centerBufferData :: [[Int]] -> [GLint]
 centerBufferData faces = facesToCenterFlags faces
 
 
@@ -255,7 +271,7 @@ data GLIDs = GLIDs { prog :: Program
                    }
 
 
-initGL :: Bool -> Bool -> [GLfloat] -> [GLfloat] -> [GLuint] -> [GLfloat] -> IO GLIDs
+initGL :: Bool -> Bool -> [GLfloat] -> [GLfloat] -> [GLuint] -> [GLint] -> IO GLIDs
 initGL drawFront drawBack verticeData normalData indiceData centersData = do
   GL.depthFunc $= Just GL.Less
   GL.blend $= Enabled
@@ -283,10 +299,10 @@ initGL drawFront drawBack verticeData normalData indiceData centersData = do
 
   -- initially, vertice and alt vertice are equal
   let vertexBuffersLength = length verticeData
-  vertexBufferId <- fillNewBuffer verticeData
-  normalBufferId <- fillNewBuffer normalData
-  altVertexBufferId <- fillNewBuffer verticeData
-  centerBufferId <- fillNewBuffer centersData
+  vertexBufferId <- fillNewFloatBuffer verticeData
+  normalBufferId <- fillNewFloatBuffer normalData
+  altVertexBufferId <- fillNewFloatBuffer verticeData
+  centerBufferId <- fillNewIntBuffer centersData
 
   return GLIDs{..}
 
@@ -374,8 +390,18 @@ render t lightDirection mvpMat glids@GLIDs{..} = do
 withNewPtr f = alloca (\p -> f p >> peek p)
 
 
-fillNewBuffer :: [GLfloat] -> IO GLuint
-fillNewBuffer list = do
+fillNewIntBuffer :: [GLint] -> IO GLuint
+fillNewIntBuffer list = do
+  bufId <- withNewPtr (glGenBuffers 1)
+  glBindBuffer gl_ARRAY_BUFFER bufId
+  withArrayLen list $ \length ptr ->
+    glBufferData gl_ARRAY_BUFFER (fromIntegral (length * sizeOf (undefined :: GLint)))
+                 (ptr :: Ptr GLint) gl_STATIC_DRAW
+  return bufId
+
+
+fillNewFloatBuffer :: [GLfloat] -> IO GLuint
+fillNewFloatBuffer list = do
   bufId <- withNewPtr (glGenBuffers 1)
   glBindBuffer gl_ARRAY_BUFFER bufId
   withArrayLen list $ \length ptr ->
@@ -763,7 +789,7 @@ main = do
   -- model from json?
   json <- readJson jsonFile
 
-  let rawModel@(Model vs fs ns) = maybe snubRhombiMix
+  let rawModel@(Model vs fs ns) = maybe icosahedron
                                         (parseJson indice)
                                         json
 
@@ -781,7 +807,6 @@ main = do
   let vertexCountPerFace = map ((1 +) . length) fs -- barycenter added to original faces
   let centersBuffer = centerBufferData fs
   let indiceBuffer = indexBufferData fs
-
 
   -- initialize
   GLFW.initialize
@@ -809,7 +834,7 @@ main = do
   let bufferMaker = if static then (\ m _ -> (vertice m, defaultSeed))
                               else let camEye = orbitingEyeForModel identity camState in
                                    (\ m s -> rndVertexBufferData s camEye m vertexCountPerFace)
-  let (vertexBufferData, seed0) = bufferMaker model defaultSeed
+  let (vertexBufferData, newSeed) = bufferMaker model defaultSeed
 
   glids <- initGL (bothFaces || not invertFaces)
                   (bothFaces || invertFaces)
@@ -825,7 +850,7 @@ main = do
                           , model = model
                           , light = defaultLightState
                           , mouse = defaultMouseState
-                          , seed = seed0
+                          , seed = newSeed
                           , glids = glids
                           , realTime = 0
                           , simTime = 0

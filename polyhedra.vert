@@ -3,7 +3,7 @@
 in vec3 position;
 in vec3 normal;
 in vec3 alt_position;
-in float a_barycentric;
+in int a_barycentric;
 
 uniform mat4 u_mvpMat;
 uniform vec4 u_lightDirection;
