@@ -13,7 +13,7 @@ Usage
 Run with:
 
 * "--f" for fullscreen
-* "--s" for static mode, with no animation / randomization
+* "--s" for static mode, with no deconstruction/reconstruction
 * "--i" to draw back faces, cull front faces (inverse of default rendering)
 * "--b" to draw both faces, back and front
 * "--json file(,i)*" to render the ASSIMP formatted model from the json file. Optional indice allow to select which meshes to draw. By default, all meshes are combined into one.
@@ -21,18 +21,17 @@ Run with:
 Features
 --------
 
-Drag the mouse to rotate the view.
+* View control: drag the mouse to rotate the view, use the mouse wheel to zoom.
+* Reconstruction: upon mouse / key release, the model reconstructs itself to appear intact to the viewer (in default mode, in static mode, the model is loaded and displayed verbatim).
+* Light control: with the left control key pressed, drag the mouse to orient the light source and use the mouse wheel to adjust the light intensity.
+* Model adjustment: use arrow keys to rotate the model (useful when model is facing downward or upward).
+* Misc: esc or q to exit.
 
-Use arrow keys to rotate the model (useful when model is facing downward or upward).
-
-Upon mouse / key release, the model reconstructs itself to appear intact to the viewer (in default mode, in static mode, the model is loaded and displayed verbatim).
-
-Misc: esc or q to exit, mouse wheel to zoom in/out, page up/down to adjust the light level.
 
 In the works
 ------------
 
-Shader lighting.
+More exotic transition animations.
 
 Credits
 -------

@@ -11,6 +11,7 @@ import Graphics.Rendering.OpenGL.GLU as GLU
 import Graphics.UI.GLFW as GLFW
 import Graphics.Rendering.OpenGL (($=))
 import Graphics.Rendering.OpenGL.Raw ( glUniformMatrix4fv
+                                     , glUniform4fv
                                      , glEnableVertexAttribArray
                                      , glBindBuffer
                                      , gl_ARRAY_BUFFER
@@ -30,7 +31,7 @@ import Foreign
 import Foreign.C.Types (CFloat)
 import Data.Maybe (listToMaybe)
 import Data.IORef (IORef, newIORef)
-import Data.Vec (Mat44, identity)
+import Data.Vec (Mat44, Vec4, multmv, identity)
 import Data.List.Split (splitOn)
 import qualified Random.MWC.Pure as RND
 
@@ -61,6 +62,7 @@ instance NearZero CFloat where
   {-# INLINE nearZero #-}
 
 
+type Vec4f = Vec4 GLfloat
 type Mat44f = Mat44 GLfloat
 type Point3GL = Point3f GLfloat
 
@@ -75,8 +77,7 @@ data KeyState = KeyState { up :: KeyButtonState
                          , down :: KeyButtonState
                          , left :: KeyButtonState
                          , right :: KeyButtonState
-                         , pgup :: KeyButtonState
-                         , pgdn :: KeyButtonState
+                         , ctrl :: KeyButtonState
                          }
 
 
@@ -96,7 +97,7 @@ data MouseState = MouseState { mouseX :: GLint
 
 
 data GlobalState = GlobalState { camera :: OrbitingState
---                               , light :: OrbitingState
+                               , light :: OrbitingState
                                , mouse :: MouseState
                                , zoom :: GLfloat     -- scale for the model
                                , modelMat :: Mat44f
@@ -105,7 +106,6 @@ data GlobalState = GlobalState { camera :: OrbitingState
                                , glids :: GLIDs
                                , realTime :: GLfloat
                                , simTime :: GLfloat
-                               , lightIntensity :: GLfloat
                                , keys :: KeyState
                                , projMat :: IORef Mat44f
                                , vertexCountPerFace :: [Int]
@@ -120,7 +120,7 @@ scaledModelMat global = Geometry.scale (zoom global) identity `multMat` (modelMa
 
 
 defaultKeyState :: KeyState
-defaultKeyState = KeyState Release Release Release Release Release Release
+defaultKeyState = KeyState Release Release Release Release Release
 
 
 defaultMouseState :: MouseState
@@ -131,12 +131,28 @@ defaultMouseState = MouseState { mouseX = 0
                                }
 
 
+updateViewMat :: OrbitingState -> OrbitingState
+updateViewMat orbit = orbit { viewMat = newViewMat }
+  where (Point3f px py pz) = orbitingPosition orbit
+        newViewMat = lookAtMatrix (vec3 px py pz)
+                                  (vec3 0 0 0)
+                                  (vec3 0 1 0)
+
+
+defaultLightState :: OrbitingState
+defaultLightState = updateViewMat OrbitingState { theta = pi/3
+                                                , phi = pi/3
+                                                , distance = 1
+                                                , viewMat = identity
+                                                }
+
+
 defaultCamState :: OrbitingState
-defaultCamState = OrbitingState { theta = pi/2
-                                , phi = pi/2
-                                , distance = 50
-                                , viewMat = identity
-                                }
+defaultCamState = updateViewMat OrbitingState { theta = pi/2
+                                              , phi = pi/2
+                                              , distance = 50
+                                              , viewMat = identity
+                                              }
 
 
 -- rnd / num distribution functions
@@ -302,19 +318,33 @@ unbindGeometry GLIDs{..} = do glDisableVertexAttribArray vertexAttrib
 
 bindUniformMatrix :: Program -> String -> Mat44f -> IO ()
 bindUniformMatrix prog uName mat = do
-  (UniformLocation mvpLoc) <- get $ uniformLocation prog uName
-  with mat $ glUniformMatrix4fv mvpLoc 1 (fromBool True) . castPtr
+  (UniformLocation matLoc) <- get $ uniformLocation prog uName
+  with mat $ glUniformMatrix4fv matLoc 1 (fromBool True) . castPtr
 
 
-render :: GLfloat -> GLfloat -> Mat44f -> Mat44f -> GLIDs -> IO ()
-render t lightIntensity pMat mvpMat glids@GLIDs{..} = do
+bindUniformVector :: Program -> String -> Vec4f -> IO ()
+bindUniformVector prog uName vec = do
+  (UniformLocation vLoc) <- get $ uniformLocation prog uName
+  with vec $ glUniform4fv vLoc 1 . castPtr
+
+
+render :: GLfloat -> Point3GL -> Mat44f -> GLIDs -> IO ()
+render t lightDirection mvpMat glids@GLIDs{..} = do
   GL.clear [GL.ColorBuffer, GL.DepthBuffer]
 
   currentProgram $= Just prog
 
   -- bind matrices
   bindUniformMatrix prog "u_mvpMat" mvpMat
-  bindUniformMatrix prog "u_pMat" pMat
+
+  -- bind light
+  -- direction is normed in shader
+  let Point3f x y z = normalized lightDirection
+  bindUniformVector prog "u_lightDirection" $ vec4 x y z
+  -- intensity decreases with square distance
+  let n = norm lightDirection
+  lightILoc <- get $ uniformLocation prog "u_lightIntensity"
+  uniform lightILoc $= Index1 (1 / n / n)
 
   -- bind uniform colors
   colLoc <- get $ uniformLocation prog "u_color"
@@ -325,10 +355,6 @@ render t lightIntensity pMat mvpMat glids@GLIDs{..} = do
   -- bind time
   timeLoc <- get $ uniformLocation prog "u_time"
   uniform timeLoc $= Index1 t
-
-  -- bind light intensity
-  lightLoc <- get $ uniformLocation prog "u_lightIntensity"
-  uniform lightLoc $= Index1 lightIntensity
 
   -- bind attributes (position and alt position and center flags)
   bindGeometry glids
@@ -424,14 +450,6 @@ loadProgram vertShader fragShader = do
 -- camera functions
 
 
-updateViewMat :: OrbitingState -> OrbitingState
-updateViewMat orbit = orbit { viewMat = newViewMat }
-  where (Point3f px py pz) = orbitingPosition orbit
-        newViewMat = lookAtMatrix (vec3 px py pz)
-                                  (vec3 0 0 0)
-                                  (vec3 0 1 0)
-
-
 -- direction to origin from orbiting position
 orbitCenterDirection :: OrbitingState -> Point3GL
 orbitCenterDirection orbit = (-1) `times` (orbitingPosition orbit)
@@ -494,8 +512,8 @@ updateAngles diffX diffY orbit = orbit { theta = (theta orbit) + (fromIntegral d
                                        }
 
 
-updateCam :: MouseState -> MouseState -> OrbitingState -> OrbitingState
-updateCam oldMouse newMouse orbit =
+updateOrbitState :: MouseState -> MouseState -> OrbitingState -> OrbitingState
+updateOrbitState oldMouse newMouse orbit =
   if leftButton newMouse == Press
     then updateAngles diffX diffY orbit
     else orbit
@@ -598,7 +616,6 @@ updateSimState newMouse state@GlobalState{..} = do
 handleKeys :: GlobalState -> IO (GlobalState)
 handleKeys state = do
   let modelMatrix = modelMat state
-  let lIntensity = lightIntensity state
   let ks@KeyState{..} = keys state
 
   -- read key inputs
@@ -606,15 +623,12 @@ handleKeys state = do
   d <- GLFW.getKey GLFW.DOWN
   l <- GLFW.getKey GLFW.LEFT
   r <- GLFW.getKey GLFW.RIGHT
-  pu <- GLFW.getKey GLFW.PAGEUP
-  pd <- GLFW.getKey GLFW.PAGEDOWN
+  ctrl <- GLFW.getKey GLFW.LCTRL
 
-  let (uR, dR, lR, rR, puR, pdR) = ( released u up
+  let (uR, dR, lR, rR) = ( released u up
                                    , released d down
                                    , released l left
                                    , released r right
-                                   , released pu pgup
-                                   , released pd pgdn
                                    )
 
   -- rotate model matrix when arrow key released
@@ -628,35 +642,46 @@ handleKeys state = do
                  (True, _) -> multMat negYRot newMat0
                  (False, True) -> multMat posYRot newMat0
 
-  let newKS = ks { up = u, down = d, left = l, right = r, pgup = pu, pgdn = pd }
-
-  let newState0 = if puR
-                    then state { lightIntensity = lIntensity * 1.2 }
-                    else if pdR
-                      then state { lightIntensity = lIntensity / 1.2 }
-                      else state
+  let newKS = ks { up = u, down = d, left = l, right = r, ctrl = ctrl }
 
   -- if a rotation was applied, trigger reshape, else just update state
   if uR || dR || lR || rR
-    then triggerReshape newState0 { keys = newKS, modelMat = newMat1 }
-    else return newState0 { keys = newKS, modelMat = newMat1 }
+    then triggerReshape state { keys = newKS, modelMat = newMat1 }
+    else return state { keys = newKS, modelMat = newMat1 }
 
   where released newK oldK = newK == Release && newK /= oldK
 
 
-updateView :: MouseState -> GlobalState -> GlobalState
-updateView newMouseState global =
+updateCam :: MouseState -> GlobalState -> GlobalState
+updateCam newMouseState global =
   newGlobal { camera = newCamera }
   where
     oldMouse = mouse global
     -- get new cam state from mouse actions
-    newCamera0 = updateCam oldMouse newMouseState (camera global)
+    newCamera0 = updateOrbitState oldMouse newMouseState (camera global)
 
     -- apply zoom
     newGlobal = updateZoom oldMouse newMouseState global
 
     -- update view matrix in camera
     newCamera = updateViewMat newCamera0
+
+
+updateLight :: MouseState -> GlobalState -> GlobalState
+updateLight newMouseState global =
+  global { Main.light = newLight }
+  where
+    oldMouse = mouse global
+    -- get new cam state from mouse actions
+    newLight0 = updateOrbitState oldMouse newMouseState (Main.light global)
+
+    a = 1.05 ** fromIntegral wheelDiff
+    wheelDiff = (wheel newMouseState) - (wheel $ mouse global)
+    -- update intensity (= distance of orbiting state)
+    newLight1 = newLight0 { distance = distance newLight0 / a }
+
+    -- update view matrix in camera
+    newLight = updateViewMat newLight1
 
 
 loop :: Bool -> IO Action -> GlobalState -> IO ()
@@ -672,7 +697,9 @@ loop static action global = do
   let newMouseState = mouseStateUpdater $ mouse newGlobal0
 
   -- update the view related properties in the global state
-  let newGlobal1 = updateView newMouseState newGlobal0
+  let newGlobal1 = if Release == ctrl (keys newGlobal0)
+                     then updateCam newMouseState newGlobal0
+                     else updateLight newMouseState newGlobal0
 
   -- check for sim restart, update sim & gl states if necessary
   newGlobal <- if static
@@ -680,13 +707,16 @@ loop static action global = do
                  else updateSimState newMouseState newGlobal1
 
   -- prepare matrices for rendering
-  projection <- get $ projMat newGlobal
+  p <- get $ projMat newGlobal
   let view = viewMat $ camera newGlobal
-  let vp = projection `multMat` view
+  let vp = p `multMat` view
   let mvp = vp `multMat` (scaledModelMat newGlobal)
 
+  -- light direction
+  let lightDirection = orbitCenterDirection $ Main.light newGlobal
+
   -- render
-  render (simTime newGlobal) (lightIntensity newGlobal) projection mvp (glids newGlobal)
+  render (simTime newGlobal) lightDirection mvp (glids newGlobal)
 
   -- exit if window closed or Esc pressed
   esc <- GLFW.getKey GLFW.ESC
@@ -793,12 +823,12 @@ main = do
   projMat <- newIORef identity
   let state = GlobalState { camera = camState
                           , model = model
+                          , light = defaultLightState
                           , mouse = defaultMouseState
                           , seed = seed0
                           , glids = glids
                           , realTime = 0
                           , simTime = 0
-                          , lightIntensity = 15
                           , keys = defaultKeyState
                           , projMat = projMat
                           , modelMat = identity
