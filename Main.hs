@@ -6,7 +6,21 @@ module Main (
 
 import System.Environment (getArgs)
 
-import Graphics.Rendering.OpenGL.GL as GL
+import Graphics.Rendering.OpenGL.GL ( GLfloat
+                                    , GLint
+                                    , GLuint
+                                    , Program
+                                    , BufferObject
+                                    , AttribLocation (AttribLocation), attribLocation
+                                    , UniformLocation (UniformLocation), uniformLocation
+                                    , get, uniform
+                                    , BufferTarget (ElementArrayBuffer)
+                                    , currentProgram, bindBuffer, createProgram, linkProgram
+                                    , validateProgram, attachShader, detachShader, releaseShaderCompiler
+                                    , linkStatus, validateStatus, programInfoLog
+                                    , drawElements
+                                    )
+import qualified Graphics.Rendering.OpenGL.GL as GL
 import Graphics.Rendering.OpenGL.GLU as GLU
 import Graphics.UI.GLFW as GLFW
 import Graphics.Rendering.OpenGL (($=))
@@ -50,6 +64,8 @@ import FlatModel ( facesToFlatTriangles
                  , facesToCenterFlags
                  , facesToFlatIndice
                  , normalsToFlatNormals
+                 , FlatModel (FlatModel), vertice, normals, verticePerFace, span
+                 , fromModel
                  )
 import ListUtil
 import Json
@@ -65,12 +81,10 @@ instance NearZero CFloat where
 type Vec4f = Vec4 GLfloat
 type Mat44f = Mat44 GLfloat
 type Point3GL = Point3f GLfloat
+type FlatModelGL = FlatModel GLfloat GLint GLuint
 
 
 data Action = Action (IO Action, MouseState -> MouseState)
-
-
-data FlatModel = FlatModel { vertice :: [GLfloat], faces :: [Int], normals :: [GLfloat] }
 
 
 data KeyState = KeyState { up :: KeyButtonState
@@ -78,6 +92,7 @@ data KeyState = KeyState { up :: KeyButtonState
                          , left :: KeyButtonState
                          , right :: KeyButtonState
                          , ctrl :: KeyButtonState
+                         , tab :: KeyButtonState
                          }
 
 
@@ -101,14 +116,15 @@ data GlobalState = GlobalState { camera :: OrbitingState
                                , mouse :: MouseState
                                , zoom :: GLfloat     -- scale for the model
                                , modelMat :: Mat44f
-                               , model :: FlatModel
+                               , modelId :: Int
+                               , models :: [FlatModelGL]
                                , seed :: RND.Seed
                                , glids :: GLIDs
+                               , static :: Bool
                                , realTime :: GLfloat
                                , simTime :: GLfloat
                                , keys :: KeyState
                                , projMat :: IORef Mat44f
-                               , vertexCountPerFace :: [Int]
                                }
 
 
@@ -120,7 +136,7 @@ scaledModelMat global = Geometry.scale (zoom global) identity `multMat` (modelMa
 
 
 defaultKeyState :: KeyState
-defaultKeyState = KeyState Release Release Release Release Release
+defaultKeyState = KeyState Release Release Release Release Release Release
 
 
 defaultMouseState :: MouseState
@@ -228,19 +244,9 @@ rndAnimationCodeData seed k (face:faces) = (replicate l rnd ++ rem, lastSeed)
 
 
 -- randomize the position of a polyhedron faces in a way imperceptible to the given (ortho) camera, relative to model transform
-rndVertexBufferData :: RND.Seed -> Point3GL -> FlatModel -> [Int] -> ([GLfloat], RND.Seed)
-rndVertexBufferData seed camEye model vertexCountPerFace =
-  axisRndFacesToFlatTriangles seed (norm camEye) (normalized camEye) (vertice model) vertexCountPerFace
-
-
--- attribute buffer to distinguish edge points from face center points
-centerBufferData :: [[Int]] -> [GLint]
-centerBufferData faces = facesToCenterFlags faces
-
-
--- indice linked to the vertex buffer
-indexBufferData :: [[Int]] -> [GLuint]
-indexBufferData faces = map fromIntegral $ facesToFlatIndice faces
+rndVertexBufferData :: RND.Seed -> Point3GL -> FlatModelGL -> ([GLfloat], RND.Seed)
+rndVertexBufferData seed camEye model =
+  axisRndFacesToFlatTriangles seed (norm camEye) (normalized camEye) (vertice model) (verticePerFace model)
 
 
 -- how many to draw
@@ -256,44 +262,42 @@ interpolate t from to = map interp $ zip from to
 
 
 -- GL Stuff
-data GLIDs = GLIDs { prog :: Program
-                   , indice :: BufferObject
-                   , indiceCount :: GLint
-                   , vertexBuffersLength :: Int
-                   , vertexBufferId :: GLuint
-                   , vertexAttrib :: GLuint
-                   , normalBufferId :: GLuint
-                   , normalAttrib :: GLuint
-                   , altVertexBufferId :: GLuint
-                   , altVertexAttrib :: GLuint
-                   , centerBufferId :: GLuint
-                   , centerAttrib :: GLuint
+data ShaderInfo = ShaderInfo { prog :: Program
+                             , vertexAttrib :: GLuint
+                             , normalAttrib :: GLuint
+                             , altVertexAttrib :: GLuint
+                             , centerAttrib :: GLuint
+                             }
+
+
+data BuffersInfo = BuffersInfo { indice :: BufferObject
+                              , indiceCount :: GLint
+                              , vertexBuffersLength :: Int
+                              , vertexBufferId :: GLuint
+                              , normalBufferId :: GLuint
+                              , altVertexBufferId :: GLuint
+                              , centerBufferId :: GLuint
+                              }
+
+
+data GLIDs = GLIDs { shaderInfo :: ShaderInfo
+                   , buffersInfo :: BuffersInfo
                    }
 
 
-initGL :: Bool -> Bool -> [GLfloat] -> [GLfloat] -> [GLuint] -> [GLint] -> IO GLIDs
-initGL drawFront drawBack verticeData normalData indiceData centersData = do
-  GL.depthFunc $= Just GL.Less
-  GL.blend $= Enabled
-  GL.blendFunc $= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
-  GL.shadeModel $= GL.Smooth
---  ambient (Light 0) $= Color4 0.1 0.1 0.1 (1 :: GLfloat)
---  diffuse (Light 0) $= Color4 0.9 0.9 0.9 (1 :: GLfloat)
---  light (Light 0) $= Enabled
-
-  let front = if drawFront then Fill else Line
-  let back = if drawBack then Fill else Line
-  GL.polygonMode $= (front, back)
-
---  GL.cullFace $= Just Back
-  GL.cullFace $= Nothing
-
-  -- make shaders & data
+createShader :: IO ShaderInfo
+createShader = do
   prog <- loadProgram "polyhedra.vert" "polyhedra.frag"
   (AttribLocation vertexAttrib) <- get (attribLocation prog "position")
   (AttribLocation normalAttrib) <- get (attribLocation prog "normal")
   (AttribLocation altVertexAttrib) <- get (attribLocation prog "alt_position")
   (AttribLocation centerAttrib) <- get (attribLocation prog "a_barycentric")
+  return ShaderInfo{..}
+
+
+loadBuffers :: [GLfloat] -> [GLfloat] -> [GLuint] -> [GLint] -> IO BuffersInfo
+loadBuffers verticeData normalData indiceData centersData = do
+
   indice <- makeBuffer ElementArrayBuffer indiceData
   let indiceCount = indexCount indiceData
 
@@ -303,12 +307,37 @@ initGL drawFront drawBack verticeData normalData indiceData centersData = do
   normalBufferId <- fillNewFloatBuffer normalData
   altVertexBufferId <- fillNewFloatBuffer verticeData
   centerBufferId <- fillNewIntBuffer centersData
+  return BuffersInfo{..}
+
+
+initGL :: Bool -> Bool -> [GLfloat] -> [GLfloat] -> [GLuint] -> [GLint] -> IO GLIDs
+initGL drawFront drawBack verticeData normalData indiceData centersData = do
+  GL.depthFunc $= Just GL.Less
+  GL.blend $= GL.Enabled
+  GL.blendFunc $= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
+  GL.shadeModel $= GL.Smooth
+--  ambient (Light 0) $= Color4 0.1 0.1 0.1 (1 :: GLfloat)
+--  diffuse (Light 0) $= Color4 0.9 0.9 0.9 (1 :: GLfloat)
+--  light (Light 0) $= Enabled
+
+  let front = if drawFront then GL.Fill else GL.Line
+  let back = if drawBack then GL.Fill else GL.Line
+  GL.polygonMode $= (front, back)
+
+--  GL.cullFace $= Just Back
+  GL.cullFace $= Nothing
+
+  -- make shaders & data
+  shaderInfo <- Main.createShader
+
+  -- create data buffers
+  buffersInfo <- loadBuffers verticeData normalData indiceData centersData
 
   return GLIDs{..}
 
 
-cleanUpGLStuff :: GLIDs -> IO ()
-cleanUpGLStuff GLIDs{..} = do
+cleanBuffers :: BuffersInfo -> IO ()
+cleanBuffers BuffersInfo{..} = do
   with vertexBufferId $ glDeleteBuffers 1
   with normalBufferId $ glDeleteBuffers 1
   with altVertexBufferId $ glDeleteBuffers 1
@@ -319,14 +348,17 @@ cleanUpGLStuff GLIDs{..} = do
 
 
 bindGeometry :: GLIDs -> IO ()
-bindGeometry GLIDs{..} = do bindFloatBufferToAttrib 3 vertexBufferId vertexAttrib
+bindGeometry GLIDs{..} = do let ShaderInfo{..} = shaderInfo
+                            let BuffersInfo{..} = buffersInfo
+                            bindFloatBufferToAttrib 3 vertexBufferId vertexAttrib
                             bindFloatBufferToAttrib 3 normalBufferId normalAttrib
                             bindFloatBufferToAttrib 3 altVertexBufferId altVertexAttrib
                             bindFloatBufferToAttrib 1 centerBufferId centerAttrib
 
 
 unbindGeometry :: GLIDs -> IO ()
-unbindGeometry GLIDs{..} = do glDisableVertexAttribArray vertexAttrib
+unbindGeometry GLIDs{..} = do let ShaderInfo{..} = shaderInfo
+                              glDisableVertexAttribArray vertexAttrib
                               glDisableVertexAttribArray normalAttrib
                               glDisableVertexAttribArray altVertexAttrib
                               glDisableVertexAttribArray centerAttrib
@@ -346,6 +378,9 @@ bindUniformVector prog uName vec = do
 
 render :: GLfloat -> Point3GL -> Mat44f -> GLIDs -> IO ()
 render t lightDirection mvpMat glids@GLIDs{..} = do
+  let ShaderInfo{..} = shaderInfo
+  let BuffersInfo{..} = buffersInfo
+
   GL.clear [GL.ColorBuffer, GL.DepthBuffer]
 
   currentProgram $= Just prog
@@ -360,24 +395,25 @@ render t lightDirection mvpMat glids@GLIDs{..} = do
   -- intensity decreases with square distance
   let n = norm lightDirection
   lightILoc <- get $ uniformLocation prog "u_lightIntensity"
-  uniform lightILoc $= Index1 (1 / n / n)
+  uniform lightILoc $= GL.Index1 (1 / n / n)
 
   -- bind uniform colors
   colLoc <- get $ uniformLocation prog "u_color"
   bColLoc <- get $ uniformLocation prog "u_borderColor"
-  uniform colLoc $= Color4 1 1 1 (1 :: GLfloat)
-  uniform bColLoc $= Color4 0.4 0.4 0.4 (1 :: GLfloat)
+  uniform colLoc $= GL.Color4 1 1 1 (1 :: GLfloat)
+  uniform bColLoc $= GL.Color4 0.4 0.4 0.4 (1 :: GLfloat)
 
   -- bind time
   timeLoc <- get $ uniformLocation prog "u_time"
-  uniform timeLoc $= Index1 t
+  uniform timeLoc $= GL.Index1 t
 
-  -- bind attributes (position and alt position and center flags)
+  -- bind attributes
   bindGeometry glids
+
   -- bind indice
   bindBuffer ElementArrayBuffer $= Just (indice)
 
-  drawElements Triangles indiceCount UnsignedInt offset0
+  drawElements GL.Triangles indiceCount GL.UnsignedInt offset0
 
   unbindGeometry glids
 
@@ -446,8 +482,8 @@ bindFloatBufferToAttrib components bufId attribLoc = do
 loadProgram :: String -> String -> IO Program
 loadProgram vertShader fragShader = do
   shaders <- mapM (uncurry loadShader)
-    [ (VertexShader, vertShader)
-    , (FragmentShader, fragShader)
+    [ (GL.VertexShader, vertShader)
+    , (GL.FragmentShader, fragShader)
     ]
   prog <- createProgram
   mapM_ (attachShader prog) shaders
@@ -499,13 +535,13 @@ orbitingEyeForModel modelMatrix orbit = vec4ToPoint3f orbitEye
 -- input handling / UI
 
 
-resize :: GLfloat -> IORef Mat44f -> GLFW.WindowSizeCallback
-resize span projMatRef size@(Size w h) = do
+resize :: IORef Mat44f -> GLFW.WindowSizeCallback
+resize projMatRef size@(GL.Size w h) = do
   let hh = if h < 0 then 1 else h
   let aspect = (fromIntegral w) / (fromIntegral hh)
-  GL.viewport   $= (Position 0 0, size)
+  GL.viewport   $= (GL.Position 0 0, size)
 
-  let s = span * 1.5
+  let s = 1.5
   let far = 5*s
   let near = -3*s
   let right = s * aspect
@@ -606,17 +642,17 @@ waitForRelease = do
 
 triggerReshape :: GlobalState -> IO GlobalState
 triggerReshape state@GlobalState{..} = do
-  let GLIDs{..} = glids
+  let BuffersInfo{..} = buffersInfo glids
 
   -- read current vertex buffers
-  oldVertice <- Main.readBuffer vertexBufferId vertexBuffersLength
-  oldAltVertice <- Main.readBuffer altVertexBufferId vertexBuffersLength
+  oldVertice <- readBuffer vertexBufferId vertexBuffersLength
+  oldAltVertice <- readBuffer altVertexBufferId vertexBuffersLength
 
   -- vertex buffer becomes interpolation (as of now) of vertice and alt vertice
   refillBuffer vertexBufferId $ interpolate simTime oldVertice oldAltVertice
 
   -- create new alt vertice ligned with the cam
-  let (newVertice, newSeed) = rndVertexBufferData seed (orbitingEyeForModel (scaledModelMat state) camera) model vertexCountPerFace
+  let (newVertice, newSeed) = rndVertexBufferData seed (orbitingEyeForModel (scaledModelMat state) camera) (models !! modelId)
   refillBuffer altVertexBufferId newVertice
 
   -- updating geometries can be long, update realTime after
@@ -650,12 +686,14 @@ handleKeys state = do
   l <- GLFW.getKey GLFW.LEFT
   r <- GLFW.getKey GLFW.RIGHT
   ctrl <- GLFW.getKey GLFW.LCTRL
+  t <- GLFW.getKey GLFW.TAB
 
-  let (uR, dR, lR, rR) = ( released u up
-                                   , released d down
-                                   , released l left
-                                   , released r right
-                                   )
+  let (uR, dR, lR, rR, rT) = ( released u up
+                             , released d down
+                             , released l left
+                             , released r right
+                             , released t tab
+                             )
 
   -- rotate model matrix when arrow key released
   let newMat0 = case (uR, dR) of
@@ -668,12 +706,16 @@ handleKeys state = do
                  (True, _) -> multMat negYRot newMat0
                  (False, True) -> multMat posYRot newMat0
 
-  let newKS = ks { up = u, down = d, left = l, right = r, ctrl = ctrl }
+  let newKS = ks { up = u, down = d, left = l, right = r, ctrl = ctrl, tab = t }
+
+  -- if tab was released, change model
+  newState <- if rT then nextModel state
+                    else return state
 
   -- if a rotation was applied, trigger reshape, else just update state
   if uR || dR || lR || rR
-    then triggerReshape state { keys = newKS, modelMat = newMat1 }
-    else return state { keys = newKS, modelMat = newMat1 }
+    then triggerReshape newState { keys = newKS, modelMat = newMat1 }
+    else return newState { keys = newKS, modelMat = newMat1 }
 
   where released newK oldK = newK == Release && newK /= oldK
 
@@ -695,11 +737,11 @@ updateCam newMouseState global =
 
 updateLight :: MouseState -> GlobalState -> GlobalState
 updateLight newMouseState global =
-  global { Main.light = newLight }
+  global { light = newLight }
   where
     oldMouse = mouse global
     -- get new cam state from mouse actions
-    newLight0 = updateOrbitState oldMouse newMouseState (Main.light global)
+    newLight0 = updateOrbitState oldMouse newMouseState (light global)
 
     a = 1.05 ** fromIntegral wheelDiff
     wheelDiff = (wheel newMouseState) - (wheel $ mouse global)
@@ -710,7 +752,7 @@ updateLight newMouseState global =
     newLight = updateViewMat newLight1
 
 
-loop :: Bool -> IO Action -> GlobalState -> IO ()
+loop :: Bool -> IO Action -> GlobalState -> IO GlobalState
 loop static action global = do
 
   -- read keyboard actions & update global state
@@ -734,12 +776,14 @@ loop static action global = do
 
   -- prepare matrices for rendering
   p <- get $ projMat newGlobal
+  let span = FlatModel.span $ models newGlobal !! modelId newGlobal
+  let scaledP = Geometry.scale (1/span) p
   let view = viewMat $ camera newGlobal
-  let vp = p `multMat` view
+  let vp = scaledP `multMat` view
   let mvp = vp `multMat` (scaledModelMat newGlobal)
 
   -- light direction
-  let lightDirection = orbitCenterDirection $ Main.light newGlobal
+  let lightDirection = orbitCenterDirection $ light newGlobal
 
   -- render
   render (simTime newGlobal) lightDirection mvp (glids newGlobal)
@@ -750,7 +794,7 @@ loop static action global = do
   open <- GLFW.getParam GLFW.Opened
   if open && esc /= GLFW.Press && q /= GLFW.Press
     then loop static action' newGlobal
-    else return ()
+    else return newGlobal
 
 
 boolArgument :: String -> [String] -> Bool
@@ -760,6 +804,30 @@ boolArgument arg args = [] /= filter (\s -> s == arg) args
 parseJsonArgs :: String -> (FilePath, [Int])
 parseJsonArgs args = (head split, map read $ tail split)
   where split = splitOn "," args
+
+
+nextModel :: GlobalState -> IO GlobalState
+nextModel global@GlobalState{..} = do
+  let GLIDs{..} = glids
+  let newModelId = (1 + modelId) `mod` (length models)
+
+  -- load next model
+  let m@(FlatModel vs fs ns cs ids vpf span) = models !! newModelId
+
+  -- update cam to properly view new model
+  let newCamera = updateViewMat $ camera { distance = span * 1.1 }
+
+  -- clean gl buffers and recreate them with proper data
+  cleanBuffers buffersInfo
+
+  let bufferMaker = if static then (\ m _ -> (vertice m, defaultSeed))
+                              else let camEye = orbitingEyeForModel identity newCamera in
+                                   (\ m s -> rndVertexBufferData s camEye m)
+  let (vertexBufferData, newSeed) = bufferMaker m seed
+  newBuffersInfo <- loadBuffers vertexBufferData ns ids cs
+  let newGlids = glids { buffersInfo = newBuffersInfo }
+
+  return global { modelId = newModelId, glids = newGlids, camera = newCamera, seed = newSeed }
 
 
 main :: IO ()
@@ -789,24 +857,20 @@ main = do
   -- model from json?
   json <- readJson jsonFile
 
-  let rawModel@(Model vs fs ns) = maybe icosahedron
-                                        (parseJson indice)
-                                        json
+  let rawModel = maybe []
+                       (\j -> [parseJson indice j])
+                       json
 
-  putStr "Model data summary - vertex count: "
-  putStr $ show $ length vs
-  putStr ", face count: "
-  putStrLn $ show $ length fs
+--  putStr "Model data summary - vertex count: "
+--  putStr $ show $ length rvs
+--  putStr ", face count: "
+--  putStrLn $ show $ length rfs
 
-  let span = maximum $ map norm vs
-  let model = FlatModel (facesToFlatTriangles vs fs) (facesToFlatIndice fs) (normalsToFlatNormals ns fs)
+  let models = map fromModel
+                   (rawModel ++ polyhedrons)
 
   putStr "'Enhanced' model data summary - vertex count: "
-  putStrLn $ show $ length $ vertice model
-
-  let vertexCountPerFace = map ((1 +) . length) fs -- barycenter added to original faces
-  let centersBuffer = centerBufferData fs
-  let indiceBuffer = indexBufferData fs
+  putStrLn $ show $ length $ vertice $ models !! 0
 
   -- initialize
   GLFW.initialize
@@ -826,50 +890,43 @@ main = do
                     bits
                     GLFW.Window
 
-  GLFW.windowPos      $= Position 200 200
+  GLFW.windowPos $= GL.Position 200 200
 
   -- init GL state
-  let camState = updateViewMat $ defaultCamState { distance = span * 1.1 }
-
-  let bufferMaker = if static then (\ m _ -> (vertice m, defaultSeed))
-                              else let camEye = orbitingEyeForModel identity camState in
-                                   (\ m s -> rndVertexBufferData s camEye m vertexCountPerFace)
-  let (vertexBufferData, newSeed) = bufferMaker model defaultSeed
-
-  glids <- initGL (bothFaces || not invertFaces)
-                  (bothFaces || invertFaces)
-                  vertexBufferData
-                  (normals model)
-                  indiceBuffer
-                  centersBuffer
+  glstuff <- initGL (bothFaces || not invertFaces)
+                    (bothFaces || invertFaces)
+                    []
+                    []
+                    []
+                    []
 
   -- init global state
-  now <- get time
   projMat <- newIORef identity
-  let state = GlobalState { camera = camState
-                          , model = model
+  let state0 = GlobalState { camera = defaultCamState
+                          , models = models
+                          , modelId = -1
                           , light = defaultLightState
                           , mouse = defaultMouseState
-                          , seed = newSeed
-                          , glids = glids
+                          , seed = defaultSeed
+                          , glids = glstuff
                           , realTime = 0
                           , simTime = 0
                           , keys = defaultKeyState
                           , projMat = projMat
                           , modelMat = identity
                           , zoom = 1
-                          , vertexCountPerFace = vertexCountPerFace -- barycenter added to original faces
+                          , static = static
                           }
 
+  state <- nextModel state0
 
   -- setup stuff
   GLFW.swapInterval       $= 1 -- vsync
   GLFW.windowTitle        $= "Interpol ate me"
-  GLFW.windowSizeCallback $= resize span projMat
+  GLFW.windowSizeCallback $= resize projMat
   -- main loop
-  now <- get GLFW.time
-  loop static waitForPress state
+  lastState <- loop static waitForPress state
   -- exit
-  cleanUpGLStuff glids
+  cleanBuffers $ buffersInfo $ glids lastState
   GLFW.closeWindow
   GLFW.terminate

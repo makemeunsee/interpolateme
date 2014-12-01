@@ -2,10 +2,31 @@ module FlatModel ( facesToFlatTriangles
                  , facesToCenterFlags
                  , facesToFlatIndice
                  , normalsToFlatNormals
+                 , FlatModel (FlatModel), FlatModel.vertice, FlatModel.faces, normals, centers, indice, verticePerFace, FlatModel.span
+                 , fromModel
 ) where
 
 import Geometry
 import ListUtil
+
+
+data FlatModel a b c = FlatModel { vertice :: [a]
+                                 , faces :: [Int]
+                                 , normals :: [a]
+                                 , centers :: [b]
+                                 , indice :: [c]
+                                 , verticePerFace :: [Int]
+                                 , span :: a }
+
+
+fromModel :: (RealFloat a, Integral b, Integral c) => Model a -> FlatModel a b c
+fromModel (Model vs fs ns) = FlatModel (facesToFlatTriangles vs fs)
+                                       (facesToFlatIndice fs)
+                                       (normalsToFlatNormals ns fs)
+                                       (facesToCenterFlags fs)
+                                       (facesToFlatIndice fs)
+                                       (map ((1 +) . length) fs) -- barycenter added to original faces
+                                       (maximum $ map norm vs)
 
 
 -- function to convert data from a Model to flat data, with a new center vertex added to each face of the model
@@ -19,12 +40,12 @@ import ListUtil
 --                                          1 <- 7
 --                                          2 <- 9
 --                                          3 <- 8
-facesToFlatIndice :: [[Int]] -> [Int]
+facesToFlatIndice :: Integral a => [[Int]] -> [a]
 facesToFlatIndice faces = facesToFlatIndice0 0 faces
   where
-    facesToFlatIndice0 :: Int -> [[Int]] -> [Int]
+    facesToFlatIndice0 :: Integral a => a -> [[Int]] -> [a]
     facesToFlatIndice0 _ [] = []
-    facesToFlatIndice0 count (arr:arrs) = offsetTriangles ++ facesToFlatIndice0 (count+l+1) arrs
+    facesToFlatIndice0 count (arr:arrs) = offsetTriangles ++ facesToFlatIndice0 (1+count+ fromIntegral l) arrs
       where
         l = length arr
         triangles = firstWithEveryPair $ take (l+1) [0..]
