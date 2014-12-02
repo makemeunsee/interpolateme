@@ -1,0 +1,16 @@
+{
+  "version": "0.1",
+  "name": "Interpol Ate Me",
+  "description": "Haskell + Haste -> js + ThreeJS",
+  "launch_path": "/index.html",
+  "icons": {
+    "16": "/img/icons/mortar-16.png",
+    "48": "/img/icons/mortar-48.png",
+    "128": "/img/icons/mortar-128.png"
+  },
+  "developer": {
+    "name": "makemeunsee",
+    "url": "https://github.com/makemeunsee"
+  },
+  "default_locale": "en"
+}

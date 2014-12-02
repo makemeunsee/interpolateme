@@ -17,7 +17,9 @@
   </head>
   <body>
     <div id="dialog" title="Keeping the mask on">
-      <p>...</p>
+      <p>Drag to rotate the model.</p>
+      <p>Click "Grab light" and drag to move the light.</p>
+      <p>Double click to hide the UI.</p>
     </div>
     <div id="gui" class="gui-container">
         <div>
@@ -27,7 +29,11 @@
             <button id="fullscreen">fullscreen</button>
             <button id="showHelp">?</button>
         </div>
-    </div>
+        <br>
+        <div>
+            <input type="checkbox" id="grabLight"><label id="grabLightLabel" for="grabLight">Grab light</label>
+        </div>
+        </div>
     <div id="main"></div>
     
     <script type="text/javascript" src="http://cdnjs.cloudflare.com/ajax/libs/three.js/r69/three.min.js"></script>
@@ -41,6 +47,7 @@ uniform vec4 u_color;
 uniform vec4 u_borderColor;
 
 varying float v_barycenter;
+varying float v_intensity;
 
 float edgeFactor(const float thickness, const float bary)
 {
@@ -55,21 +62,33 @@ void main()
         u_borderColor,
         f
     );
-    gl_FragColor = vec4(ambient.rgb, 1.0);
+    vec4 diffuse = v_intensity * mix(
+        u_borderColor,
+        u_color,
+        f
+    );
+    gl_FragColor = vec4(max(diffuse.rgb, ambient.rgb), 1.0);
 }</script>
     <script id="shader-vs" type="x-shader/x-vertex">#ifdef GL_ES
 #extension GL_OES_standard_derivatives : enable
 #endif
 attribute float a_barycentric;
+attribute vec3 a_normal;
 
 uniform mat4 u_mvpMat;
+
+uniform vec4 u_lightDirection;
+uniform float u_lightIntensity;
 
 uniform float u_time;
 
 varying float v_barycenter;
+varying float v_intensity;
 
 void main()
 {
+    vec4 n = normalize(u_mvpMat * vec4(a_normal, 0.0));
+    v_intensity = max(dot(n, u_lightIntensity * u_lightDirection), 0.0);
 
     float alpha = 0.0;//0.5 + 0.5 * cos(u_time);
     gl_Position = u_mvpMat * vec4(position, 1.0);//vec4(alpha*position + (1-alpha)*alt_position, 1.0);

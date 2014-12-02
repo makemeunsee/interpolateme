@@ -7,12 +7,12 @@ function arrToMat( arr ) {
     return mat;
 }
 
-function makeMesh( vertice, centers, indice ) {
+function makeMesh( vertice, normals, centers, indice ) {
     var customUniforms = {
        u_time: { type: "1f", value: 0 },
        u_mvpMat: { type: "m4", value: new THREE.Matrix4() },
-       // u_lightDirection: { type: "3fv", value: []},
-       // u_lightIntensity: { type: "1f", value: 0 },
+       u_lightDirection: { type: "v4", value: new THREE.Vector4( 1, 1, 1, 1 ) },
+       u_lightIntensity: { type: "1f", value: 1 },
        u_color: { type: "v4", value: new THREE.Vector4( 1, 1, 1, 1 ) },
        u_borderColor: { type: "v4", value: new THREE.Vector4( 0, 0, 0, 1 ) }
     };
@@ -22,10 +22,10 @@ function makeMesh( vertice, centers, indice ) {
     // create attributes for each vertex
     // currently 2 colors are given as vertex attributes
     var attributes = {
-        // normal: {
-        //     type: '3fv',
-        //     value: []
-        // },
+        a_normal: {
+             type: 'v3',
+             value: []
+        },
         // alt_position: {
         //     type: '3fv',
         //     value: []
@@ -46,6 +46,9 @@ function makeMesh( vertice, centers, indice ) {
     for (var i = 0; i < vertice.length / 3; i++) {
         geometry.vertices.push( new THREE.Vector3( vertice[3*i], vertice[3*i+1], vertice[3*i+2] ) );
     }
+    for (var i = 0; i < normals.length / 3; i++) {
+        attributes.a_normal.value.push( new THREE.Vector3( normals[3*i], normals[3*i+1], normals[3*i+2] ) );
+    }
     for (var i = 0; i < centers.length; i++) {
         attributes.a_barycentric.value.push( centers[i] );
     }
@@ -56,13 +59,13 @@ function makeMesh( vertice, centers, indice ) {
 }
 
 function modelFor(id) {
-//    console.log("tetra vs: ", Haste.verticeOf( id ));
-//    console.log("tetra cs: ", Haste.centersOf( id ));
-//    console.log("tetra ids: ", Haste.indiceOf( id ));
     return {
         "id": id,
         "span": Haste.spanOf( id ),
-        "mesh": makeMesh( Haste.verticeOf( id ), Haste.centersOf( id ), Haste.indiceOf( id ) )
+        "mesh": makeMesh( Haste.verticeOf( id ),
+                          Haste.normalsOf( id ), 
+                          Haste.centersOf( id ), 
+                          Haste.indiceOf( id ) )
     };
 }
 
@@ -105,56 +108,23 @@ function appMain() {
             $( "#gui" ).hide();
     }
 
-    var modelId = 0;
-    var model = modelFor( modelId );
-    
-    // function updateFlake() {
-    //     flakeSize = $( "#sizeSlider" ).slider( "value" );
-    //     if (blocksMesh) {
-    //         var limit = flakeSize * 6;
-    //         var now = blocksMesh.material.uniforms.u_time.value;
-    //         var death = now + 600; // give some time for death animation
-            
-    //         var deaths = blocksMesh.material.attributes.a_death.value;
-    //         var births = blocksMesh.material.attributes.a_birth.value;
-    //         for (var i = 0; i < deaths.length / 7; i++) {
-    //             if (i > limit) {
-    //                 for (var j = 0; j < 7; j++) {
-    //                     deaths[i*7 + j] = Math.min(death, deaths[i*7 + j]);
-    //                 }
-    //             } else {
-    //                 for (var j = 0; j < 7; j++) {
-    //                     var d = deaths[i*7 + j];
-    //                     if (d < now) {
-    //                         births[i*7 + j] = now;
-    //                     } else if (d < death) {
-    //                         births[i*7 + j] = 2*now - d;
-    //                     }
-    //                     deaths[i*7 + j] = Hexagon.prototype.infiniteLife;
-    //                 }
-    //             }
-    //         }
-    //         blocksMesh.material.attributes.a_death.needsUpdate = true;
-    //         blocksMesh.material.attributes.a_birth.needsUpdate = true;
-    //     }
-    // }
-
     // jqueryui widgets
     $(function() {
       $( "button" ).button();
+      $( "#grabLight" ).button();
     });
 
-    function previousModel() {
-        // ???
-    }
-    $("#prevModel").unbind("click");
-    $("#prevModel").click(previousModel);
-
-    function nextModel() {
-        // ???
-    }
-    $("#nextModel").unbind("click");
-    $("#nextModel").click(nextModel);
+    var grabLight = false;
+    $( "#grabLight" ).siblings('label').html("Grab light");
+    $( "#grabLight" ).change(function() {
+        if ( this.checked ) {
+            grabLight = false;
+            $(this).siblings('label').html("Grab light");
+        } else {
+            grabLight = true;
+            $(this).siblings('label').html("Release light");
+        }
+    });
 
     function showHelp() {
         if ( $( "#dialog" ).dialog( "isOpen" ) )
@@ -180,6 +150,33 @@ function appMain() {
     $("#fullscreen").unbind("click");
     $("#fullscreen").click(toggleFullscreen);
     
+    var modelId = 8;
+
+    function previousModel() {
+        modelId = (modelId - 1 + Haste.modelsLength()) % Haste.modelsLength();
+        switchModel();
+    }
+    $("#prevModel").unbind("click");
+    $("#prevModel").click(previousModel);
+
+    function nextModel() {
+        modelId = (modelId + 1) % Haste.modelsLength();
+        switchModel();
+    }
+    $("#nextModel").unbind("click");
+    $("#nextModel").click(nextModel);
+
+    var model = modelFor( modelId );
+
+    function switchModel() {
+        scene.remove( model.mesh );
+        model.mesh.geometry.dispose();
+        model.mesh.material.dispose();
+
+        model = modelFor( modelId );
+        scene.add( model.mesh );
+    }
+
     var zoomMax = 8;
     var zoomMin = 0.125;
     var zoomSpeed = 1.1;
@@ -192,7 +189,7 @@ function appMain() {
 
     var lightTheta = 1.75;
     var lightPhi = 1.75;
-    var lightDist = 50;
+    var lightDist = 1;
 
     var projMat = new THREE.Matrix4();
     var viewMat = arrToMat( Haste.updateViewMat( camTheta, camPhi, camDist ) );
@@ -242,10 +239,15 @@ function appMain() {
     function onMouseMove(event) {
         var deltaX = event.clientX - mx;
         var deltaY = event.clientY - my;
-        
-        camTheta = camTheta + deltaX * 0.005;
-        camPhi = camPhi - deltaY * 0.005;
-        viewMat = arrToMat( Haste.updateViewMat( camTheta, camPhi, camDist ) );
+
+        if (grabLight) {
+            lightTheta = lightTheta + deltaX * 0.005;
+            lightPhi = lightPhi - deltaY * 0.005;
+        } else {
+            camTheta = camTheta + deltaX * 0.005;
+            camPhi = camPhi - deltaY * 0.005;
+            viewMat = arrToMat( Haste.updateViewMat( camTheta, camPhi, camDist ) );
+        }
 
         mx = event.clientX;
         my = event.clientY;
@@ -255,7 +257,11 @@ function appMain() {
     // mouse wheel -> zoom in / out
     function onMouseWheel(event) {
         var delta = Math.max(-1, Math.min(1, (event.wheelDelta || -event.detail)));
-        zoom = Math.min( Math.max( zoom * ( Math.pow( 1.1, delta ) ), zoomMin ), zoomMax );
+        if (grabLight) {
+            lightDist = lightDist / Math.pow( 1.05, delta );
+        } else {
+            zoom = Math.min( Math.max( zoom * ( Math.pow( 1.1, delta ) ), zoomMin ), zoomMax );
+        }
     }
     
     canvas.addEventListener( "mousedown", onMouseDown, false );
@@ -327,13 +333,17 @@ function appMain() {
         zoomedModel.elements[15] = 1;
         var mvp = scaledProj.multiply( viewMat ).multiply( zoomedModel );
 
+        var lightDir = Haste.directionFromOrigin(lightTheta, lightPhi, lightDist);
+
         var now = Date.now();
         var dt = now - then;
         // shaders use the current time to animate properly
-        //modelMesh.material.uniforms.u_time.value += dt;
+        model.mesh.material.uniforms.u_time.value += dt;
         model.mesh.material.uniforms.u_mvpMat.value = mvp;
-        //modelMesh.material.uniforms.u_lightDirection.value = new THREE.Vector3( /* lightDir ( lightTheta, lightPhi ) */ );
-        //modelMesh.material.uniforms.u_lightIntensity.value = 1 / lightDist / lightDist;
+        model.mesh.material.uniforms.u_lightDirection.value = new THREE.Vector4( lightDir[0]/lightDist,
+                                                                                 lightDir[1]/lightDist,
+                                                                                 lightDir[2]/lightDist);
+        model.mesh.material.uniforms.u_lightIntensity.value = 1 / lightDist / lightDist;
         model.mesh.material.uniforms.u_color.value = new THREE.Vector4(1,1,1,1);
         model.mesh.material.uniforms.u_borderColor.value = new THREE.Vector4(0.4,0.4,0.4,1);
 
