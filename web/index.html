@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+
+    <link rel="icon" href="favicon.ico" />
+    
+    <title>Interpol ate me</title>
+    <meta name="description" content="Keeping the mask on">
+    <meta name="viewport" content="width=device-width">
+
+    <link rel="stylesheet" href="css/app.css">
+    <link rel="stylesheet" href="http://code.jquery.com/ui/1.11.0/themes/dot-luv/jquery-ui.min.css">
+    <script src="http://code.jquery.com/jquery-1.11.0.min.js"></script>
+    <script src="http://code.jquery.com/ui/1.11.0/jquery-ui.min.js"></script>
+  
+  </head>
+  <body>
+    <div id="dialog" title="Keeping the mask on">
+      <p>...</p>
+    </div>
+    <div id="gui" class="gui-container">
+        <div>
+            <button id="prevModel">←</button>
+            <button id="nextModel">→</button>
+            <button id="screenshot">screenshot</button>
+            <button id="fullscreen">fullscreen</button>
+            <button id="showHelp">?</button>
+        </div>
+    </div>
+    <div id="main"></div>
+    
+    <script type="text/javascript" src="http://cdnjs.cloudflare.com/ajax/libs/three.js/r69/three.min.js"></script>
+    <script type="text/javascript" src="js/lib/threex.windowresize.js"></script>
+    <script type="text/javascript" src="js/lib/THREEx.FullScreen.js"></script>
+    <script id="shader-fs" type="x-shader/x-fragment">#ifdef GL_ES
+#extension GL_OES_standard_derivatives : enable
+#endif
+
+uniform vec4 u_color;
+uniform vec4 u_borderColor;
+
+varying float v_barycenter;
+
+float edgeFactor(const float thickness, const float bary)
+{
+    return smoothstep(0.0, fwidth(bary)*thickness, bary);
+}
+
+void main()
+{
+    float f = edgeFactor(1.2, v_barycenter);
+    vec4 ambient = 0.15 * mix(
+        u_color,
+        u_borderColor,
+        f
+    );
+    gl_FragColor = vec4(ambient.rgb, 1.0);
+}</script>
+    <script id="shader-vs" type="x-shader/x-vertex">#ifdef GL_ES
+#extension GL_OES_standard_derivatives : enable
+#endif
+attribute float a_barycentric;
+
+uniform mat4 u_mvpMat;
+
+uniform float u_time;
+
+varying float v_barycenter;
+
+void main()
+{
+
+    float alpha = 0.0;//0.5 + 0.5 * cos(u_time);
+    gl_Position = u_mvpMat * vec4(position, 1.0);//vec4(alpha*position + (1-alpha)*alt_position, 1.0);
+    v_barycenter = a_barycentric;
+}</script>
+    <script type="text/javascript" src="http://cdnjs.cloudflare.com/ajax/libs/seedrandom/2.3.10/seedrandom.min.js"></script>
+    <script type="text/javascript" src="js/appHaste.js"></script>
+  </body>
+</html>

@@ -25,13 +25,16 @@ Features
 * Reconstruction: upon mouse / key release, the model reconstructs itself to appear intact to the viewer (in default mode, in static mode, the model is loaded and displayed verbatim).
 * Light control: with the left control key pressed, drag the mouse to orient the light source and use the mouse wheel to adjust the light intensity.
 * Model adjustment: use arrow keys to rotate the model (useful when model is facing downward or upward).
+* Cycle through models: press 'tab'.
 * Misc: esc or q to exit.
 
 
 In the works
 ------------
 
-More exotic transition animations.
+JS port using Haste. To compile to JS:
+
+``hastec '--start=$HASTE_MAIN(); appMain();' --with-js=web/js/app.js MainJs.hs -o web/js/appHaste.js.``
 
 Credits
 -------

@@ -5,7 +5,7 @@ module Geometry ( Point3f(Point3f), Normal
                 , gold
                 , vec3, vec4, vec4ToPoint3f
                 , lookAtMatrix
-                , orthoMatrix
+                , orthoMatrix, orthoMatrixFromScreen
                 , scale
                 , multMat, multInvMatV
                 , rotate
@@ -141,6 +141,19 @@ lookAtMatrix eye target up = x V.:. y V.:. z V.:. h V.:. ()
 	y = V.snoc up' (-(V.dot up' eye))
 	z = V.snoc (-forward) (V.dot forward eye)
 	h = 0 V.:. 0 V.:. 0 V.:. 1 V.:. ()
+
+
+orthoMatrixFromScreen :: (RealFloat a, Integral b) => b -> b -> V.Mat44 a
+orthoMatrixFromScreen w h = orthoMatrix left right bottom top near far
+  where hh = if h < 0 then 1 else h
+        aspect = (fromIntegral w) / (fromIntegral hh)
+        s = 1.5
+        far = 5*s
+        near = -3*s
+        right = s * aspect
+        top = s
+        left = -right
+        bottom = -top
 
 
 orthoMatrix :: RealFloat a => a -> a -> a -> a -> a -> a -> V.Mat44 a
