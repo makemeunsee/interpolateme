@@ -7,9 +7,9 @@ function arrToMat( arr ) {
     return mat;
 }
 
-function makeMesh( vertice, normals, centers, indice ) {
+function makeMesh( vertice, normals, centers, indice, vpf, static ) {
     var customUniforms = {
-       u_time: { type: "1f", value: 0 },
+       u_alpha: { type: "1f", value: 0 },
        u_mvpMat: { type: "m4", value: new THREE.Matrix4() },
        u_lightDirection: { type: "v4", value: new THREE.Vector4( 1, 1, 1, 1 ) },
        u_lightIntensity: { type: "1f", value: 1 },
@@ -37,14 +37,16 @@ function makeMesh( vertice, normals, centers, indice ) {
     };
     
     var shaderMaterial = new THREE.ShaderMaterial({
-      attributes:     attributes,
-      uniforms:       customUniforms,
-      vertexShader:   document.getElementById('shader-vs').innerHTML,
-      fragmentShader: document.getElementById('shader-fs').innerHTML
+        attributes:     attributes,
+        uniforms:       customUniforms,
+        vertexShader:   document.getElementById('shader-vs').innerHTML,
+        fragmentShader: document.getElementById('shader-fs').innerHTML,
+        side: THREE.DoubleSide
     });
      
     for (var i = 0; i < vertice.length / 3; i++) {
         geometry.vertices.push( new THREE.Vector3( vertice[3*i], vertice[3*i+1], vertice[3*i+2] ) );
+        //attributes.alt_position.value.push( new THREE.Vector3( vertice[3*i], vertice[3*i+1], vertice[3*i+2] ) );
     }
     for (var i = 0; i < normals.length / 3; i++) {
         attributes.a_normal.value.push( new THREE.Vector3( normals[3*i], normals[3*i+1], normals[3*i+2] ) );
@@ -61,11 +63,12 @@ function makeMesh( vertice, normals, centers, indice ) {
 function modelFor(id) {
     return {
         "id": id,
+        "vpf": Haste.verticeCountPerFaceOf( id ),
         "span": Haste.spanOf( id ),
-        "mesh": makeMesh( Haste.verticeOf( id ),
-                          Haste.normalsOf( id ), 
-                          Haste.centersOf( id ), 
-                          Haste.indiceOf( id ) )
+        "vertice": Haste.verticeOf( id ),
+        "normals": Haste.normalsOf( id ),
+        "centers": Haste.centersOf( id ),
+        "indice": Haste.indiceOf( id )
     };
 }
 
@@ -167,14 +170,28 @@ function appMain() {
     $("#nextModel").click(nextModel);
 
     var model = modelFor( modelId );
+    var currentMesh =  makeMesh( model.vertice,
+                                 model.normals,
+                                 model.centers,
+                                 model.indice,
+                                 model.vpf,
+                                 true );
 
     function switchModel() {
-        scene.remove( model.mesh );
-        model.mesh.geometry.dispose();
-        model.mesh.material.dispose();
+        scene.remove( currentMesh );
+        currentMesh.geometry.dispose();
+        currentMesh.material.dispose();
 
         model = modelFor( modelId );
-        scene.add( model.mesh );
+        currentMesh = makeMesh( model.vertice,
+                                model.normals,
+                                model.centers,
+                                model.indice,
+                                model.vpf,
+                                true );
+        scene.add( currentMesh );
+        simTime = 0;
+        then = Date.now();
     }
 
     var zoomMax = 8;
@@ -209,7 +226,7 @@ function appMain() {
     renderer.setSize( window.innerWidth, window.innerHeight );
     mainContainer.appendChild( canvas );
 
-    scene.add( model.mesh );
+    scene.add( currentMesh );
     
     function leftButton(evt) {
         var button = evt.which || evt.button;
@@ -225,6 +242,7 @@ function appMain() {
             my = event.clientY;
             canvas.addEventListener( 'mouseup', onMouseUp, false );
             canvas.addEventListener( 'mousemove', onMouseMove, false );
+            timeFlowing = false;
         }
     }
     
@@ -232,6 +250,7 @@ function appMain() {
         if (leftButton(event)) {
             canvas.removeEventListener( 'mouseup', onMouseUp, false );
             canvas.removeEventListener( 'mousemove', onMouseMove, false );
+            timeFlowing =  true;
         }
     }
     
@@ -320,6 +339,9 @@ function appMain() {
         main();
     }
 
+    var simTime = 0.0;
+    var timeFlowing = true;
+
     // The main game loop
     function main() {
         if(!running) {
@@ -337,15 +359,20 @@ function appMain() {
 
         var now = Date.now();
         var dt = now - then;
+
+        if (timeFlowing) {
+            simTime = Math.min(simTime+dt/1000, Math.PI);
+        }
+
         // shaders use the current time to animate properly
-        model.mesh.material.uniforms.u_time.value += dt;
-        model.mesh.material.uniforms.u_mvpMat.value = mvp;
-        model.mesh.material.uniforms.u_lightDirection.value = new THREE.Vector4( lightDir[0]/lightDist,
-                                                                                 lightDir[1]/lightDist,
-                                                                                 lightDir[2]/lightDist);
-        model.mesh.material.uniforms.u_lightIntensity.value = 1 / lightDist / lightDist;
-        model.mesh.material.uniforms.u_color.value = new THREE.Vector4(1,1,1,1);
-        model.mesh.material.uniforms.u_borderColor.value = new THREE.Vector4(0.4,0.4,0.4,1);
+        currentMesh.material.uniforms.u_alpha.value = 0.5 + 0.5*Math.cos(simTime);
+        currentMesh.material.uniforms.u_mvpMat.value = mvp;
+        currentMesh.material.uniforms.u_lightDirection.value = new THREE.Vector4( lightDir[0]/lightDist,
+                                                                                  lightDir[1]/lightDist,
+                                                                                  lightDir[2]/lightDist);
+        currentMesh.material.uniforms.u_lightIntensity.value = 1 / lightDist / lightDist;
+        currentMesh.material.uniforms.u_color.value = new THREE.Vector4(1,1,1,1);
+        currentMesh.material.uniforms.u_borderColor.value = new THREE.Vector4(0.4,0.4,0.4,1);
 
         renderer.render(scene, dummyCam);
 

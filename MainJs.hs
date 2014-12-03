@@ -1,4 +1,4 @@
-import FlatModel ( FlatModel, fromModel, vertice, normals, centers, indice, span )
+import FlatModel ( FlatModel, fromModel, vertice, verticePerFace, normals, centers, indice, span, applyRndTranslationsToVertice )
 import FloretSphere ( polyhedrons )
 import GLGenericFunctions ( OrbitingState (OrbitingState), theta, phi, distance )
 import qualified GLGenericFunctions as GF
@@ -24,6 +24,9 @@ modelsSize = return $ length models
 verticeOf :: Int -> IO [Float]
 verticeOf i = return $ vertice $ models !! i
 
+vpfOf :: Int -> IO [Int]
+vpfOf i = return $ verticePerFace $ models !! i
+
 normalsOf :: Int -> IO [Float]
 normalsOf i = return $ normals $ models !! i
 
@@ -48,9 +51,13 @@ directionFromOrigin theta phi dist = do
   let G.Point3f x y z = GF.orbitingEyeForModel V.identity $ OrbitingState { theta = theta, phi = phi, distance = dist }
   return [x, y, z]
 
+rndAlongAxis :: [Float] -> Float -> Float -> Float -> [Float] -> [Int] -> IO [Float]
+rndAlongAxis a b c d e f = return $ applyRndTranslationsToVertice a b c d e f
+
 main = do
   export (toJSStr "modelsLength") modelsSize
   export (toJSStr "verticeOf") verticeOf
+  export (toJSStr "verticeCountPerFaceOf") vpfOf
   export (toJSStr "normalsOf") normalsOf
   export (toJSStr "centersOf") centersOf
   export (toJSStr "indiceOf") indiceOf
@@ -58,3 +65,4 @@ main = do
   export (toJSStr "updateViewMat") updateViewMat
   export (toJSStr "orthoMatrixFromScreen") orthoMatrixFromScreen
   export (toJSStr "directionFromOrigin") directionFromOrigin
+  export (toJSStr "rndFacesAlongAxis") rndAlongAxis

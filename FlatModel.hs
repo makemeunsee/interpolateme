@@ -2,11 +2,19 @@ module FlatModel ( facesToFlatTriangles
                  , facesToCenterFlags
                  , facesToFlatIndice
                  , normalsToFlatNormals
+                 , applyRndTranslationsToVertice
                  , FlatModel (FlatModel), FlatModel.vertice, FlatModel.faces, normals, centers, indice, verticePerFace, FlatModel.span
                  , fromModel
 ) where
 
-import Geometry
+import Geometry ( Model (Model)
+                , norm
+                , Point3f (Point3f)
+                , pointToArr
+                , faceBarycenter
+                , normalized
+                , barycenter
+                )
 import ListUtil
 
 
@@ -30,6 +38,20 @@ fromModel (Model vs fs ns) = FlatModel (facesToFlatTriangles vs fs)
 
 
 -- function to convert data from a Model to flat data, with a new center vertex added to each face of the model
+
+
+applyRndTranslationsToVertice :: RealFloat a => [a] -> a -> a -> a -> [a] -> [Int] -> [a]
+applyRndTranslationsToVertice tFactors xTAxis yTAxis zTAxis vs vpf =
+  recurse vs $ zip tFactors vpf
+  where recurse [] [] = []
+        recurse vs ((r, count) : rfs) = translated ++ recurse rValues rfs
+          where floatCount = 3*count
+                values = take floatCount vs
+                rValues = drop floatCount vs
+                -- closer faces move closer, farther faces move farther -> minimize overlapping faces
+                alpha = r * (signum r) * (signum $ xTAxis * values !! 0 + yTAxis * values !! 1 + zTAxis * values !! 2)
+                translation = take floatCount $ cycle [alpha*xTAxis, alpha*yTAxis, alpha*zTAxis]
+                translated = map (\(v,t) -> v+t) $ zip values translation
 
 
 -- flatten faces into an indice list.

@@ -71,6 +71,7 @@ import FlatModel ( facesToFlatTriangles
                  , facesToCenterFlags
                  , facesToFlatIndice
                  , normalsToFlatNormals
+                 , applyRndTranslationsToVertice
                  , FlatModel (FlatModel), vertice, normals, verticePerFace, span
                  , fromModel
                  )
@@ -203,25 +204,15 @@ clamped a = if a < 0 then clamped0 (-a)
 
 -- data buffer functions
 
-
 -- random translate faces along an axis.
-axisRndFacesToFlatTriangles :: RND.Seed -> GLfloat -> Point3GL -> [GLfloat] -> [Int] -> ([GLfloat], RND.Seed)
-axisRndFacesToFlatTriangles seed span (Point3f nx ny nz) vertice vertexCountPerFace =
-  (recurse vertice $ zip rnds vertexCountPerFace, newSeed)
+axisRndFacesToFlatTriangles :: RND.Seed -> GLfloat -> Point3GL -> FlatModelGL -> ([GLfloat], RND.Seed)
+axisRndFacesToFlatTriangles seed span (Point3f nx ny nz) m =
+  (applyRndTranslationsToVertice rnds nx ny nz (vertice m) (verticePerFace m), newSeed)
   where -- clamped gaussian distribution
-        rnds = clamped (2*span) $ gaussianList (sqrt $ span) rawRnds
+        rnds = clamped (2*span) $ gaussianList (sqrt span) rawRnds
         -- uniform distribution
         (rawRnds, newSeed) = RND.random_list (\ s -> RND.range_random (0, span) s) faceCount seed
-        faceCount = length vertexCountPerFace
-        recurse [] [] = []
-        recurse vs ((r, count) : rfs) = translated ++ recurse rValues rfs
-          where floatCount = 3*count
-                values = take floatCount vs
-                rValues = drop floatCount vs
-                -- closer faces move closer, farther faces move farther -> minimize overlapping faces
-                alpha = r * (signum r) * (signum $ nx * values !! 0 + ny * values !! 1 + nz * values !! 2)
-                translation = take floatCount $ cycle [alpha*nx, alpha*ny, alpha*nz]
-                translated = map (\(v,t) -> v+t) $ zip values translation
+        faceCount = length $ verticePerFace m
 
 
 -- assign a random code between 0 and 3 to each vertex
@@ -237,7 +228,7 @@ rndAnimationCodeData seed k (face:faces) = (replicate l rnd ++ rem, lastSeed)
 -- randomize the position of a polyhedron faces in a way imperceptible to the given (ortho) camera, relative to model transform
 rndVertexBufferData :: RND.Seed -> Point3GL -> FlatModelGL -> ([GLfloat], RND.Seed)
 rndVertexBufferData seed camEye model =
-  axisRndFacesToFlatTriangles seed (norm camEye) (normalized camEye) (vertice model) (verticePerFace model)
+  axisRndFacesToFlatTriangles seed (norm camEye) (normalized camEye) model
 
 
 -- how many to draw
