@@ -1,7 +1,9 @@
 interpolateme
 =============
 
-Haskell demo using openGL shaders.
+Haskell demo using OpenGL shaders.
+
+[Web demo](http://www.jollycyb.org/haskell_js_3d/)
 
 ![Renders](http://i.imgur.com/kEdyM7Q.png)
 
@@ -27,12 +29,13 @@ Features
 * Model adjustment: use arrow keys to rotate the model (useful when model is facing downward or upward).
 * Cycle through models: press 'tab'.
 * Misc: esc or q to exit.
+* Partial compilation to javascript.
 
 
 In the works
 ------------
 
-JS port using Haste. To compile to JS:
+Fuller JS port using Haste. To compile to JS:
 
 ``hastec '--start=$HASTE_MAIN(); appMain();' --with-js=web/js/app.js MainJs.hs -o web/js/appHaste.js.``
 
