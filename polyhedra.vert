@@ -6,6 +6,7 @@ in vec3 alt_position;
 in int a_barycentric;
 
 uniform mat4 u_mvpMat;
+uniform mat4 u_vMat;
 uniform vec4 u_lightDirection;
 uniform float u_lightIntensity;
 
@@ -16,7 +17,10 @@ out float intensity;
 
 void main()
 {
-    vec4 n = normalize(u_mvpMat * vec4(normal,0.0));
+    // for specular like lighting
+    // vec4 n = normalize(u_mvpMat * vec4(normal,0.0));
+
+    vec4 n = normalize(u_vMat * vec4(normal,0.0));
     intensity = max(dot(n, u_lightIntensity * u_lightDirection), 0.0);
 
     float alpha = 0.5 + 0.5 * cos(u_time);

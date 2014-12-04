@@ -60,7 +60,7 @@ import Geometry ( Point3f (Point3f)
                 , negXRot, posXRot, negYRot, posYRot
                 , vec3, vec4, vec4ToPoint3f
                 )
-import GLGenericFunctions ( OrbitingState (OrbitingState), theta, phi, distance
+import GLGenericFunctions ( OrbitingState (OrbitingState), theta, phi, distance, thetaSpeed, phiSpeed
                           , interpolate
                           , viewMatOf
                           , orbitingEyeForModel
@@ -150,9 +150,11 @@ defaultMouseState = MouseState { mouseX = 0
 
 
 defaultLightState :: OrbitingStatef
-defaultLightState = OrbitingState { theta = 0.55*pi
-                                  , phi = 0.55*pi
+defaultLightState = OrbitingState { theta = -1.2
+                                  , phi = 1.8
                                   , distance = 1
+                                  , thetaSpeed = -0.005
+                                  , phiSpeed = 0.005
                                   }
 
 
@@ -160,6 +162,8 @@ defaultCamState :: OrbitingStatef
 defaultCamState = OrbitingState { theta = pi/2
                                 , phi = pi/2
                                 , distance = 50
+                                , thetaSpeed = 0.005
+                                , phiSpeed = 0.005
                                 }
 
 
@@ -351,8 +355,8 @@ bindUniformVector prog uName vec = do
   with vec $ glUniform4fv vLoc 1 . castPtr
 
 
-render :: GLfloat -> Point3GL -> Mat44f -> GLIDs -> IO ()
-render t lightDirection mvpMat glids@GLIDs{..} = do
+render :: GLfloat -> Point3GL -> Mat44f -> Mat44f -> GLIDs -> IO ()
+render t lightDirection vMat mvpMat glids@GLIDs{..} = do
   let ShaderInfo{..} = shaderInfo
   let BuffersInfo{..} = buffersInfo
 
@@ -362,6 +366,7 @@ render t lightDirection mvpMat glids@GLIDs{..} = do
 
   -- bind matrices
   bindUniformMatrix prog "u_mvpMat" mvpMat
+  bindUniformMatrix prog "u_vMat" vMat
 
   -- bind light
   -- direction is normed in shader
@@ -496,7 +501,7 @@ resize projMatRef size@(GL.Size w h) = do
 updateOrbitState :: MouseState -> MouseState -> OrbitingStatef -> OrbitingStatef
 updateOrbitState oldMouse newMouse orbit =
   if leftButton newMouse == Press
-    then updateOrbitAngles ((fromIntegral diffX) * mouseSpeed) ((fromIntegral diffY) * mouseSpeed) orbit
+    then updateOrbitAngles ((fromIntegral diffX) * thetaSpeed orbit) ((fromIntegral diffY) * phiSpeed orbit) orbit
     else orbit
   where diffX = (mouseX newMouse) - (mouseX oldMouse)
         diffY = (mouseY oldMouse) - (mouseY newMouse)
@@ -525,10 +530,6 @@ updateCoordsAndWheel newX newY newWheel state = state { mouseX = newX
                                                       , mouseY = newY
                                                       , wheel = newWheel
                                                       }
-
-
-mouseSpeed :: Floating a => a
-mouseSpeed = 0.005
 
 
 waitForPress :: IO Action
@@ -699,7 +700,7 @@ loop static action global = do
   let lightDirection = orbitCenterDirection $ light newGlobal
 
   -- render
-  render (simTime newGlobal) lightDirection mvp (glids newGlobal)
+  render (simTime newGlobal) lightDirection view mvp (glids newGlobal)
 
   -- exit if window closed or Esc pressed
   esc <- GLFW.getKey GLFW.ESC

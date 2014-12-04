@@ -18,6 +18,8 @@ interpolate t from to = map interp $ zip from to
 data OrbitingState a = OrbitingState { theta :: a    -- angle between x axis and the orbiting point projected on the xz plane
                                      , phi :: a      -- angle between y axis and the orbiting point
                                      , distance :: a -- orbiting distance
+                                     , thetaSpeed :: a -- angular speed for theta variations
+                                     , phiSpeed :: a   -- angular speed for phi variations
                                      }
 
 
