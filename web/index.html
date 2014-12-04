@@ -78,6 +78,7 @@ attribute float a_barycentric;
 attribute vec3 a_normal;
 attribute vec3 alt_position;
 uniform mat4 u_mvpMat;
+uniform mat4 u_vMat;
 
 uniform vec4 u_lightDirection;
 uniform float u_lightIntensity;
@@ -89,7 +90,7 @@ varying float v_intensity;
 
 void main()
 {
-    vec4 n = normalize(u_mvpMat * vec4(a_normal, 0.0));
+    vec4 n = normalize(u_vMat * vec4(a_normal, 0.0));
     v_intensity = max(dot(n, u_lightIntensity * u_lightDirection), 0.0);
 
     gl_Position = u_mvpMat * vec4(u_alpha*position + (1.0-u_alpha)*alt_position, 1.0);

@@ -30,6 +30,7 @@ function makeMesh( model, lookDir, prng ) {
     var customUniforms = {
        u_alpha: { type: "1f", value: 0 },
        u_mvpMat: { type: "m4", value: new THREE.Matrix4() },
+       u_vMat: { type: "m4", value: new THREE.Matrix4() },
        u_lightDirection: { type: "v4", value: new THREE.Vector4( 1, 1, 1, 1 ) },
        u_lightIntensity: { type: "1f", value: 1 },
        u_color: { type: "v4", value: new THREE.Vector4( 1, 1, 1, 1 ) },
@@ -237,8 +238,8 @@ function appMain() {
     var camPhi = Math.PI / 2;
     var camDist = model.span * 1.1;
 
-    var lightTheta = 1.72;
-    var lightPhi = 1.72;
+    var lightTheta = -1.2;
+    var lightPhi = 1.8;
     var lightDist = 1;
 
     var projMat = new THREE.Matrix4();
@@ -314,7 +315,7 @@ function appMain() {
         var deltaY = event.clientY - my;
 
         if (grabLight) {
-            lightTheta = lightTheta + deltaX * 0.005;
+            lightTheta = lightTheta - deltaX * 0.005;
             lightPhi = Math.min( Math.PI - 0.01, Math.max( 0.01, lightPhi - deltaY * 0.005 ) );
         } else {
             camTheta = camTheta + deltaX * 0.005;
@@ -421,6 +422,7 @@ function appMain() {
         // shaders use the current time to animate properly
         currentMesh.material.uniforms.u_alpha.value = 0.5 + 0.5*Math.cos(simTime);
         currentMesh.material.uniforms.u_mvpMat.value = mvp;
+        currentMesh.material.uniforms.u_vMat.value = viewMat;
         currentMesh.material.uniforms.u_lightDirection.value = new THREE.Vector4( lightDir[0]/lightDist,
                                                                                   lightDir[1]/lightDist,
                                                                                   lightDir[2]/lightDist);
