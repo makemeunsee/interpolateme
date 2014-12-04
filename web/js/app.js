@@ -272,47 +272,66 @@ function appMain() {
     }
     
     var mx, my = 0;
-    
+
     // only react to left clicks
     function onMouseDown(event) {
         if (leftButton(event)) {
-            mx = event.clientX;
-            my = event.clientY;
-            canvas.addEventListener( 'mouseup', onMouseUp, false );
-            canvas.addEventListener( 'mousemove', onMouseMove, false );
-            timeFlowing = grabLight;
+            event.touches = [{clientX: event.clientX, clientY: event.clientY}];
+            onTouchStart(event);
         }
     }
-    
+
+    function onTouchStart(event) {
+        mx = event.touches[0].clientX;
+        my = event.touches[0].clientY;
+        canvas.addEventListener( "mouseup", onMouseUp, false );
+        canvas.addEventListener( "touchend", onTouchEnd, false );
+        canvas.addEventListener( "mousemove", onMouseMove, false );
+        canvas.addEventListener( "touchmove", onTouchMove, false );
+        timeFlowing = grabLight;
+    }
+
     function onMouseUp(event) {
         if (leftButton(event)) {
-            canvas.removeEventListener( 'mouseup', onMouseUp, false );
-            canvas.removeEventListener( 'mousemove', onMouseMove, false );
-            if (!grabLight && !static) {
-                var interpolated = interpolate( currentMesh.geometry.vertices,
-                                                currentMesh.material.attributes.alt_position.value,
-                                                simTime );
-                var newRnd = rndFaces( model.vertice,
-                                       model.span,
-                                       model.vpf,
-                                       Haste.normedDirectionToOrigin(camTheta, camPhi),
-                                       prng);
-                for (var i = 0; i < model.vertice.length / 3; i++) {
-                    currentMesh.geometry.vertices[i] = interpolated[i];
-                    currentMesh.material.attributes.alt_position.value[i] = new THREE.Vector3( newRnd[3*i], newRnd[3*i+1], newRnd[3*i+2] );
-                }
-                currentMesh.geometry.verticesNeedUpdate = true;
-                currentMesh.material.attributes.alt_position.needsUpdate = true;
-                simTime = 0;
-            }
-            timeFlowing =  true;
+            onTouchEnd(event);
         }
     }
-    
-    // mouse drag -> move camera (adjusted to zoom)
+
+    function onTouchEnd(event) {
+        canvas.removeEventListener( "mouseup", onMouseUp, false );
+        canvas.removeEventListener( "touchend", onTouchEnd, false );
+        canvas.removeEventListener( "mousemove", onMouseMove, false );
+        canvas.removeEventListener( "touchmove", onTouchMove, false );
+        if (!grabLight && !static) {
+            var interpolated = interpolate( currentMesh.geometry.vertices,
+                                            currentMesh.material.attributes.alt_position.value,
+                                            simTime );
+            var newRnd = rndFaces( model.vertice,
+                                   model.span,
+                                   model.vpf,
+                                   Haste.normedDirectionToOrigin(camTheta, camPhi),
+                                   prng);
+            for (var i = 0; i < model.vertice.length / 3; i++) {
+                currentMesh.geometry.vertices[i] = interpolated[i];
+                currentMesh.material.attributes.alt_position.value[i] = new THREE.Vector3( newRnd[3*i], newRnd[3*i+1], newRnd[3*i+2] );
+            }
+            currentMesh.geometry.verticesNeedUpdate = true;
+            currentMesh.material.attributes.alt_position.needsUpdate = true;
+            simTime = 0;
+        }
+        timeFlowing =  true;
+    }
+
     function onMouseMove(event) {
-        var deltaX = event.clientX - mx;
-        var deltaY = event.clientY - my;
+        event.touches = [{clientX: event.clientX, clientY: event.clientY}];
+        onTouchMove(event);
+    }
+
+    // mouse drag -> move camera (adjusted to zoom)
+    function onTouchMove(event) {
+        event.preventDefault();
+        var deltaX = event.touches[0].clientX - mx;
+        var deltaY = event.touches[0].clientY - my;
 
         if (grabLight) {
             lightTheta = lightTheta - deltaX * 0.005;
@@ -323,8 +342,8 @@ function appMain() {
             viewMat = arrToMat( Haste.updateViewMat( camTheta, camPhi, camDist ) );
         }
 
-        mx = event.clientX;
-        my = event.clientY;
+        mx = event.touches[0].clientX;
+        my = event.touches[0].clientY;
         // no need to update cam, projection matrix is not changed by translation
     }
     
@@ -339,6 +358,7 @@ function appMain() {
     }
     
     canvas.addEventListener( "mousedown", onMouseDown, false );
+    canvas.addEventListener( "touchstart", onTouchStart, false );
     
     canvas.addEventListener( "mousewheel", onMouseWheel, false );
       // Firefox
