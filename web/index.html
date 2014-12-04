@@ -1,8 +1,7 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <meta charset="utf-8">
-
+    <meta charset="utf-8" name="viewport" content="user-scalable=no, width=device-width, initial-scale=1, maximum-scale=1">
     <link rel="icon" href="favicon.ico" />
     
     <title>Interpol ate me</title>
@@ -17,9 +16,9 @@
   </head>
   <body>
     <div id="dialog" title="Keeping the mask on">
-      <p>Drag to rotate the model.</p>
-      <p>Click "Grab light" and drag to move the light.</p>
-      <p>Double click to hide the UI.</p>
+      <p>Click and drag to interact.</p>
+      <p>Scroll / pinch to zoom.</p>
+      <p>Double click / tap to hide the UI.</p>
     </div>
     <div id="gui" class="gui-container">
         <div>
@@ -30,9 +29,11 @@
             <button id="showHelp">?</button>
         </div>
         <div>
+            <br/>
             <input type="checkbox" id="grabLight"><label id="grabLightLabel" for="grabLight">Grab light</label>
         </div>
         <div>
+            <br/>
             <input type="checkbox" id="static"><label id="staticLabel" for="static">Solid mesh</label>
         </div>
     </div>
@@ -97,6 +98,7 @@ void main()
     v_barycenter = a_barycentric;
 }</script>
     <script type="text/javascript" src="http://cdnjs.cloudflare.com/ajax/libs/seedrandom/2.3.10/seedrandom.min.js"></script>
+    <script type="text/javascript" src="http://hammerjs.github.io/dist/hammer.min.js"></script>
     <script type="text/javascript" src="js/appHaste.js"></script>
   </body>
 </html>

@@ -131,7 +131,7 @@ function appMain() {
     $(function() {
         $( "#dialog" ).dialog({
             width: 475,
-            height: 200
+            height: 180
         });
     });
     $( "#dialog" ).dialog( "close" );
@@ -257,7 +257,15 @@ function appMain() {
                                  prng );
 
     var mainContainer = document.getElementById( 'main' );
-    
+
+    // pinch detection (and more)
+    var mc = new Hammer(mainContainer);
+    mc.get("pinch").set({ enable: true });
+
+    mc.on("pinch", function(ev) {
+        zoomFct(ev.scale < 1 ? -1 : 1, 1.04);
+    });
+
     var scene = new THREE.Scene();
     var renderer = new THREE.WebGLRenderer( { preserveDrawingBuffer: true } );
     var canvas = renderer.domElement;
@@ -273,22 +281,38 @@ function appMain() {
     
     var mx, my = 0;
 
-    // only react to left clicks
+    var tapped = false; // double tap detection
+
     function onMouseDown(event) {
         if (leftButton(event)) {
             event.touches = [{clientX: event.clientX, clientY: event.clientY}];
             onTouchStart(event);
+            clearTimeout(tapped);
+            tapped = null; // double click is handled natively
         }
     }
 
+    // only react to left clicks
     function onTouchStart(event) {
-        mx = event.touches[0].clientX;
-        my = event.touches[0].clientY;
-        canvas.addEventListener( "mouseup", onMouseUp, false );
-        canvas.addEventListener( "touchend", onTouchEnd, false );
-        canvas.addEventListener( "mousemove", onMouseMove, false );
-        canvas.addEventListener( "touchmove", onTouchMove, false );
-        timeFlowing = grabLight;
+        // dont handle multi touch
+        if (event.touches.length === 1) {
+            mx = event.touches[0].clientX;
+            my = event.touches[0].clientY;
+            canvas.addEventListener( "mouseup", onMouseUp, false );
+            canvas.addEventListener( "touchend", onTouchEnd, false );
+            canvas.addEventListener( "mousemove", onMouseMove, false );
+            canvas.addEventListener( "touchmove", onTouchMove, false );
+            timeFlowing = grabLight;
+            if(!tapped){ //if tap is not set, set up single tap
+                tapped = setTimeout(function() {
+                    tapped = null
+                }, 300);   //wait 300ms then run single click code
+            } else {    //tapped within 300ms of last tap. double tap
+              clearTimeout(tapped); //stop single tap callback
+              tapped = null;
+              toggleUI();
+            }
+        }
     }
 
     function onMouseUp(event) {
@@ -329,32 +353,38 @@ function appMain() {
 
     // mouse drag -> move camera (adjusted to zoom)
     function onTouchMove(event) {
-        event.preventDefault();
-        var deltaX = event.touches[0].clientX - mx;
-        var deltaY = event.touches[0].clientY - my;
+        // dont handle multi touch
+        if (event.touches.length === 1) {
+            event.preventDefault();
+            var deltaX = event.touches[0].clientX - mx;
+            var deltaY = event.touches[0].clientY - my;
 
-        if (grabLight) {
-            lightTheta = lightTheta - deltaX * 0.005;
-            lightPhi = Math.min( Math.PI - 0.01, Math.max( 0.01, lightPhi - deltaY * 0.005 ) );
-        } else {
-            camTheta = camTheta + deltaX * 0.005;
-            camPhi = Math.min( Math.PI - 0.01, Math.max( 0.01, camPhi - deltaY * 0.005 ) );
-            viewMat = arrToMat( Haste.updateViewMat( camTheta, camPhi, camDist ) );
+            if (grabLight) {
+                lightTheta = lightTheta - deltaX * 0.005;
+                lightPhi = Math.min( Math.PI - 0.01, Math.max( 0.01, lightPhi - deltaY * 0.005 ) );
+            } else {
+                camTheta = camTheta + deltaX * 0.005;
+                camPhi = Math.min( Math.PI - 0.01, Math.max( 0.01, camPhi - deltaY * 0.005 ) );
+                viewMat = arrToMat( Haste.updateViewMat( camTheta, camPhi, camDist ) );
+            }
+
+            mx = event.touches[0].clientX;
+            my = event.touches[0].clientY;
+            // no need to update cam, projection matrix is not changed by translation
         }
-
-        mx = event.touches[0].clientX;
-        my = event.touches[0].clientY;
-        // no need to update cam, projection matrix is not changed by translation
     }
-    
+
+    function zoomFct(delta, alpha) {
+        if (grabLight) {
+            lightDist = lightDist / Math.pow( alpha, delta );
+        } else {
+            zoom = Math.min( Math.max( zoom * ( Math.pow( alpha, delta ) ), zoomMin ), zoomMax );
+        }
+    }
+
     // mouse wheel -> zoom in / out
     function onMouseWheel(event) {
-        var delta = Math.max(-1, Math.min(1, (event.wheelDelta || -event.detail)));
-        if (grabLight) {
-            lightDist = lightDist / Math.pow( 1.05, delta );
-        } else {
-            zoom = Math.min( Math.max( zoom * ( Math.pow( 1.1, delta ) ), zoomMin ), zoomMax );
-        }
+        zoomFct( Math.max( -1, Math.min( 1, ( event.wheelDelta || -event.detail ) ) ), 1.05 );
     }
     
     canvas.addEventListener( "mousedown", onMouseDown, false );
