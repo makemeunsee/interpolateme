@@ -51,6 +51,10 @@ directionFromOrigin theta phi dist = do
   let G.Point3f x y z = GF.orbitingEyeForModel V.identity $ OrbitingState { theta = theta, phi = phi, distance = dist }
   return [x, y, z]
 
+normedDirectionToOrigin :: Float-> Float -> IO [Float]
+normedDirectionToOrigin theta phi = return $ [x, y, z]
+  where G.Point3f x y z = GF.orbitCenterDirection OrbitingState { theta = theta, phi = phi, distance = 1 }
+
 rndAlongAxis :: [Float] -> Float -> Float -> Float -> [Float] -> [Int] -> IO [Float]
 rndAlongAxis a b c d e f = return $ applyRndTranslationsToVertice a b c d e f
 
@@ -64,5 +68,6 @@ main = do
   export (toJSStr "spanOf") spanOf
   export (toJSStr "updateViewMat") updateViewMat
   export (toJSStr "orthoMatrixFromScreen") orthoMatrixFromScreen
+  export (toJSStr "normedDirectionToOrigin") normedDirectionToOrigin
   export (toJSStr "directionFromOrigin") directionFromOrigin
   export (toJSStr "rndFacesAlongAxis") rndAlongAxis

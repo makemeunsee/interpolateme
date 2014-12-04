@@ -29,11 +29,13 @@
             <button id="fullscreen">fullscreen</button>
             <button id="showHelp">?</button>
         </div>
-        <br>
         <div>
             <input type="checkbox" id="grabLight"><label id="grabLightLabel" for="grabLight">Grab light</label>
         </div>
+        <div>
+            <input type="checkbox" id="static"><label id="staticLabel" for="static">Solid mesh</label>
         </div>
+    </div>
     <div id="main"></div>
     
     <script type="text/javascript" src="http://cdnjs.cloudflare.com/ajax/libs/three.js/r69/three.js"></script>
@@ -74,7 +76,7 @@ void main()
 #endif
 attribute float a_barycentric;
 attribute vec3 a_normal;
-
+attribute vec3 alt_position;
 uniform mat4 u_mvpMat;
 
 uniform vec4 u_lightDirection;
@@ -90,7 +92,7 @@ void main()
     vec4 n = normalize(u_mvpMat * vec4(a_normal, 0.0));
     v_intensity = max(dot(n, u_lightIntensity * u_lightDirection), 0.0);
 
-    gl_Position = u_mvpMat * vec4((1.0-u_alpha)*position, 1.0);
+    gl_Position = u_mvpMat * vec4(u_alpha*position + (1.0-u_alpha)*alt_position, 1.0);
     v_barycenter = a_barycentric;
 }</script>
     <script type="text/javascript" src="http://cdnjs.cloudflare.com/ajax/libs/seedrandom/2.3.10/seedrandom.min.js"></script>

@@ -7,7 +7,26 @@ function arrToMat( arr ) {
     return mat;
 }
 
-function makeMesh( vertice, normals, centers, indice, vpf, static ) {
+function interpolate(from, to, alpha) {
+    var res = [];
+    var a = 0.5 + 0.5 * Math.cos(alpha);
+    for (var i = 0; i < from.length; i++) {
+       res[i] = new THREE.Vector3( a * from[i].x + (1-a) * to[i].x,
+                                   a * from[i].y + (1-a) * to[i].y,
+                                   a * from[i].z + (1-a) * to[i].z)
+    }
+    return res;
+}
+
+function rndFaces(vertice, span, vpf, lookDir, prng ) {
+    var rnds = [];
+    for (var i = 0; i < vpf.length; i++) {
+        rnds[i] = prng() * 2 * span - span;
+    }
+    return Haste.rndFacesAlongAxis(rnds, lookDir[0], lookDir[1], lookDir[2], vertice, vpf);
+}
+
+function makeMesh( model, lookDir, prng ) {
     var customUniforms = {
        u_alpha: { type: "1f", value: 0 },
        u_mvpMat: { type: "m4", value: new THREE.Matrix4() },
@@ -26,10 +45,10 @@ function makeMesh( vertice, normals, centers, indice, vpf, static ) {
              type: 'v3',
              value: []
         },
-        // alt_position: {
-        //     type: '3fv',
-        //     value: []
-        // },
+        alt_position: {
+             type: 'v3',
+             value: []
+        },
         a_barycentric: {
             type: '1i',
             value: []
@@ -43,19 +62,32 @@ function makeMesh( vertice, normals, centers, indice, vpf, static ) {
         fragmentShader: document.getElementById('shader-fs').innerHTML,
         side: THREE.DoubleSide
     });
-     
-    for (var i = 0; i < vertice.length / 3; i++) {
-        geometry.vertices.push( new THREE.Vector3( vertice[3*i], vertice[3*i+1], vertice[3*i+2] ) );
-        //attributes.alt_position.value.push( new THREE.Vector3( vertice[3*i], vertice[3*i+1], vertice[3*i+2] ) );
+
+    var static = prng === true;
+    var randomizedFaces = [];
+    var interpolatedFaces = [];
+    if (!static) {
+        randomizedFaces = rndFaces( model.vertice, model.span, model.vpf, lookDir, prng);
     }
-    for (var i = 0; i < normals.length / 3; i++) {
-        attributes.a_normal.value.push( new THREE.Vector3( normals[3*i], normals[3*i+1], normals[3*i+2] ) );
+
+    geometry.dynamic = true;
+    for (var i = 0; i < model.vertice.length / 3; i++) {
+        if (static) {
+            attributes.alt_position.value.push( new THREE.Vector3( model.vertice[3*i], model.vertice[3*i+1], model.vertice[3*i+2] ) );
+            geometry.vertices.push( new THREE.Vector3( model.vertice[3*i], model.vertice[3*i+1], model.vertice[3*i+2] ) );
+        } else {
+            geometry.vertices.push( new THREE.Vector3( randomizedFaces[3*i], randomizedFaces[3*i+1], randomizedFaces[3*i+2] ) );
+            attributes.alt_position.value.push( new THREE.Vector3( randomizedFaces[3*i], randomizedFaces[3*i+1], randomizedFaces[3*i+2] ) );
+        }
     }
-    for (var i = 0; i < centers.length; i++) {
-        attributes.a_barycentric.value.push( centers[i] );
+    for (var i = 0; i < model.normals.length / 3; i++) {
+        attributes.a_normal.value.push( new THREE.Vector3( model.normals[3*i], model.normals[3*i+1], model.normals[3*i+2] ) );
     }
-    for (var i = 0; i < indice.length / 3; i++) {
-        geometry.faces.push( new THREE.Face3( indice[3*i], indice[3*i+1], indice[3*i+2] ) );
+    for (var i = 0; i < model.centers.length; i++) {
+        attributes.a_barycentric.value.push( model.centers[i] );
+    }
+    for (var i = 0; i < model.indice.length / 3; i++) {
+        geometry.faces.push( new THREE.Face3( model.indice[3*i], model.indice[3*i+1], model.indice[3*i+2] ) );
     }
     return new THREE.Mesh( geometry, shaderMaterial );
 }
@@ -114,20 +146,28 @@ function appMain() {
     // jqueryui widgets
     $(function() {
       $( "button" ).button();
-      $( "#grabLight" ).button();
     });
 
     var grabLight = false;
-    $( "#grabLight" ).siblings('label').html("Grab light");
     $( "#grabLight" ).change(function() {
         if ( this.checked ) {
-            grabLight = false;
-            $(this).siblings('label').html("Grab light");
-        } else {
             grabLight = true;
-            $(this).siblings('label').html("Release light");
+        } else {
+            grabLight = false;
         }
     });
+    $('#grabLight').attr('checked', false);
+
+    var static = false;
+    $( "#static" ).change(function() {
+        if ( this.checked ) {
+            static = true;
+            switchModel();
+        } else {
+            static = false;
+        }
+    });
+    $('#static').attr('checked', false);
 
     function showHelp() {
         if ( $( "#dialog" ).dialog( "isOpen" ) )
@@ -152,8 +192,6 @@ function appMain() {
     var toggleFullscreen = THREEx.FullScreen.toggleFct();
     $("#fullscreen").unbind("click");
     $("#fullscreen").click(toggleFullscreen);
-    
-    var modelId = 8;
 
     function previousModel() {
         modelId = (modelId - 1 + Haste.modelsLength()) % Haste.modelsLength();
@@ -169,30 +207,25 @@ function appMain() {
     $("#nextModel").unbind("click");
     $("#nextModel").click(nextModel);
 
-    var model = modelFor( modelId );
-    var currentMesh =  makeMesh( model.vertice,
-                                 model.normals,
-                                 model.centers,
-                                 model.indice,
-                                 model.vpf,
-                                 true );
-
     function switchModel() {
-        scene.remove( currentMesh );
-        currentMesh.geometry.dispose();
-        currentMesh.material.dispose();
+        oldMesh = currentMesh;
+        scene.remove( oldMesh );
 
         model = modelFor( modelId );
-        currentMesh = makeMesh( model.vertice,
-                                model.normals,
-                                model.centers,
-                                model.indice,
-                                model.vpf,
-                                true );
+        currentMesh = makeMesh( model,
+                                Haste.normedDirectionToOrigin(camTheta, camPhi),
+                                static || prng );
+
+        oldMesh.geometry.dispose();
+        oldMesh.material.dispose();
+
         scene.add( currentMesh );
         simTime = 0;
         then = Date.now();
     }
+
+    var modelId = 8;
+    var model = modelFor( modelId );
 
     var zoomMax = 8;
     var zoomMin = 0.125;
@@ -204,8 +237,8 @@ function appMain() {
     var camPhi = Math.PI / 2;
     var camDist = model.span * 1.1;
 
-    var lightTheta = 1.75;
-    var lightPhi = 1.75;
+    var lightTheta = 1.72;
+    var lightPhi = 1.72;
     var lightDist = 1;
 
     var projMat = new THREE.Matrix4();
@@ -218,6 +251,10 @@ function appMain() {
     
     updateProjection(window.innerWidth, window.innerHeight);
     
+    var currentMesh =  makeMesh( model,
+                                 Haste.normedDirectionToOrigin(camTheta, camPhi),
+                                 prng );
+
     var mainContainer = document.getElementById( 'main' );
     
     var scene = new THREE.Scene();
@@ -242,7 +279,7 @@ function appMain() {
             my = event.clientY;
             canvas.addEventListener( 'mouseup', onMouseUp, false );
             canvas.addEventListener( 'mousemove', onMouseMove, false );
-            timeFlowing = false;
+            timeFlowing = grabLight;
         }
     }
     
@@ -250,6 +287,23 @@ function appMain() {
         if (leftButton(event)) {
             canvas.removeEventListener( 'mouseup', onMouseUp, false );
             canvas.removeEventListener( 'mousemove', onMouseMove, false );
+            if (!grabLight && !static) {
+                var interpolated = interpolate( currentMesh.geometry.vertices,
+                                                currentMesh.material.attributes.alt_position.value,
+                                                simTime );
+                var newRnd = rndFaces( model.vertice,
+                                       model.span,
+                                       model.vpf,
+                                       Haste.normedDirectionToOrigin(camTheta, camPhi),
+                                       prng);
+                for (var i = 0; i < model.vertice.length / 3; i++) {
+                    currentMesh.geometry.vertices[i] = interpolated[i];
+                    currentMesh.material.attributes.alt_position.value[i] = new THREE.Vector3( newRnd[3*i], newRnd[3*i+1], newRnd[3*i+2] );
+                }
+                currentMesh.geometry.verticesNeedUpdate = true;
+                currentMesh.material.attributes.alt_position.needsUpdate = true;
+                simTime = 0;
+            }
             timeFlowing =  true;
         }
     }
@@ -261,10 +315,10 @@ function appMain() {
 
         if (grabLight) {
             lightTheta = lightTheta + deltaX * 0.005;
-            lightPhi = lightPhi - deltaY * 0.005;
+            lightPhi = Math.min( Math.PI - 0.01, Math.max( 0.01, lightPhi - deltaY * 0.005 ) );
         } else {
             camTheta = camTheta + deltaX * 0.005;
-            camPhi = camPhi - deltaY * 0.005;
+            camPhi = Math.min( Math.PI - 0.01, Math.max( 0.01, camPhi - deltaY * 0.005 ) );
             viewMat = arrToMat( Haste.updateViewMat( camTheta, camPhi, camDist ) );
         }
 
