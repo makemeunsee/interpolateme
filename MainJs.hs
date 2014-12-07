@@ -1,4 +1,4 @@
-import FlatModel ( FlatModel, fromModel, vertice, verticePerFace, normals, centers, indice, span, applyRndTranslationsToVertice )
+import FlatModel ( FlatModel, fromModel, vertice, verticePerFace, normals, centers, indice, span, applyTranslationsToVertice )
 import FloretSphere ( polyhedrons )
 import GLGenericFunctions ( OrbitingState (OrbitingState), theta, phi, distance )
 import qualified GLGenericFunctions as GF
@@ -15,7 +15,7 @@ import Haste.Foreign
 --foreign import ccall "getDocument" getDocument :: IO Document
 
 
-models :: [FlatModel Float Int Int]
+models :: [FlatModel Float Int]
 models = map fromModel polyhedrons
 
 modelsSize :: IO Int
@@ -30,7 +30,7 @@ vpfOf i = return $ verticePerFace $ models !! i
 normalsOf :: Int -> IO [Float]
 normalsOf i = return $ normals $ models !! i
 
-centersOf :: Int -> IO [Int]
+centersOf :: Int -> IO [Float]
 centersOf i = return $ centers $ models !! i
 
 indiceOf :: Int -> IO [Int]
@@ -56,7 +56,7 @@ normedDirectionToOrigin theta phi = return $ [x, y, z]
   where G.Point3f x y z = GF.orbitCenterDirection OrbitingState { theta = theta, phi = phi, distance = 1 }
 
 rndAlongAxis :: [Float] -> Float -> Float -> Float -> [Float] -> [Int] -> IO [Float]
-rndAlongAxis a b c d e f = return $ applyRndTranslationsToVertice a b c d e f
+rndAlongAxis a b c d e f = return $ applyTranslationsToVertice a b c d e f
 
 main = do
   export (toJSStr "modelsLength") modelsSize

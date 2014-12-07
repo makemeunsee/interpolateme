@@ -50,8 +50,8 @@ function makeMesh( model, lookDir, prng ) {
              type: 'v3',
              value: []
         },
-        a_barycentric: {
-            type: '1i',
+        a_barycentrics: {
+            type: 'v3',
             value: []
         }
     };
@@ -84,8 +84,8 @@ function makeMesh( model, lookDir, prng ) {
     for (var i = 0; i < model.normals.length / 3; i++) {
         attributes.a_normal.value.push( new THREE.Vector3( model.normals[3*i], model.normals[3*i+1], model.normals[3*i+2] ) );
     }
-    for (var i = 0; i < model.centers.length; i++) {
-        attributes.a_barycentric.value.push( model.centers[i] );
+    for (var i = 0; i < model.centers.length / 3; i++) {
+        attributes.a_barycentrics.value.push( new THREE.Vector3( model.centers[3*i], model.centers[3*i+1], model.centers[3*i+2] ) );
     }
     for (var i = 0; i < model.indice.length / 3; i++) {
         geometry.faces.push( new THREE.Face3( model.indice[3*i], model.indice[3*i+1], model.indice[3*i+2] ) );

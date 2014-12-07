@@ -2,7 +2,7 @@ module FlatModel ( facesToFlatTriangles
                  , facesToCenterFlags
                  , facesToFlatIndice
                  , normalsToFlatNormals
-                 , applyRndTranslationsToVertice
+                 , applyTranslationsToVertice
                  , FlatModel (FlatModel), FlatModel.vertice, FlatModel.faces, normals, centers, indice, verticePerFace, FlatModel.span
                  , fromModel
 ) where
@@ -18,30 +18,33 @@ import Geometry ( Model (Model)
 import ListUtil
 
 
-data FlatModel a b c = FlatModel { vertice :: [a]
-                                 , faces :: [Int]
-                                 , normals :: [a]
-                                 , centers :: [b]
-                                 , indice :: [c]
-                                 , verticePerFace :: [Int]
-                                 , span :: a }
+data FlatModel a b = FlatModel { vertice :: [a]
+                               , faces :: [Int]
+                               , normals :: [a]
+                               , centers :: [a]
+                               , indice :: [b]
+                               , verticePerFace :: [Int]
+                               , span :: a }
 
 
-fromModel :: (RealFloat a, Integral b, Integral c) => Model a -> FlatModel a b c
+fromModel :: (RealFloat a, Integral b) => Model a -> FlatModel a b
 fromModel (Model vs fs ns) = FlatModel (facesToFlatTriangles vs fs)
                                        (facesToFlatIndice fs)
                                        (normalsToFlatNormals ns fs)
                                        (facesToCenterFlags fs)
                                        (facesToFlatIndice fs)
-                                       (map ((1 +) . length) fs) -- barycenter added to original faces
+                                       (map vCount fs)
                                        (maximum $ map norm vs)
+  where vCount face = let l = length face in
+                      if length face == 3 then 3   -- no additional points for triangles
+                                          else l+1 -- 1 barycenter added to larger poly faces
 
 
 -- function to convert data from a Model to flat data, with a new center vertex added to each face of the model
 
 
-applyRndTranslationsToVertice :: RealFloat a => [a] -> a -> a -> a -> [a] -> [Int] -> [a]
-applyRndTranslationsToVertice tFactors xTAxis yTAxis zTAxis vs vpf =
+applyTranslationsToVertice :: RealFloat a => [a] -> a -> a -> a -> [a] -> [Int] -> [a]
+applyTranslationsToVertice tFactors xTAxis yTAxis zTAxis vs vpf =
   recurse vs $ zip tFactors vpf
   where recurse [] [] = []
         recurse vs ((r, count) : rfs) = translated ++ recurse rValues rfs
@@ -49,7 +52,13 @@ applyRndTranslationsToVertice tFactors xTAxis yTAxis zTAxis vs vpf =
                 values = take floatCount vs
                 rValues = drop floatCount vs
                 -- closer faces move closer, farther faces move farther -> minimize overlapping faces
-                alpha = r * (signum r) * (signum $ xTAxis * values !! 0 + yTAxis * values !! 1 + zTAxis * values !! 2)
+                alpha = r * (signum r) * (signum $ xTAxis * baryX + yTAxis * baryY + zTAxis * baryZ)
+                (baryX, baryY, baryZ) = if count == 3 -- compute barycenters for triangles
+                                          then ( values !! 0 + values !! 3 + values !! 6
+                                               , values !! 1 + values !! 4 + values !! 7
+                                               , values !! 2 + values !! 5 + values !! 8
+                                               )
+                                          else (values !! 0, values !! 1, values !! 2)
                 translation = take floatCount $ cycle [alpha*xTAxis, alpha*yTAxis, alpha*zTAxis]
                 translated = map (\(v,t) -> v+t) $ zip values translation
 
@@ -67,6 +76,7 @@ facesToFlatIndice faces = facesToFlatIndice0 0 faces
   where
     facesToFlatIndice0 :: Integral a => a -> [[Int]] -> [a]
     facesToFlatIndice0 _ [] = []
+    facesToFlatIndice0 count ([i0,i1,i2]:arrs) = [count,count+1,count+2] ++ facesToFlatIndice0 (count+3) arrs
     facesToFlatIndice0 count (arr:arrs) = offsetTriangles ++ facesToFlatIndice0 (1+count+ fromIntegral l) arrs
       where
         l = length arr
@@ -88,6 +98,9 @@ firstWithEveryPair (f:r) = concatMap (\ (i,j) -> [f,i,j]) $ cyclicConsecutivePai
 -- to use along 'facesToFlatIndice'.
 facesToFlatTriangles :: RealFloat a => [Point3f a] -> [[Int]] -> [a]
 facesToFlatTriangles _ [] = []
+-- dont subdivide triangles
+facesToFlatTriangles pts ([i0,i1,i2]:arrs) = (concatMap pointToArr $ map ((!!) pts) [i0,i1,i2]) ++ facesToFlatTriangles pts arrs
+-- subdivide quads and larger polys into triangles with a center
 facesToFlatTriangles pts (arr:arrs) =
   (concatMap pointToArr (faceBarycenter pts arr : map ((!!) pts) arr)) ++ facesToFlatTriangles pts arrs
 
@@ -104,22 +117,40 @@ normalsToFlatNormals normals faces = if length normals == length faces
 -- 4 for a triangle (because a center vertex is added), 5 for quads, etc.
 flatFaceNormals :: RealFloat a => [Point3f a] -> [[Int]] -> [a]
 flatFaceNormals _ [] = []
+-- triangles dont have the additional barycenter
+flatFaceNormals (n:ns) ([i0,i1,i2] : faces) = (concatMap pointToArr $ replicate 3 n) ++ flatFaceNormals ns faces
+-- larger polys have a barycenter
 flatFaceNormals (n:ns) (face : faces) = (concatMap pointToArr $ replicate (1 + length face) n) ++ flatFaceNormals ns faces
 
 
 -- add 1 normal to each face, for the added vertex (center)
 flatVertexNormals :: RealFloat a => [Point3f a] -> [[Int]] -> [a]
 flatVertexNormals _ [] = []
+-- triangle face have 3 normals
+flatVertexNormals normals (face@[_,_,_]:faces) =
+  concatMap pointToArr faceNormals ++ facesToFlatTriangles normals faces
+  where faceNormals = map (normals !!) face
+-- larger poly faces need 1 more normal for the barycenter
 flatVertexNormals normals (face:faces) =
   concatMap pointToArr (newNormal : faceNormals) ++ facesToFlatTriangles normals faces
-    where faceNormals = map (normals !!) face
-          newNormal = normalized $ barycenter faceNormals
+  where faceNormals = map (normals !!) face
+        newNormal = normalized $ barycenter faceNormals
 
 
--- flags vertice which are a barycenter and not part of the original face.
--- each face gets 1 barycenter and as many normal points as it originally contains.
+-- barycentric coords for vertice
+-- triangle vertice get (1,0,0) (0,1,0), (0,0,1)
+-- even sided faces get (0,0,0) for their center, and alternating (1,0,0), (0,1,0) for their vertice
+-- odd sided faces get (0,0,0) for their center, (0,0,1) for their first vertice and alternating (1,0,0), (0,1,0) for their other vertice
 -- to use along 'facesToFlatIndice' and 'facesToFlatTriangles'.
-facesToCenterFlags :: Integral a => [[Int]] -> [a]
+facesToCenterFlags :: RealFloat a => [[Int]] -> [a]
 facesToCenterFlags [] = []
+-- triangle vertice barycentric coords
+facesToCenterFlags (triangle@[_,_,_]:arrs) = 1 : 0 : 0 : 0 : 1 : 0 : 0 : 0 : 1 : facesToCenterFlags arrs
+-- larger poly barycentric coords
 facesToCenterFlags (arr:arrs) =
-  1 : (take (length arr) $ iterate id 0) ++ facesToCenterFlags arrs
+  1 : 1 : 1 : barycentrics ++ facesToCenterFlags arrs
+  where barycentrics = if l `mod` 2 == 0
+                         then bs
+                         else 0 : 0 : 1 : bs
+        l = length arr
+        bs = take ((*) 6 $ l `quot` 2) $ cycle [1,0,0,0,1,0]

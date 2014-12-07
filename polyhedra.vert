@@ -3,7 +3,7 @@
 in vec3 position;
 in vec3 normal;
 in vec3 alt_position;
-in int a_barycentric;
+in vec3 a_barycentrics;
 
 uniform mat4 u_mvpMat;
 uniform mat4 u_vMat;
@@ -12,7 +12,7 @@ uniform float u_lightIntensity;
 
 uniform float u_time;
 
-out float v_barycenter;
+out vec3 v_barycentrics;
 out float intensity;
 
 void main()
@@ -25,5 +25,5 @@ void main()
 
     float alpha = 0.5 + 0.5 * cos(u_time);
     gl_Position = u_mvpMat * vec4(alpha*position + (1-alpha)*alt_position, 1.0);
-    v_barycenter = a_barycentric;
+    v_barycentrics = a_barycentrics;
 }

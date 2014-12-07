@@ -49,17 +49,20 @@
 uniform vec4 u_color;
 uniform vec4 u_borderColor;
 
-varying float v_barycenter;
+varying vec3 v_barycentrics;
 varying float v_intensity;
 
-float edgeFactor(const float thickness, const float bary)
+float edgeFactor(const float thickness, const vec3 bary)
 {
-    return smoothstep(0.0, fwidth(bary)*thickness, bary);
+    vec3 d = fwidth(bary);
+    vec3 a3 = smoothstep(vec3(0.0), d*thickness, bary);
+    return min(min(a3.x, a3.y), a3.z);
+    //return smoothstep(0.0, fwidth(bary)*thickness, bary);
 }
 
 void main()
 {
-    float f = edgeFactor(1.2, v_barycenter);
+    float f = edgeFactor(1.2, v_barycentrics);
     vec4 ambient = 0.15 * mix(
         u_color,
         u_borderColor,
@@ -75,7 +78,7 @@ void main()
     <script id="shader-vs" type="x-shader/x-vertex">#ifdef GL_ES
 #extension GL_OES_standard_derivatives : enable
 #endif
-attribute float a_barycentric;
+attribute vec3 a_barycentrics;
 attribute vec3 a_normal;
 attribute vec3 alt_position;
 uniform mat4 u_mvpMat;
@@ -86,7 +89,7 @@ uniform float u_lightIntensity;
 
 uniform float u_alpha;
 
-varying float v_barycenter;
+varying vec3 v_barycentrics;
 varying float v_intensity;
 
 void main()
@@ -95,7 +98,7 @@ void main()
     v_intensity = max(dot(n, u_lightIntensity * u_lightDirection), 0.0);
 
     gl_Position = u_mvpMat * vec4(u_alpha*position + (1.0-u_alpha)*alt_position, 1.0);
-    v_barycenter = a_barycentric;
+    v_barycentrics = a_barycentrics;
 }</script>
     <script type="text/javascript" src="http://cdnjs.cloudflare.com/ajax/libs/seedrandom/2.3.10/seedrandom.min.js"></script>
     <script type="text/javascript" src="http://hammerjs.github.io/dist/hammer.min.js"></script>
