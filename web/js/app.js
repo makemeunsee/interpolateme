@@ -220,6 +220,9 @@ function appMain() {
         oldMesh.geometry.dispose();
         oldMesh.material.dispose();
 
+        // model span changes, need to recompute matrices
+        updateMVP();
+
         scene.add( currentMesh );
         simTime = 0;
         then = Date.now();
@@ -234,8 +237,8 @@ function appMain() {
     var zoom = 1;
     
     var dummyCam = new DummyCamera();
-    var camTheta = Math.PI / 2;
-    var camPhi = Math.PI / 2;
+    var camTheta = Math.PI / 3;
+    var camPhi = Math.PI / 3;
     var camDist = model.span * 1.1;
 
     var lightTheta = -1.2;
@@ -245,9 +248,20 @@ function appMain() {
     var projMat = new THREE.Matrix4();
     var viewMat = arrToMat( Haste.updateViewMat( camTheta, camPhi, camDist ) );
     var modelMat = new THREE.Matrix4();
-    
+
+    var mvp = new THREE.Matrix4();
+    function updateMVP() {
+        var scaledProj = projMat.clone().multiplyScalar( 1/model.span );
+        scaledProj.elements[15] = 1;
+        var zoomedModel = new THREE.Matrix4();
+        zoomedModel.multiplyScalar( zoom ).multiply( modelMat );
+        zoomedModel.elements[15] = 1;
+        mvp = scaledProj.multiply( viewMat ).multiply( zoomedModel );
+    }
+
     var updateProjection = function(screenWidth, screenHeight) {
         projMat = arrToMat( Haste.orthoMatrixFromScreen( screenWidth, screenHeight ) );
+        updateMVP();
     };
     
     updateProjection(window.innerWidth, window.innerHeight);
@@ -366,6 +380,7 @@ function appMain() {
                 camTheta = camTheta + deltaX * 0.005;
                 camPhi = Math.min( Math.PI - 0.01, Math.max( 0.01, camPhi - deltaY * 0.005 ) );
                 viewMat = arrToMat( Haste.updateViewMat( camTheta, camPhi, camDist ) );
+                updateMVP();
             }
 
             mx = event.touches[0].clientX;
@@ -379,6 +394,7 @@ function appMain() {
             lightDist = lightDist / Math.pow( alpha, delta );
         } else {
             zoom = Math.min( Math.max( zoom * ( Math.pow( alpha, delta ) ), zoomMin ), zoomMax );
+            updateMVP();
         }
     }
 
@@ -452,13 +468,6 @@ function appMain() {
         if(!running) {
             return;
         }
-
-        var scaledProj = projMat.clone().multiplyScalar( 1/model.span );
-        scaledProj.elements[15] = 1;
-        var zoomedModel = new THREE.Matrix4();
-        zoomedModel.multiplyScalar( zoom ).multiply( modelMat );
-        zoomedModel.elements[15] = 1;
-        var mvp = scaledProj.multiply( viewMat ).multiply( zoomedModel );
 
         var lightDir = Haste.directionFromOrigin(lightTheta, lightPhi, lightDist);
 
