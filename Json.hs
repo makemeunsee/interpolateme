@@ -93,10 +93,10 @@ transformOne (MeshList rt ms) meshId =
         applyTransform t = map (rotateL t)
 
         -- extract root transform
-        rootTransform = applyTransform $ transformation rt
+        rootTransformed = applyTransform $ transformation rt
 
         -- applying child transformations causes more problem than it solves...
-        all = [rootTransform]
+        all = [rootTransformed]
 
 --        -- each child transformation is applied to the root transformed mesh,
 --        -- creating a new mesh for each child transformation
