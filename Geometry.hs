@@ -1,5 +1,7 @@
 module Geometry ( Point3f(Point3f), Normal
-                , norm, normalized, cross, times, pointToArr, add, forceNorm, vec
+                , origin
+                , norm, normalized, cross, times, pointToArr, add, forceNorm, vec, divBy
+                , dist
                 , Model(Model), vertice, faces
                 , combine
                 , gold
@@ -22,7 +24,11 @@ import Data.Maybe (fromJust)
 import ListUtil
 
 data Point3f a = Point3f a a a
+                 deriving (Eq, Show)
 
+
+origin :: RealFloat a => Point3f a
+origin = Point3f 0 0 0
 
 data Model a = Model { vertice :: [Point3f a], faces :: [[Int]], normals :: [Normal a] }
 

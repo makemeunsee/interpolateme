@@ -92,7 +92,6 @@ data KeyState = KeyState { up :: KeyButtonState
                          , left :: KeyButtonState
                          , right :: KeyButtonState
                          , ctrl :: KeyButtonState
-                         , tab :: KeyButtonState
                          }
 
 
@@ -109,12 +108,8 @@ data GlobalState = GlobalState { camera :: OrbitingStatef
                                , mouse :: MouseState
                                , zoom :: GLfloat     -- scale for the model
                                , modelMat :: Mat44f
-                               , modelId :: Int
-                               , models :: [FlatModelGL]
-                               , seed :: RND.Seed
+                               , model :: FlatModelGL
                                , glids :: GLIDs
-                               , static :: Bool
-                               , realTime :: GLfloat
                                , simTime :: GLfloat
                                , keys :: KeyState
                                , projMat :: IORef Mat44f
@@ -129,7 +124,7 @@ scaledModelMat global = G.scale (zoom global) identity `G.multMat` (modelMat glo
 
 
 defaultKeyState :: KeyState
-defaultKeyState = KeyState Release Release Release Release Release Release
+defaultKeyState = KeyState Release Release Release Release Release
 
 
 defaultMouseState :: MouseState
@@ -176,54 +171,6 @@ instance RND.RangeRandom CFloat where
 instance RND.RangeRandom CInt where
   range_random (x0, x1) s = (fromIntegral r, s')
     where (r, s') = RND.range_random(fromIntegral x0 :: Int, fromIntegral x1 :: Int) s
-
-
-gaussianNoise :: RealFloat a => a -> a -> a -> (a, a)
-gaussianNoise variance r0 r1 = (root * cos r12Pi, root * sin r12Pi)
-  where root = -2 * log r0 * variance
-        r12Pi = r1 * 2 * pi
-
-
-gaussianList :: RealFloat a => a -> [a] -> [a]
-gaussianList variance (x0:x1:xs) = (g0 : g1 : gaussianList variance xs)
-                                    where (g0, g1) = gaussianNoise variance x0 x1
-gaussianList _ l = l
-
-
-clamped :: RealFloat a => a -> [a] -> [a]
-clamped a = if a < 0 then clamped0 (-a)
-                     else clamped0 a
-             where clamped0 _ [] = []
-                   clamped0 absMax (x : xs) = (min (max (-absMax) x) absMax) : clamped0 absMax xs
-
-
--- data buffer functions
-
--- random translate faces along an axis.
-axisRndFacesToFlatTriangles :: RND.Seed -> GLfloat -> Point3GL -> FlatModelGL -> ([GLfloat], RND.Seed)
-axisRndFacesToFlatTriangles seed span (G.Point3f nx ny nz) m =
-  (applyTranslationsToVertice rnds nx ny nz (vertice m) (verticePerFace m), newSeed)
-  where -- clamped gaussian distribution
-        rnds = clamped (2*span) $ gaussianList (sqrt span) rawRnds
-        -- uniform distribution
-        (rawRnds, newSeed) = RND.random_list (RND.range_random (0, span)) faceCount seed
-        faceCount = length $ verticePerFace m
-
-
--- assign a random code between 0 and 3 to each vertex
--- vertice of the a single face have the same code
-rndAnimationCodeData :: RND.Seed -> GLint -> [[Int]] -> ([GLint], RND.Seed)
-rndAnimationCodeData seed _ [] = ([], seed)
-rndAnimationCodeData seed k (face:faces) = (replicate l rnd ++ rem, lastSeed)
-  where (rnd, newSeed) = RND.range_random (0, k) seed
-        l = length faces
-        (rem, lastSeed) = rndAnimationCodeData newSeed k faces
-
-
--- randomize the position of a polyhedron faces in a way imperceptible to the given (ortho) camera, relative to model transform
-rndVertexBufferData :: RND.Seed -> Point3GL -> FlatModelGL -> ([GLfloat], RND.Seed)
-rndVertexBufferData seed camEye model =
-  axisRndFacesToFlatTriangles seed (G.norm camEye) (G.normalized camEye) model
 
 
 -- how many to draw
@@ -286,9 +233,6 @@ initGL drawFront drawBack verticeData normalData indiceData centersData = do
   GL.blend $= GL.Enabled
   GL.blendFunc $= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
   GL.shadeModel $= GL.Smooth
---  ambient (Light 0) $= Color4 0.1 0.1 0.1 (1 :: GLfloat)
---  diffuse (Light 0) $= Color4 0.9 0.9 0.9 (1 :: GLfloat)
---  light (Light 0) $= Enabled
 
   let front = if drawFront then GL.Fill else GL.Line
   let back = if drawBack then GL.Fill else GL.Line
@@ -543,46 +487,11 @@ waitForRelease = do
   (GL.Position x y) <- GL.get GLFW.mousePos
   b <- GLFW.getMouseButton GLFW.ButtonLeft
   wheel <- get mouseWheel
-  nowD <- get time
   case b of
     -- when button is released, switch back back to
     -- waitForPress action
     GLFW.Release -> return (Action (waitForPress, applyMouseMove b x y wheel))
     GLFW.Press   -> return (Action (waitForRelease, applyMouseMove b x y wheel))
-
-
-triggerReshape :: GlobalState -> IO GlobalState
-triggerReshape state@GlobalState{..} = do
-  let BuffersInfo{..} = buffersInfo glids
-
-  -- read current vertex buffers
-  oldVertice <- readBuffer vertexBufferId vertexBuffersLength
-  oldAltVertice <- readBuffer altVertexBufferId vertexBuffersLength
-
-  -- vertex buffer becomes interpolation (as of now) of vertice and alt vertice
-  refillBuffer vertexBufferId $ interpolate simTime oldVertice oldAltVertice
-
-  -- create new alt vertice ligned with the cam
-  let (newVertice, newSeed) = rndVertexBufferData seed (orbitingEyeForModel (scaledModelMat state) camera) (models !! modelId)
-  refillBuffer altVertexBufferId newVertice
-
-  -- updating geometries can be long, update realTime after
-  now <- get time
-  return state { realTime = realToFrac now, simTime = 0, seed = newSeed }
-
-
-updateSimState :: MouseState -> GlobalState -> IO (GlobalState)
-updateSimState newMouse state@GlobalState{..} = do
-  t <- get time
-  let now = realToFrac t
-  let dt = now - realTime
-  case (leftButton newMouse, leftButton mouse) of
-    -- sim paused, do nothing
-    (Press, _)         -> return state { mouse = newMouse, realTime = now }
-    -- sim runs, but max sim time is pi, so that interpolation stops matching the alt vertice
-    (Release, Release) -> return state { mouse = newMouse, realTime = now, simTime = min pi (simTime + dt) }
-    -- sim restarted
-    (Release, Press)   -> triggerReshape state { mouse = newMouse }
 
 
 -- rotate model matrix on arrow keys released
@@ -597,14 +506,12 @@ handleKeys state = do
   l <- GLFW.getKey GLFW.LEFT
   r <- GLFW.getKey GLFW.RIGHT
   ctrl <- GLFW.getKey GLFW.LCTRL
-  t <- GLFW.getKey GLFW.TAB
 
-  let (uR, dR, lR, rR, rT) = ( released u up
-                             , released d down
-                             , released l left
-                             , released r right
-                             , released t tab
-                             )
+  let (uR, dR, lR, rR) = ( released u up
+                         , released d down
+                         , released l left
+                         , released r right
+                         )
 
   -- rotate model matrix when arrow key released
   let newMat0 = case (uR, dR) of
@@ -617,16 +524,9 @@ handleKeys state = do
                  (True, _) -> G.multMat G.negYRot newMat0
                  (False, True) -> G.multMat G.posYRot newMat0
 
-  let newKS = ks { up = u, down = d, left = l, right = r, ctrl = ctrl, tab = t }
+  let newKS = ks { up = u, down = d, left = l, right = r, ctrl = ctrl }
 
-  -- if tab was released, change model
-  newState <- if rT then nextModel state
-                    else return state
-
-  -- if a rotation was applied, trigger reshape, else just update state
-  if uR || dR || lR || rR
-    then triggerReshape newState { keys = newKS, modelMat = newMat1 }
-    else return newState { keys = newKS, modelMat = newMat1 }
+  return state { keys = newKS, modelMat = newMat1 }
 
   where released newK oldK = newK == Release && newK /= oldK
 
@@ -657,8 +557,8 @@ updateLight newMouseState global =
     newLight = newLight0 { distance = distance newLight0 / a }
 
 
-loop :: Bool -> IO Action -> GlobalState -> IO GlobalState
-loop static action global = do
+loop :: IO Action -> GlobalState -> IO GlobalState
+loop action global = do
 
   -- read keyboard actions & update global state
   newGlobal0 <- handleKeys global
@@ -674,14 +574,11 @@ loop static action global = do
                      then updateCam newMouseState newGlobal0
                      else updateLight newMouseState newGlobal0
 
-  -- check for sim restart, update sim & gl states if necessary
-  newGlobal <- if static
-                 then return newGlobal1 { mouse = newMouseState }
-                 else updateSimState newMouseState newGlobal1
+  let newGlobal = newGlobal1 { mouse = newMouseState }
 
   -- prepare matrices for rendering
   p <- get $ projMat newGlobal
-  let span = FlatModel.span $ models newGlobal !! modelId newGlobal
+  let span = FlatModel.span $ model newGlobal
   let scaledP = G.scale (1/span) p
   let view = viewMatOf $ camera newGlobal
   let vp = scaledP `G.multMat` view
@@ -698,7 +595,7 @@ loop static action global = do
   q <- GLFW.getKey 'Q'
   open <- GLFW.getParam GLFW.Opened
   if open && esc /= GLFW.Press && q /= GLFW.Press
-    then loop static action' newGlobal
+    then loop action' newGlobal
     else return newGlobal
 
 
@@ -711,13 +608,12 @@ parseJsonArgs args = (head split, map read $ tail split)
   where split = splitOn "," args
 
 
-nextModel :: GlobalState -> IO GlobalState
-nextModel global@GlobalState{..} = do
+loadModel :: GlobalState -> G.Model GLfloat -> IO GlobalState
+loadModel global@GlobalState{..} raw = do
   let GLIDs{..} = glids
-  let newModelId = (1 + modelId) `mod` (length models)
 
   -- load next model
-  let m@(FlatModel vs fs ns cs ids vpf span) = models !! newModelId
+  let m@(FlatModel vs fs ns cs ids vpf span) = fromModel raw
 
   -- update cam to properly view new model
   let newCamera = camera { distance = span * 1.1 }
@@ -725,14 +621,11 @@ nextModel global@GlobalState{..} = do
   -- clean gl buffers and recreate them with proper data
   cleanBuffers buffersInfo
 
-  let bufferMaker = if static then (\ m _ -> (vertice m, defaultSeed))
-                              else let camEye = orbitingEyeForModel identity newCamera in
-                                   (\ m s -> rndVertexBufferData s camEye m)
-  let (vertexBufferData, newSeed) = bufferMaker m seed
-  newBuffersInfo <- loadBuffers vertexBufferData ns ids cs
+  let vertexBufferData = vs
+  newBuffersInfo <- loadBuffers vs ns ids cs
   let newGlids = glids { buffersInfo = newBuffersInfo }
 
-  return global { modelId = newModelId, glids = newGlids, camera = newCamera, seed = newSeed }
+  return global { glids = newGlids, camera = newCamera, model = m }
 
 
 main :: IO ()
@@ -745,48 +638,13 @@ main = do
   -- fullscreen flag
   let fullScreenRequest = boolArgument "--f" args
 
-  -- animated or not
-  let static = boolArgument "--s" args
-
-  -- invert back / front faces
-  let invertFaces = boolArgument "--i" args
-
-  -- invert back / front faces
+  -- draw back and front faces
   let bothFaces = boolArgument "--b" args
-
-  let jsonArgs = listToMaybe $ drop 1 $ dropWhile ("--json" /=) args
-  let (jsonFile, indice) = maybe (Nothing, [])
-                                 ((\ (x,y) -> (Just x, y)) . parseJsonArgs)
-                                 jsonArgs
 
   -- initialize early to have access to time
   GLFW.initialize
 
-  -- model from json?
-  t0 <- get time
-  json <- readJson jsonFile
-  t1 <- get time
-  putStr "Json read duration: "
-  putStrLn $ show $ t1 - t0
-
-  let rawModel = maybe []
-                       (\j -> [parseJson indice j])
-                       json
-
-  t2 <- get time
-  putStr $ "Json parse time: "
-  putStrLn $ show $ t2 - t1
-
-  let models = map fromModel
-                   (rawModel ++ polyhedrons)
-
-  putStrLn "'Enhanced' model data summary"
-  putStr "\tvertex count: "
-  putStrLn $ show $ length $ vertice $ models !! 0
-
-  t3 <- get time
-  putStr $ "Model conversion time: "
-  putStrLn $ show $ t3 - t2
+  let rawModel = polyhedrons !! 0
 
   fullscreenMode <- get GLFW.desktopMode
 
@@ -807,8 +665,8 @@ main = do
   GLFW.windowPos $= GL.Position 200 200
 
   -- init GL state
-  glstuff <- initGL (bothFaces || not invertFaces)
-                    (bothFaces || invertFaces)
+  glstuff <- initGL (True)
+                    (bothFaces)
                     []
                     []
                     []
@@ -817,29 +675,24 @@ main = do
   -- init global state
   projMat <- newIORef identity
   let state0 = GlobalState { camera = defaultCamState
-                           , models = models
-                           , modelId = -1
                            , light = defaultLightState
                            , mouse = defaultMouseState
-                           , seed = defaultSeed
                            , glids = glstuff
-                           , realTime = 0
                            , simTime = 0
                            , keys = defaultKeyState
                            , projMat = projMat
                            , modelMat = identity
                            , zoom = 1
-                           , static = static
                            }
 
-  state <- nextModel state0
+  state <- loadModel state0 rawModel
 
   -- setup stuff
   GLFW.swapInterval       $= 1 -- vsync
-  GLFW.windowTitle        $= "Interpol ate me"
+  GLFW.windowTitle        $= "Voronyi maze"
   GLFW.windowSizeCallback $= resize projMat
   -- main loop
-  lastState <- loop static waitForPress state
+  lastState <- loop waitForPress state
   -- exit
   cleanBuffers $ buffersInfo $ glids lastState
   GLFW.closeWindow
