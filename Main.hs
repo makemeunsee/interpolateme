@@ -67,7 +67,7 @@ import FlatModel ( facesToFlatTriangles
                  , fromModel
                  )
 import ListUtil
-import Json
+import Voronyi
 
 
 -- NearZero instance for GLfloat
@@ -644,7 +644,9 @@ main = do
   -- initialize early to have access to time
   GLFW.initialize
 
-  let rawModel = polyhedrons !! 0
+  let voroTetra = toVoronoiModel $ polyhedrons !! 0
+  let voroTetra' = addSeed (G.normalized $ G.Point3f 10 1 1) voroTetra
+  let rawModel = fromVoronoiModel voroTetra'
 
   fullscreenMode <- get GLFW.desktopMode
 

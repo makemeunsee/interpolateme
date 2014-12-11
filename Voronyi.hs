@@ -4,8 +4,9 @@ where
 
 import Control.Exception (assert)
 import qualified Geometry as G
-import Data.List ( elemIndex )
-import Data.Maybe ( fromJust )
+import ListUtil
+import Data.List ( elemIndex, findIndex )
+import Data.Maybe ( fromJust, catMaybes )
 
 -- data model for a voronoi tessellation of a sphere of radius 1
 -- seeds are points on the sphere
@@ -93,16 +94,30 @@ segmentPlaneIntersection p0@(G.Point3f x0 y0 z0) p1 pl@(Plane a b c d) (G.Point3
 
 
 addSeed :: RealFloat a => G.Point3f a -> VoronoiModel a -> VoronoiModel a
-addSeed newSeed@(G.Point3f x y z) m@(VoronoiModel ss vs ps) =
-  -- find closest seed
-  let closest = closestSeed m newSeed in
-  -- intersect tangent plane at newSeed with closest seed walls (edges of faces)
-  let tangent = tangentPlane newSeed in
-  let walls = wallsOfSeed m (fromJust $ elemIndex closest ss) in
-
-  -- get 2 points i0 and i1
-  -- update polygon of closest seed
-  -- from neighbour seed @ i0 to neighbour seed @ i1
-  --   find new intersection points based on previous (starting at i0), until reaching i1
-  --   update polygons
-  m
+addSeed newSeed@(G.Point3f x y z) m@(VoronoiModel ss vs fs) =
+  -- collapse remove duplicates & unused vertice
+  VoronoiModel ss newVs newPs
+  where
+    ids = take (length ss) [0..]
+    -- using the tangent plane at the newSeed
+    tangent@(Plane a b c d) = tangentPlane newSeed
+    zero = (vs, [])
+    -- look for intersections with the edges of existing faces
+    (newVs, newPs) = foldl updateFace zero ids
+    updateFace (verts, newFaces) id = (updatedVerts, updatedFace:newFaces)
+      where
+        seed = ss !! id
+        face = fs !! id
+        -- there should be 0 or 2 intersections, occurring on adjacent segments
+        intersections = map (\(p0,p1) -> segmentPlaneIntersection p0 p1 tangent newSeed) $ cyclicConsecutivePairs $ wallsOfSeed m id
+        size = length verts
+        actualIntersections = catMaybes intersections
+        updatedVerts = verts ++ actualIntersections
+        firstIntersection = findIndex (Nothing /=) intersections
+        cutVertexId = maybe Nothing (\i -> Just $ (i+1) `mod` size) firstIntersection
+        updatedFace = case cutVertexId of
+          Nothing -> face
+          Just i -> let (G.Point3f cx cy cz) = verts !! (face !! i) in
+                    if cx*a+cy*b+cz*c > 0
+                      then (take i face) ++ [size, size+1] ++ drop (i+1) face
+                      else [size+1, size, face !! i]
