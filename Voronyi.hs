@@ -106,10 +106,8 @@ addSeed newSeed@(G.Point3f x y z) m@(VoronoiModel ss vs fs) =
     -- look for intersections with the edges of existing faces
     (newVs, newFs) = foldl updateFace zero ids
     updateFace (verts, newFaces) id = (updatedVerts, updatedFace:newFaces)
-      where
-        seed = ss !! id
-        face = fs !! id
-        (updatedVerts, updatedFace) = cutPolygon verts face tangent seed
+      where face = fs !! id
+            (updatedVerts, updatedFace) = cutPolygon verts face tangent (G.Point3f a b c)
 
 
 cutPolygon :: RealFloat a => [G.Point3f a] -> [Int] -> Plane a -> G.Point3f a -> ([G.Point3f a], [Int])
