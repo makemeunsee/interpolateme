@@ -5,8 +5,8 @@ where
 import Control.Exception (assert)
 import qualified Geometry as G
 import ListUtil
-import Data.List ( elemIndex, findIndex )
-import Data.Maybe ( fromJust, catMaybes )
+import Data.List ( elemIndex, elemIndices, findIndex, findIndices )
+import Data.Maybe ( fromJust, catMaybes, mapMaybe )
 
 -- data model for a voronoi tessellation of a sphere of radius 1
 -- seeds are points on the sphere
@@ -16,6 +16,7 @@ data VoronoiModel a = VoronoiModel { seeds :: [G.Point3f a]
                                    , vertice :: [G.Point3f a]
                                    , polygons :: [[Int]]
                                    }
+                      deriving Show
 
 
 -- 3d plane, its points (x,y,z) solutions to: a.x + b.y + c.z + d = 0
@@ -96,28 +97,40 @@ segmentPlaneIntersection p0@(G.Point3f x0 y0 z0) p1 pl@(Plane a b c d) (G.Point3
 addSeed :: RealFloat a => G.Point3f a -> VoronoiModel a -> VoronoiModel a
 addSeed newSeed@(G.Point3f x y z) m@(VoronoiModel ss vs fs) =
   -- collapse remove duplicates & unused vertice
-  VoronoiModel ss newVs newPs
+  VoronoiModel ss newVs newFs
   where
     ids = take (length ss) [0..]
     -- using the tangent plane at the newSeed
     tangent@(Plane a b c d) = tangentPlane newSeed
     zero = (vs, [])
     -- look for intersections with the edges of existing faces
-    (newVs, newPs) = foldl updateFace zero ids
+    (newVs, newFs) = foldl updateFace zero ids
     updateFace (verts, newFaces) id = (updatedVerts, updatedFace:newFaces)
       where
         seed = ss !! id
         face = fs !! id
-        -- there should be 0 or 2 intersections, occurring on adjacent segments
-        intersections = map (\(p0,p1) -> segmentPlaneIntersection p0 p1 tangent newSeed) $ cyclicConsecutivePairs $ wallsOfSeed m id
-        size = length verts
-        actualIntersections = catMaybes intersections
-        updatedVerts = verts ++ actualIntersections
-        firstIntersection = findIndex (Nothing /=) intersections
-        cutVertexId = maybe Nothing (\i -> Just $ (i+1) `mod` size) firstIntersection
-        updatedFace = case cutVertexId of
-          Nothing -> face
-          Just i -> let (G.Point3f cx cy cz) = verts !! (face !! i) in
-                    if cx*a+cy*b+cz*c > 0
-                      then (take i face) ++ [size, size+1] ++ drop (i+1) face
-                      else [size+1, size, face !! i]
+        (updatedVerts, updatedFace) = cutPolygon verts face tangent seed
+
+
+cutPolygon :: RealFloat a => [G.Point3f a] -> [Int] -> Plane a -> G.Point3f a -> ([G.Point3f a], [Int])
+cutPolygon vertice face plane@(Plane a b c d) planeSeed = (newVertice, newFace)
+  where
+    segments = cyclicConsecutivePairs $ map (vertice !!) face
+    intersections = map (\(p0,p1) -> segmentPlaneIntersection p0 p1 plane planeSeed) segments
+    l = length vertice
+    actualIntersections = catMaybes intersections
+    newVertice = vertice ++ actualIntersections
+    -- indice of cuts in the intersection list
+    intersectionIndice = findIndices (Nothing /=) intersections
+    newFace = case intersectionIndice of
+      [cutSeg0, cutSeg1] -> let part1 = take (cutSeg0+1) face ++ [l, l+1] ++ drop (cutSeg1+1) face in
+                            let part2 = (take (cutSeg1-cutSeg0) $ drop (cutSeg0+1) face) ++ [l+1, l] in
+                            -- test vertex in part1
+                            let testVertex = vertice !! (face !! cutSeg0) in
+                            let (G.Point3f cx cy cz) = G.add testVertex $ G.times (-1) planeSeed in
+                            if cx*a+cy*b+cz*c < 0
+                              -- keep part with test vertex
+                              then part1
+                              -- keep other part
+                              else part2
+      _ -> face

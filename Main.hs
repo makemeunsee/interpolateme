@@ -645,7 +645,8 @@ main = do
   GLFW.initialize
 
   let voroTetra = toVoronoiModel $ polyhedrons !! 0
-  let voroTetra' = addSeed (G.normalized $ G.Point3f 10 1 1) voroTetra
+  let voroTetra' = addSeed (G.normalized $ G.Point3f 2 2 1) voroTetra -- test with 5 1 1
+  putStrLn $ show voroTetra'
   let rawModel = fromVoronoiModel voroTetra'
 
   fullscreenMode <- get GLFW.desktopMode

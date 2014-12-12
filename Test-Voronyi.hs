@@ -120,3 +120,81 @@ main = hspec $ do
       dist i3 e3 `shouldSatisfy` (0.00001 >)
       segmentPlaneIntersection (Point3f 1 1 1) (Point3f (-0.5) (-0.5) (-0.5)) plane1 seed1 `shouldBe` Nothing
       segmentPlaneIntersection (Point3f (-6) (-5) (-9.06)) (Point3f (-0.6) (-0.6) (-0.6)) plane1 seed1 `shouldBe` Nothing
+
+  describe "Validating cutPolygon function" $ do
+    let seed0 = Point3f 1 0 0
+    let plane0 = tangentPlane seed0
+
+    let seed0' = Point3f (-1) 0 0
+    let plane0' = tangentPlane seed0'
+
+    it "should not cut unconcerned polygons" $ do
+      let verticeIntact0 = [Point3f 0 0 0, Point3f 0 0 1, Point3f (-1) 0 1, Point3f (-1) 0 0]
+      let faceIntact0 = [0,1,2,3]
+      let faceIntact0' = [0,3,2,1]
+      let noCut0 = cutPolygon verticeIntact0 faceIntact0 plane0 seed0
+      let noCut0' = cutPolygon verticeIntact0 faceIntact0' plane0 seed0
+      noCut0 `shouldBe` (verticeIntact0, faceIntact0)
+      noCut0' `shouldBe` (verticeIntact0, faceIntact0')
+
+      let verticeIntact1 = [Point3f 3 0 0, Point3f 3 0 1, Point3f 2 0 1, Point3f 2 0 0]
+      let noCut1 = cutPolygon verticeIntact1 faceIntact0 plane0 seed0
+      let noCut1' = cutPolygon verticeIntact1 faceIntact0' plane0 seed0
+      noCut1 `shouldBe` (verticeIntact1, faceIntact0)
+      noCut1' `shouldBe` (verticeIntact1, faceIntact0')
+
+    it "should cut traversed polygons" $ do
+      -- quads
+      let vertice0 = [Point3f 0 0 0, Point3f 0 0 2, Point3f 2 0 2, Point3f 2 0 0]
+      let face0 = [0,1,2,3]
+      let face0' = [0,3,2,1]
+      let cut0 = cutPolygon vertice0 face0 plane0 seed0
+      let cut0' = cutPolygon vertice0 face0' plane0 seed0
+      cut0 `shouldBe` (vertice0 ++ [Point3f 1 0 2, Point3f 1 0 0], [0,1,4,5])
+      cut0' `shouldBe` (vertice0 ++ [Point3f 1 0 0, Point3f 1 0 2], [0,4,5,1])
+
+      -- triangles, remove 1 vertex
+      let vertice1 = [Point3f 0 0 (-2), Point3f 2 0 0, Point3f 0 0 2]
+      let face1 = [0,1,2]
+      let face1' = [2,1,0]
+      let cut1 = cutPolygon vertice1 face1 plane0 seed0
+      let cut1' = cutPolygon vertice1 face1' plane0 seed0
+      cut1 `shouldBe` (vertice1 ++ [Point3f 1 0 (-1), Point3f 1 0 1], [0,3,4,2])
+      cut1' `shouldBe` (vertice1 ++ [Point3f 1 0 1, Point3f 1 0 (-1)], [2,3,4,0])
+
+      -- triangles, remove 2 vertice
+      let vertice2 = [Point3f 0 0 0, Point3f 2 0 2, Point3f 2 0 (-2)]
+      let face2 = [0,1,2]
+      let face2' = [2,1,0]
+      let cut2 = cutPolygon vertice2 face2 plane0 seed0
+      let cut2' = cutPolygon vertice2 face2' plane0 seed0
+      cut2 `shouldBe` (vertice2 ++ [Point3f 1 0 1, Point3f 1 0 (-1)], [0,3,4])
+      cut2' `shouldBe` (vertice2 ++ [Point3f 1 0 1, Point3f 1 0 (-1)], [0,4,3])
+
+      -- quads, symmetric test
+      let vertice3 = [Point3f 0 0 0, Point3f 0 0 2, Point3f (-2) 0 2, Point3f (-2) 0 0]
+      let face3 = [0,1,2,3]
+      let face3' = [0,3,2,1]
+      let cut3 = cutPolygon vertice3 face3 plane0' seed0'
+      let cut3' = cutPolygon vertice3 face3' plane0' seed0'
+      cut3 `shouldBe` (vertice3 ++ [Point3f (-1) 0 2, Point3f (-1) 0 0], [0,1,4,5])
+      cut3' `shouldBe` (vertice3 ++ [Point3f (-1) 0 0, Point3f (-1) 0 2], [0,4,5,1])
+
+        -- triangles, remove 1 vertex, symmetric test
+      let vertice4 = [Point3f 0 0 (-2), Point3f (-2) 0 0, Point3f 0 0 2]
+      let face4 = [0,1,2]
+      let face4' = [2,1,0]
+      let cut4 = cutPolygon vertice4 face4 plane0' seed0'
+      let cut4' = cutPolygon vertice4 face4' plane0' seed0'
+      cut4 `shouldBe` (vertice4 ++ [Point3f (-1) 0 (-1), Point3f (-1) 0 1], [0,3,4,2])
+      cut4' `shouldBe` (vertice4 ++ [Point3f (-1) 0 1, Point3f (-1) 0 (-1)], [2,3,4,0])
+
+      -- triangles, remove 2 vertice, symmetric test
+      let vertice5 = [Point3f 0 0 0, Point3f (-2) 0 2, Point3f (-2) 0 (-2)]
+      let face5 = [0,1,2]
+      let face5' = [2,1,0]
+      let cut5 = cutPolygon vertice5 face5 plane0' seed0'
+      let cut5' = cutPolygon vertice5 face5' plane0' seed0'
+      cut5 `shouldBe` (vertice5 ++ [Point3f (-1) 0 1, Point3f (-1) 0 (-1)], [0,3,4])
+      cut5' `shouldBe` (vertice5 ++ [Point3f (-1) 0 1, Point3f (-1) 0 (-1)], [0,4,3])
+
