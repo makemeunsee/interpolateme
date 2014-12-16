@@ -16,7 +16,7 @@ data VoronoiModel a = VoronoiModel { seeds :: [G.Point3f a]
                                    , vertice :: [G.Point3f a]
                                    , polygons :: [[Int]]
                                    }
-                      deriving Show
+                      deriving (Eq, Show)
 
 
 -- 3d plane, its points (x,y,z) solutions to: a.x + b.y + c.z + d = 0
@@ -82,53 +82,128 @@ tangentPlane v@(G.Point3f x y z) = Plane nx ny nz (-1)
   where (G.Point3f nx ny nz) = G.normalized v
 
 
+data Intersection a = OnPoint (G.Point3f a)
+                    | OnSegment (G.Point3f a)
+                    | None
+                    deriving (Show, Eq)
+
+
+getPoint :: RealFloat a => Intersection a -> Maybe (G.Point3f a)
+getPoint (OnPoint p) = Just p
+getPoint (OnSegment p) = Just p
+getPoint _ = Nothing
+
+
 -- the seed must be on the plane
-segmentPlaneIntersection :: RealFloat a => G.Point3f a -> G.Point3f a -> Plane a -> G.Point3f a -> Maybe (G.Point3f a)
+segmentPlaneIntersection :: RealFloat a => G.Point3f a -> G.Point3f a -> Plane a -> G.Point3f a -> Intersection a
 segmentPlaneIntersection p0@(G.Point3f x0 y0 z0) p1 pl@(Plane a b c d) (G.Point3f sx sy sz) =
   if dx*a + dy*b +dz*c == 0
-    then Nothing -- segment and plane parallel (or segment on plane)
-    else if at >=0 && at <= 1
-      then Just $ G.add p0 $ G.times at v
-      else Nothing
+    then None -- segment and plane parallel (or segment on plane)
+    else
+      if at < 0 then None
+      else if at == 0 then OnPoint p0
+      else if at == 1 then OnPoint p1
+      else if at > 1 then None
+      else OnSegment $ G.add p0 $ G.times at v
   where v@(G.Point3f dx dy dz) = G.add p1 $ G.times (-1) p0 -- p0p1 vector
         at = (a*(sx-x0) + b*(sy-y0) + c*(sz-z0)) / (a*dx + b*dy + c*dz)
 
 
-addSeed :: RealFloat a => G.Point3f a -> VoronoiModel a -> VoronoiModel a
-addSeed newSeed@(G.Point3f x y z) m@(VoronoiModel ss vs fs) =
-  -- collapse remove duplicates & unused vertice
-  VoronoiModel ss newVs newFs
+cutPolygon :: RealFloat a => [G.Point3f a] -> Plane a -> G.Point3f a -> [G.Point3f a]
+cutPolygon vertice plane@(Plane a b c d) planeSeed = map (newVertice !!) newFace
   where
-    ids = take (length ss) [0..]
-    -- using the tangent plane at the newSeed
-    tangent@(Plane a b c d) = tangentPlane newSeed
-    zero = (vs, [])
-    -- look for intersections with the edges of existing faces
-    (newVs, newFs) = foldl updateFace zero ids
-    updateFace (verts, newFaces) id = (updatedVerts, updatedFace:newFaces)
-      where face = fs !! id
-            (updatedVerts, updatedFace) = cutPolygon verts face tangent (G.Point3f a b c)
-
-
-cutPolygon :: RealFloat a => [G.Point3f a] -> [Int] -> Plane a -> G.Point3f a -> ([G.Point3f a], [Int])
-cutPolygon vertice face plane@(Plane a b c d) planeSeed = (newVertice, newFace)
-  where
-    segments = cyclicConsecutivePairs $ map (vertice !!) face
-    intersections = map (\(p0,p1) -> segmentPlaneIntersection p0 p1 plane planeSeed) segments
     l = length vertice
-    actualIntersections = catMaybes intersections
-    newVertice = vertice ++ actualIntersections
-    -- indice of cuts in the intersection list
-    intersectionIndice = findIndices (Nothing /=) intersections
-    newFace = case intersectionIndice of
-      [cutSeg0, cutSeg1] -> let part1 = take (cutSeg0+1) face ++ [l, l+1] ++ drop (cutSeg1+1) face in
-                            let part2 = (take (cutSeg1-cutSeg0) $ drop (cutSeg0+1) face) ++ [l+1, l] in
-                            -- test vertex in part1
-                            let testVertex = vertice !! (face !! cutSeg0) in
-                            let (G.Point3f cx cy cz) = G.add testVertex $ G.times (-1) planeSeed in
-                            if cx*a+cy*b+cz*c < 0
-                              -- keep part with test vertex
-                              then part1
-                              -- keep other part
-                              else part2
-      _ -> face
+    ids = take l [0..]
+    segments = cyclicConsecutivePairs vertice
+    intersections = map (\(p0,p1) -> segmentPlaneIntersection p0 p1 plane planeSeed) segments
+    withIds = filter (\(i, _) -> i /= None) $ zip intersections [0..]
+    (newVertice, newFace) = case withIds of
+
+      -- cutting the polygon at 2 edges
+      [(OnPoint p0, i0), (OnPoint p1, i1), (OnPoint p2, i2), (OnPoint p3, i3)]
+        -- generic case
+        | p0 == p1 && p2 == p3 && i0 + 1 == i1 && i2 + 1 == i3 ->
+          let kept = if underPlane $ vertice !! 0 then [0..i1] ++ [i3..l-1] else [i1..i3] in
+          (vertice, kept)
+        -- cutting 2 edges special case: one edge is first vertex
+        | p0 == p3 && p1 == p2 && i0 == 0 && i3 == l - 1 && i1 + 1 == i2 ->
+          let kept = if underPlane $ vertice !! i1 then [0..i2] else 0:[i2..i3] in
+          (vertice, kept)
+        -- should not happen
+        | otherwise ->
+         assert False ([], [])
+
+      -- cutting 1 segment then 1 edge
+      [(OnSegment p0, i0), (OnPoint p1, i1), (OnPoint p2, i2)]
+        | p1 == p2 && i1 + 1 == i2 ->
+          let kept = if underPlane $ vertice !! 0 then [0..i0] ++ l:[i2..l-1] else l:[i0+1..i2] in
+          (vertice ++ [p0], kept)
+        -- should not happen
+        | otherwise ->
+          assert False ([], [])
+
+      -- cutting 1 edge then 1 segment
+      [(OnPoint p0, i0), (OnPoint p1, i1), (OnSegment p2, i2)]
+        | p0 == p1 && i0 + 1 == i1 ->
+          let kept = if underPlane $ vertice !! 0 then [0..i1] ++ l:[i2+1..l-1] else l:[i1..i2] in
+          (vertice ++ [p2], kept)
+        -- should not happen
+        | otherwise ->
+          assert False ([], [])
+
+      -- cutting 1 edge and 1 segment, special case: edge is first vertex
+      [(OnPoint p0, i0), (OnSegment p1, i1), (OnPoint p2, i2)]
+        | p0 == p2 && i0 == 0 && i2 == l - 1 ->
+          let kept = if underPlane $ vertice !! i1 then l:[0..i1] else 0:l:[i1+1..l-1] in
+          (vertice ++ [p1], kept)
+        -- should not happen
+        | otherwise ->
+          assert False ([], [])
+
+      -- cutting the polygon on 2 segments
+      [(OnSegment p0, i0), (OnSegment p1, i1)] ->
+        let kept = if underPlane $ vertice !! 0 then [0..i0] ++ [l,l+1] ++ [i1+1..l-1] else l+1:l:[i0+1..i1] in
+        (vertice ++ [p0,p1], kept)
+      -- no intersection case: leave polygon intact
+      [] ->
+        (vertice, ids)
+      -- default case: should not happen
+      _ ->
+        assert False ([], [])
+
+    underPlane v = let (G.Point3f cx cy cz) = G.add v $ G.times (-1) planeSeed in
+                   cx*a+cy*b+cz*c < 0
+
+
+truncate :: RealFloat a => G.Point3f a -> VoronoiModel a -> VoronoiModel a
+truncate normal@(G.Point3f x y z) m@(VoronoiModel ss vs fs) =
+  buildFromPolygons newFaces ss
+  where
+    -- using the tangent plane with the given normal
+    tangent = tangentPlane normal
+    oldFaces = map (map (vs !!)) fs
+    -- cut all faces
+    newFaces = map (\f -> cutPolygon f tangent normal) oldFaces
+
+
+buildFromPolygons :: RealFloat a => [[G.Point3f a]] -> [G.Point3f a] -> VoronoiModel a
+buildFromPolygons polygons normals = VoronoiModel normals (reverse reducedVertice) $ reverse $ map reverse faces
+  where
+    -- Note: all lists are built backward then reversed
+    (reducedVertice, faces) = reduce polygons ([], [])
+    reduce [] acc = acc
+    reduce (polygon:ps) (vs, fs) = reduce ps $ mergePolygon polygon (vs, []:fs)
+    -- merge polygon insert polygon vertice in the vertice list if not already in
+    -- and fill the head of the face list with the polygon vertice id in the updated list
+    mergePolygon [] acc = acc
+    mergePolygon (p:ps) (vs, fs) = mergePolygon ps newAcc
+      where
+        f = head fs
+        l = length vs
+        newAcc = case elemIndex p vs of
+                   Nothing -> let f = head fs in
+                              -- append the vertice as a new vertice to the list
+                              ( p : vs, ( l : f) : ( tail fs ) )
+                   Just id -> let f = head fs in
+                              -- dont append the vertice, refer to the existing copy in the face
+                              ( vs, ( ( (l-id-1) : f ) : ( tail fs ) ) )
