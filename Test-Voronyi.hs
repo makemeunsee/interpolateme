@@ -1,11 +1,13 @@
 module Main where
 
 import Voronyi
+import ListUtil
 import Geometry ( Point3f (Point3f) )
 import qualified Geometry as G
 import FloretSphere
 import Data.Maybe ( fromJust, isJust )
 import Data.List ( elemIndex, findIndices )
+import Graphics.Rendering.OpenGL.GL ( GLfloat )
 
 import Test.Hspec
 
@@ -21,7 +23,9 @@ planes = map tangentPlane points
 
 tetraVoro = toVoronoiModel tetrahedron
 
-testPlane :: [Point3f Float] -> (Int, Plane Float) -> IO ()
+tolerance = 0.00001
+
+testPlane :: [Point3f GLfloat] -> (Int, Plane GLfloat) -> IO ()
 testPlane pts (i, pl) = do
   let pi@(Point3f x y z) = pts !! i
   pl `shouldBe` (Plane x y z (-1))
@@ -100,28 +104,28 @@ main = hspec $ do
     it "should return correct intersections" $ do
       let seed0 = Point3f 1 0 0
       let plane0 = tangentPlane seed0
-      segmentPlaneIntersection (Point3f 1 0 0) (Point3f 0 0 0) plane0 seed0 `shouldBe` OnPoint (Point3f 1 0 0)
-      segmentPlaneIntersection (Point3f 1 0 0) (Point3f 5 8 9) plane0 seed0 `shouldBe` OnPoint (Point3f 1 0 0)
-      segmentPlaneIntersection (Point3f 2 0 0) (Point3f 0 0 0) plane0 seed0 `shouldBe` OnSegment (Point3f 1 0 0)
-      segmentPlaneIntersection (Point3f 0 0 0) (Point3f 2 2 0) plane0 seed0 `shouldBe` OnSegment (Point3f 1 1 0)
-      segmentPlaneIntersection (Point3f 0 0 0) (Point3f 2 2.2 2.2) plane0 seed0 `shouldBe` OnSegment (Point3f 1 1.1 1.1)
-      segmentPlaneIntersection (Point3f 0 0 0) (Point3f 0.9 0 0) plane0 seed0 `shouldBe` None
+      segmentPlaneIntersection tolerance(Point3f 1 0 0) (Point3f 0 0 0) plane0 seed0 `shouldBe` OnPoint (Point3f 1 0 0)
+      segmentPlaneIntersection tolerance (Point3f 1 0 0) (Point3f 5 8 9) plane0 seed0 `shouldBe` OnPoint (Point3f 1 0 0)
+      segmentPlaneIntersection tolerance (Point3f 2 0 0) (Point3f 0 0 0) plane0 seed0 `shouldBe` OnSegment (Point3f 1 0 0)
+      segmentPlaneIntersection tolerance (Point3f 0 0 0) (Point3f 2 2 0) plane0 seed0 `shouldBe` OnSegment (Point3f 1 1 0)
+      segmentPlaneIntersection tolerance (Point3f 0 0 0) (Point3f 2 2.2 2.2) plane0 seed0 `shouldBe` OnSegment (Point3f 1 1.1 1.1)
+      segmentPlaneIntersection tolerance (Point3f 0 0 0) (Point3f 0.9 0 0) plane0 seed0 `shouldBe` None
 
       let seed1 = Point3f ((/) (-sqrt 3) 3) ((/) (-sqrt 3) 3) ((/) (-sqrt 3) 3)
       let plane1 = tangentPlane seed1
-      let i0 = fromJust $ getPoint $ segmentPlaneIntersection (Point3f 1 1 1) (Point3f (-1) (-1) (-1)) plane1 seed1
+      let i0 = fromJust $ getPoint $ segmentPlaneIntersection tolerance (Point3f 1 1 1) (Point3f (-1) (-1) (-1)) plane1 seed1
       G.dist i0 seed1 `shouldSatisfy` (0.00001 >)
-      let i1 = fromJust $ getPoint $ segmentPlaneIntersection (Point3f 0 0 0) (Point3f (-10) 0 0) plane1 seed1
+      let i1 = fromJust $ getPoint $ segmentPlaneIntersection tolerance (Point3f 0 0 0) (Point3f (-10) 0 0) plane1 seed1
       let e1 = Point3f (-sqrt 3) 0 0
       G.dist i1 e1 `shouldSatisfy` (0.00001 >)
-      let i2 = fromJust $ getPoint $ segmentPlaneIntersection (Point3f 0 0 0) (Point3f 0 (-10) 0) plane1 seed1
+      let i2 = fromJust $ getPoint $ segmentPlaneIntersection tolerance (Point3f 0 0 0) (Point3f 0 (-10) 0) plane1 seed1
       let e2 = Point3f 0 (-sqrt 3) 0
       G.dist i2 e2 `shouldSatisfy` (0.00001 >)
-      let i3 = fromJust $ getPoint $ segmentPlaneIntersection (Point3f 0 0 0) (Point3f 0 0 (-10)) plane1 seed1
+      let i3 = fromJust $ getPoint $ segmentPlaneIntersection tolerance (Point3f 0 0 0) (Point3f 0 0 (-10)) plane1 seed1
       let e3 = Point3f 0 0 (-sqrt 3)
       G.dist i3 e3 `shouldSatisfy` (0.00001 >)
-      segmentPlaneIntersection (Point3f 1 1 1) (Point3f (-0.5) (-0.5) (-0.5)) plane1 seed1 `shouldBe` None
-      segmentPlaneIntersection (Point3f (-6) (-5) (-9.06)) (Point3f (-0.6) (-0.6) (-0.6)) plane1 seed1 `shouldBe` None
+      segmentPlaneIntersection tolerance (Point3f 1 1 1) (Point3f (-0.5) (-0.5) (-0.5)) plane1 seed1 `shouldBe` None
+      segmentPlaneIntersection tolerance (Point3f (-6) (-5) (-9.06)) (Point3f (-0.6) (-0.6) (-0.6)) plane1 seed1 `shouldBe` None
 
 
   describe "Validating buildFromPolygons function" $ do
@@ -134,21 +138,21 @@ main = hspec $ do
       return ()
 
 
---  describe "bug: one face of tetrahedron not cut" $ do
---    it "should have 3 out of 4 faces cut" $ do
---      let seed = G.normalized $ Point3f 5 1 1
---      let plane = tangentPlane seed
---
---      let oldM@(VoronoiModel _ oldVertice oldFaces) = toVoronoiModel tetrahedron
-----      let actualFaces = map (map (oldVertice !!)) oldFaces
---
---      let newM@(VoronoiModel _ newVertice newFaces) = Voronyi.truncate seed oldM
---      let newActualFaces = map (map (newVertice !!)) newFaces
---      mapM (putStrLn . show ) newActualFaces
---      length (newFaces !! 0) `shouldBe` 4 -- <- bug !!
---      length (newFaces !! 1) `shouldBe` 4
---      length (newFaces !! 2) `shouldBe` 4
---      length (newFaces !! 3) `shouldBe` 3
+  describe "bug: one face of tetrahedron not cut" $ do
+    it "should have 3 out of 4 faces cut" $ do
+      let seed@(Point3f sx sy sz) = G.normalized $ Point3f 5 1 1 :: Point3f GLfloat
+      let plane@(Plane a b c d) = tangentPlane seed
+
+      let oldM@(VoronoiModel _ oldVertice oldFaces) = toVoronoiModel tetrahedron
+      let actualFaces = map (map (oldVertice !!)) oldFaces
+
+      let newM@(VoronoiModel _ newVertice newFaces) = Voronyi.truncate tolerance seed oldM
+      let newActualFaces = map (map (newVertice !!)) newFaces
+
+      length (newFaces !! 0) `shouldBe` 3
+      length (newFaces !! 1) `shouldBe` 4
+      length (newFaces !! 2) `shouldBe` 3
+      length (newFaces !! 3) `shouldBe` 3
 
 
   describe "Validating cutPolygon function" $ do
@@ -162,16 +166,16 @@ main = hspec $ do
       let verticeIntact0 = [Point3f 0 0 0, Point3f 0 0 1, Point3f (-1) 0 1, Point3f (-1) 0 0]
       let faceIntact0 = map (verticeIntact0 !!) [0,1,2,3]
       let faceIntact0' = map (verticeIntact0 !!) [0,3,2,1]
-      let noCut0 = cutPolygon faceIntact0 plane0 seed0
-      let noCut0' = cutPolygon faceIntact0' plane0 seed0
+      let noCut0 = cutPolygon tolerance faceIntact0 plane0 seed0
+      let noCut0' = cutPolygon tolerance faceIntact0' plane0 seed0
       noCut0 `shouldBe` faceIntact0
       noCut0' `shouldBe` faceIntact0'
 
       let verticeIntact1 = [Point3f 3 0 0, Point3f 3 0 1, Point3f 2 0 1, Point3f 2 0 0]
       let faceIntact1 = map (verticeIntact1 !!) [0,1,2,3]
       let faceIntact1' = map (verticeIntact1 !!) [0,3,2,1]
-      let noCut1 = cutPolygon faceIntact1 plane0 seed0
-      let noCut1' = cutPolygon faceIntact1' plane0 seed0
+      let noCut1 = cutPolygon tolerance faceIntact1 plane0 seed0
+      let noCut1' = cutPolygon tolerance faceIntact1' plane0 seed0
       noCut1 `shouldBe` faceIntact1
       noCut1' `shouldBe` faceIntact1'
 
@@ -180,8 +184,8 @@ main = hspec $ do
       let vertice0 = [Point3f 0 0 0, Point3f 0 0 2, Point3f 2 0 2, Point3f 2 0 0]
       let face0 = map (vertice0 !!) [0,1,2,3]
       let face0' = map (vertice0 !!) [0,3,2,1]
-      let cut0 = cutPolygon face0 plane0 seed0
-      let cut0' = cutPolygon face0' plane0 seed0
+      let cut0 = cutPolygon tolerance face0 plane0 seed0
+      let cut0' = cutPolygon tolerance face0' plane0 seed0
       cut0 `shouldBe` [Point3f 0 0 0, Point3f 0 0 2, Point3f 1 0 2, Point3f 1 0 0]
       cut0' `shouldBe` [Point3f 0 0 0, Point3f 1 0 0, Point3f 1 0 2, Point3f 0 0 2]
 
@@ -189,8 +193,8 @@ main = hspec $ do
       let vertice1 = [Point3f 0 0 (-2), Point3f 2 0 0, Point3f 0 0 2]
       let face1 = map (vertice1 !!) [0,1,2]
       let face1' = map (vertice1 !!) [2,1,0]
-      let cut1 = cutPolygon face1 plane0 seed0
-      let cut1' = cutPolygon face1' plane0 seed0
+      let cut1 = cutPolygon tolerance face1 plane0 seed0
+      let cut1' = cutPolygon tolerance face1' plane0 seed0
       cut1 `shouldBe` [Point3f 0 0 (-2), Point3f 1 0 (-1), Point3f 1 0 1, Point3f 0 0 2]
       cut1' `shouldBe` [Point3f 0 0 2, Point3f 1 0 1, Point3f 1 0 (-1), Point3f 0 0 (-2)]
 
@@ -198,8 +202,8 @@ main = hspec $ do
       let vertice2 = [Point3f 0 0 0, Point3f 2 0 2, Point3f 2 0 (-2)]
       let face2 = map (vertice2 !!) [0,1,2]
       let face2' = map (vertice2 !!) [2,1,0]
-      let cut2 = cutPolygon face2 plane0 seed0
-      let cut2' = cutPolygon face2' plane0 seed0
+      let cut2 = cutPolygon tolerance face2 plane0 seed0
+      let cut2' = cutPolygon tolerance face2' plane0 seed0
       cut2 `shouldBe` [Point3f 0 0 0, Point3f 1 0 1, Point3f 1 0 (-1)]
       cut2' `shouldBe` [Point3f 1 0 (-1), Point3f 1 0 1, Point3f 0 0 0]
 
@@ -207,8 +211,8 @@ main = hspec $ do
       let vertice3 = [Point3f 0 0 0, Point3f 0 0 2, Point3f (-2) 0 2, Point3f (-2) 0 0]
       let face3 = map (vertice3 !!) [0,1,2,3]
       let face3' = map (vertice3 !!) [0,3,2,1]
-      let cut3 = cutPolygon face3 plane0' seed0'
-      let cut3' = cutPolygon face3' plane0' seed0'
+      let cut3 = cutPolygon tolerance face3 plane0' seed0'
+      let cut3' = cutPolygon tolerance face3' plane0' seed0'
       cut3 `shouldBe` [Point3f 0 0 0, Point3f 0 0 2, Point3f (-1) 0 2, Point3f (-1) 0 0]
       cut3' `shouldBe` [Point3f 0 0 0, Point3f (-1) 0 0, Point3f (-1) 0 2, Point3f 0 0 2]
 
@@ -216,8 +220,8 @@ main = hspec $ do
       let vertice4 = [Point3f 0 0 (-2), Point3f (-2) 0 0, Point3f 0 0 2]
       let face4 = map (vertice4 !!) [0,1,2]
       let face4' = map (vertice4 !!) [2,1,0]
-      let cut4 = cutPolygon face4 plane0' seed0'
-      let cut4' = cutPolygon face4' plane0' seed0'
+      let cut4 = cutPolygon tolerance face4 plane0' seed0'
+      let cut4' = cutPolygon tolerance face4' plane0' seed0'
       cut4 `shouldBe` [Point3f 0 0 (-2), Point3f (-1) 0 (-1), Point3f (-1) 0 1, Point3f 0 0 2]
       cut4' `shouldBe` [Point3f 0 0 2, Point3f (-1) 0 1, Point3f (-1) 0 (-1), Point3f 0 0 (-2)]
 
@@ -225,8 +229,8 @@ main = hspec $ do
       let vertice5 = [Point3f 0 0 0, Point3f (-2) 0 2, Point3f (-2) 0 (-2)]
       let face5 = map (vertice5 !!) [0,1,2]
       let face5' = map (vertice5 !!) [2,1,0]
-      let cut5 = cutPolygon face5 plane0' seed0'
-      let cut5' = cutPolygon face5' plane0' seed0'
+      let cut5 = cutPolygon tolerance face5 plane0' seed0'
+      let cut5' = cutPolygon tolerance face5' plane0' seed0'
       cut5 `shouldBe` [Point3f 0 0 0, Point3f (-1) 0 1, Point3f (-1) 0 (-1)]
       cut5' `shouldBe` [Point3f (-1) 0 (-1), Point3f (-1) 0 1, Point3f 0 0 0]
 
@@ -243,44 +247,44 @@ main = hspec $ do
 
     it "should handle 2 edges cases" $ do
 
-      let cut0 = cutPolygon face plane0 seed0
+      let cut0 = cutPolygon tolerance face plane0 seed0
       cut0 `shouldBe` map (face !!) [1,2,3,4,5,6,7]
 
-      let cut1 = cutPolygon face plane1 seed1
+      let cut1 = cutPolygon tolerance face plane1 seed1
       cut1 `shouldBe` map (face !!) [0,1,3,4,5,6,7]
 
-      let cut2 = cutPolygon face plane2 seed2
+      let cut2 = cutPolygon tolerance face plane2 seed2
       cut2 `shouldBe` map (face !!) [0,1,2,3,5,6,7]
 
-      let cut3 = cutPolygon face plane3 seed3
+      let cut3 = cutPolygon tolerance face plane3 seed3
       cut3 `shouldBe` map (face !!) [0,1,2,3,4,5,7]
 
 
     let face' = tail face ++ [head face]
     it "should handle 2 edges special cases" $ do
 
-      let cut0 = cutPolygon face' plane0 seed0
+      let cut0 = cutPolygon tolerance face' plane0 seed0
       cut0 `shouldBe` map (face' !!) [0,1,2,3,4,5,6]
 
-      let cut1 = cutPolygon face' plane1 seed1
+      let cut1 = cutPolygon tolerance face' plane1 seed1
       cut1 `shouldBe` map (face' !!) [0,2,3,4,5,6,7]
 
     let horn0 = [Point3f 1 0 0, Point3f 1 0 (-1), Point3f (-2) 0 (-1), Point3f (-1) 0 0]
     let horn1 = [Point3f 1 0 0, Point3f 1 0 (-1), Point3f (-1) 0 (-1), Point3f (-2) 0 0]
     it "should handle 1 edges & 1 segment cases" $ do
 
-      let cut0 = cutPolygon horn0 plane2 seed2
+      let cut0 = cutPolygon tolerance horn0 plane2 seed2
       cut0 `shouldBe` [horn0 !! 0, horn0 !! 1, Point3f (-1) 0 (-1), horn0 !! 3]
 
-      let cut1 = cutPolygon horn1 plane2 seed2
+      let cut1 = cutPolygon tolerance horn1 plane2 seed2
       cut1 `shouldBe` [horn1 !! 0, horn1 !! 1, horn1 !! 2, Point3f (-1) 0 0]
 
     let horn2 = [Point3f 1 0 0, Point3f 2 0 (-1), Point3f 0 0 (-1), Point3f 0 0 0]
     let horn3 = [Point3f 1 0 0, Point3f 2 0 1, Point3f 0 0 1, Point3f 0 0 0]
     it "should handle 1 edges & 1 segment special cases" $ do
 
-      let cut2 = cutPolygon horn2 plane0 seed0
+      let cut2 = cutPolygon tolerance horn2 plane0 seed0
       cut2 `shouldBe` [horn2 !! 0, Point3f 1 0 (-1), horn2 !! 2, horn2 !! 3]
 
-      let cut3 = cutPolygon horn3 plane0 seed0
+      let cut3 = cutPolygon tolerance horn3 plane0 seed0
       cut3 `shouldBe` [horn3 !! 0, Point3f 1 0 1, horn3 !! 2, horn3 !! 3]

@@ -644,8 +644,11 @@ main = do
   -- initialize early to have access to time
   GLFW.initialize
 
-  let voroTetra = toVoronoiModel $ polyhedrons !! 0
-  let voroTetra' = Voronyi.truncate (G.normalized $ G.Point3f 5 1 1) voroTetra
+  let voroTetra@(VoronoiModel _ vs0 fs0) = toVoronoiModel $ polyhedrons !! 0
+  mapM (putStrLn . show) $ map (map (vs0 !!)) fs0
+  putStrLn ""
+  let voroTetra'@(VoronoiModel _ vs1 fs1) = Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 5 1 1) voroTetra
+  mapM (putStrLn . show) $ map (map (vs1 !!)) fs1
   let rawModel = fromVoronoiModel voroTetra'
 
   fullscreenMode <- get GLFW.desktopMode

@@ -94,29 +94,46 @@ getPoint (OnSegment p) = Just p
 getPoint _ = Nothing
 
 
+clean :: RealFloat a => a -> [Intersection a] -> [Intersection a]
+clean _ [] = []
+clean _ [x] = [x]
+clean tolerance (x0:x1:xs) = r0 : (clean tolerance $ r1 : xs)
+  where
+    (r0, r1) = case (x0,x1) of
+      (OnPoint p0, OnSegment p1)
+        | G.dist p0 p1 < tolerance -> (OnPoint p0, OnPoint p0)
+        | otherwise -> (x0, x1)
+      (OnSegment p0, OnPoint p1)
+        | G.dist p0 p1 < tolerance -> (OnPoint p1, OnPoint p1)
+        | otherwise -> (x0, x1)
+      _ -> (x0,x1)
+
+
 -- the seed must be on the plane
-segmentPlaneIntersection :: RealFloat a => G.Point3f a -> G.Point3f a -> Plane a -> G.Point3f a -> Intersection a
-segmentPlaneIntersection p0@(G.Point3f x0 y0 z0) p1 pl@(Plane a b c d) (G.Point3f sx sy sz) =
+segmentPlaneIntersection :: RealFloat a => a -> G.Point3f a -> G.Point3f a -> Plane a -> G.Point3f a -> Intersection a
+segmentPlaneIntersection tolerance p0@(G.Point3f x0 y0 z0) p1 pl@(Plane a b c d) (G.Point3f sx sy sz) =
   if dx*a + dy*b +dz*c == 0
     then None -- segment and plane parallel (or segment on plane)
     else
-      if at < 0 then None
-      else if at == 0 then OnPoint p0
-      else if at == 1 then OnPoint p1
-      else if at > 1 then None
-      else OnSegment $ G.add p0 $ G.times at v
+      if abs position < tolerance then OnPoint p0
+      else if abs (position - l) < tolerance then OnPoint p1
+      else if at > 0 && at < 1 then OnSegment $ G.add p0 $ G.times at v
+      else None
   where v@(G.Point3f dx dy dz) = G.add p1 $ G.times (-1) p0 -- p0p1 vector
         at = (a*(sx-x0) + b*(sy-y0) + c*(sz-z0)) / (a*dx + b*dy + c*dz)
+        l = G.norm v
+        position = at * l
 
 
-cutPolygon :: RealFloat a => [G.Point3f a] -> Plane a -> G.Point3f a -> [G.Point3f a]
-cutPolygon vertice plane@(Plane a b c d) planeSeed = map (newVertice !!) newFace
+cutPolygon :: RealFloat a => a -> [G.Point3f a] -> Plane a -> G.Point3f a -> [G.Point3f a]
+cutPolygon tolerance vertice plane@(Plane a b c d) planeSeed = map (newVertice !!) newFace
   where
     l = length vertice
     ids = take l [0..]
     segments = cyclicConsecutivePairs vertice
-    intersections = map (\(p0,p1) -> segmentPlaneIntersection p0 p1 plane planeSeed) segments
-    withIds = filter (\(i, _) -> i /= None) $ zip intersections [0..]
+    intersections = map (\(p0,p1) -> segmentPlaneIntersection tolerance p0 p1 plane planeSeed) segments
+    cleaned = clean tolerance intersections
+    withIds = filter (\(i, _) -> i /= None) $ zip cleaned [0..]
     (newVertice, newFace) = case withIds of
 
       -- cutting the polygon at 2 edges
@@ -167,6 +184,13 @@ cutPolygon vertice plane@(Plane a b c d) planeSeed = map (newVertice !!) newFace
       -- no intersection case: leave polygon intact
       [] ->
         (vertice, ids)
+      -- intersection with only 1 point: leave polygon intact
+      [(OnPoint p0, i0), (OnPoint p1, i1)]
+        | p0 == p1 ->
+          (vertice, ids)
+        -- should not happen
+        | otherwise ->
+          assert False ([], [])
       -- default case: should not happen
       _ ->
         assert False ([], [])
@@ -175,15 +199,15 @@ cutPolygon vertice plane@(Plane a b c d) planeSeed = map (newVertice !!) newFace
                    cx*a+cy*b+cz*c < 0
 
 
-truncate :: RealFloat a => G.Point3f a -> VoronoiModel a -> VoronoiModel a
-truncate normal@(G.Point3f x y z) m@(VoronoiModel ss vs fs) =
+truncate :: RealFloat a => a -> G.Point3f a -> VoronoiModel a -> VoronoiModel a
+truncate tolerance normal@(G.Point3f x y z) m@(VoronoiModel ss vs fs) =
   buildFromPolygons newFaces ss
   where
     -- using the tangent plane with the given normal
     tangent = tangentPlane normal
     oldFaces = map (map (vs !!)) fs
     -- cut all faces
-    newFaces = map (\f -> cutPolygon f tangent normal) oldFaces
+    newFaces = map (\f -> cutPolygon tolerance f tangent normal) oldFaces
 
 
 buildFromPolygons :: RealFloat a => [[G.Point3f a]] -> [G.Point3f a] -> VoronoiModel a
