@@ -53,7 +53,7 @@ import FloretSphere
 import qualified Geometry as G
 import GLGenericFunctions ( OrbitingState (OrbitingState), theta, phi, distance, thetaSpeed, phiSpeed
                           , interpolate
-                          , viewMatOf
+                          , viewMatOf, modelMatOf
                           , orbitingEyeForModel
                           , orbitCenterDirection
                           , updateOrbitAngles
@@ -105,6 +105,7 @@ data MouseState = MouseState { mouseX :: GLint
 
 data GlobalState = GlobalState { camera :: OrbitingStatef
                                , light :: OrbitingStatef
+                               , cutPlane :: OrbitingStatef
                                , mouse :: MouseState
                                , zoom :: GLfloat     -- scale for the model
                                , modelMat :: Mat44f
@@ -153,6 +154,14 @@ defaultCamState = OrbitingState { theta = pi/2
                                 }
 
 
+defaultCutPlaneState :: OrbitingStatef
+defaultCutPlaneState = OrbitingState { theta = 0
+                                     , phi = pi/2
+                                     , distance = 1
+                                     , thetaSpeed = 0.005
+                                     , phiSpeed = 0.005
+                                     }
+
 -- rnd / num distribution functions
 
 
@@ -182,32 +191,31 @@ indexCount polyIndice = fromIntegral $ length polyIndice
 data ShaderInfo = ShaderInfo { prog :: Program
                              , vertexAttrib :: GLuint
                              , normalAttrib :: GLuint
-                             , altVertexAttrib :: GLuint
                              , centerAttrib :: GLuint
                              }
 
 
 data BuffersInfo = BuffersInfo { indice :: BufferObject
-                              , indiceCount :: GLint
-                              , vertexBuffersLength :: Int
-                              , vertexBufferId :: GLuint
-                              , normalBufferId :: GLuint
-                              , altVertexBufferId :: GLuint
-                              , centerBufferId :: GLuint
-                              }
+                               , indiceCount :: GLint
+                               , vertexBuffersLength :: Int
+                               , vertexBufferId :: GLuint
+                               , normalBufferId :: GLuint
+                               , centerBufferId :: GLuint
+                               }
 
 
-data GLIDs = GLIDs { shaderInfo :: ShaderInfo
-                   , buffersInfo :: BuffersInfo
+data GLIDs = GLIDs { objectShaderInfo :: ShaderInfo
+                   , planeShaderInfo :: ShaderInfo
+                   , objectBuffersInfo :: BuffersInfo
+                   , planeBuffersInfo :: BuffersInfo
                    }
 
 
-createShader :: IO ShaderInfo
-createShader = do
-  prog <- loadProgram "polyhedra.vert" "polyhedra.frag"
+createShader :: FilePath -> FilePath -> IO ShaderInfo
+createShader vertexShaderFile fragShaderFile = do
+  prog <- loadProgram vertexShaderFile fragShaderFile
   (AttribLocation vertexAttrib) <- get (attribLocation prog "position")
   (AttribLocation normalAttrib) <- get (attribLocation prog "normal")
-  (AttribLocation altVertexAttrib) <- get (attribLocation prog "alt_position")
   (AttribLocation centerAttrib) <- get (attribLocation prog "a_barycentrics")
   return ShaderInfo{..}
 
@@ -218,12 +226,11 @@ loadBuffers verticeData normalData indiceData centersData = do
   indice <- makeBuffer ElementArrayBuffer indiceData
   let indiceCount = indexCount indiceData
 
-  -- initially, vertice and alt vertice are equal
   let vertexBuffersLength = length verticeData
   vertexBufferId <- fillNewFloatBuffer verticeData
   normalBufferId <- fillNewFloatBuffer normalData
-  altVertexBufferId <- fillNewFloatBuffer verticeData
   centerBufferId <- fillNewFloatBuffer centersData
+
   return BuffersInfo{..}
 
 
@@ -242,10 +249,28 @@ initGL drawFront drawBack verticeData normalData indiceData centersData = do
   GL.cullFace $= Nothing
 
   -- make shaders & data
-  shaderInfo <- Main.createShader
+  objectShaderInfo <- Main.createShader "polyhedra.vert" "polyhedra.frag"
+  planeShaderInfo <- Main.createShader "plane.vert" "plane.frag"
 
   -- create data buffers
-  buffersInfo <- loadBuffers verticeData normalData indiceData centersData
+  objectBuffersInfo <- loadBuffers verticeData normalData indiceData centersData
+  planeBuffersInfo <- loadBuffers [ 1, 0, 0
+                                  , 1, 2, -2
+                                  , 1, 2, 2
+                                  , 1, -2, 2
+                                  , 1, -2, -2
+                                  ]
+                                  (take (3*4) $ cycle [ 1, 0, 0 ])
+                                  [ 0, 1, 2
+                                  , 0, 2, 3
+                                  , 0, 3, 4
+                                  , 0, 4, 1
+                                  ]
+                                  [ 1, 1, 1
+                                  , 1, 0, 0
+                                  , 0, 1, 0
+                                  , 1, 0, 0
+                                  , 0, 1, 0]
 
   return GLIDs{..}
 
@@ -254,28 +279,24 @@ cleanBuffers :: BuffersInfo -> IO ()
 cleanBuffers BuffersInfo{..} = do
   with vertexBufferId $ glDeleteBuffers 1
   with normalBufferId $ glDeleteBuffers 1
-  with altVertexBufferId $ glDeleteBuffers 1
   with centerBufferId $ glDeleteBuffers 1
 
 
 -- rendering code
 
 
-bindGeometry :: GLIDs -> IO ()
-bindGeometry GLIDs{..} = do let ShaderInfo{..} = shaderInfo
-                            let BuffersInfo{..} = buffersInfo
-                            bindFloatBufferToAttrib 3 vertexBufferId vertexAttrib
-                            bindFloatBufferToAttrib 3 normalBufferId normalAttrib
-                            bindFloatBufferToAttrib 3 altVertexBufferId altVertexAttrib
-                            bindFloatBufferToAttrib 3 centerBufferId centerAttrib
+bindGeometry :: ShaderInfo -> BuffersInfo -> IO ()
+bindGeometry ShaderInfo{..} BuffersInfo{..} = do
+  bindFloatBufferToAttrib 3 vertexBufferId vertexAttrib
+  bindFloatBufferToAttrib 3 normalBufferId normalAttrib
+  bindFloatBufferToAttrib 3 centerBufferId centerAttrib
 
 
-unbindGeometry :: GLIDs -> IO ()
-unbindGeometry GLIDs{..} = do let ShaderInfo{..} = shaderInfo
-                              glDisableVertexAttribArray vertexAttrib
-                              glDisableVertexAttribArray normalAttrib
-                              glDisableVertexAttribArray altVertexAttrib
-                              glDisableVertexAttribArray centerAttrib
+unbindGeometry :: ShaderInfo -> IO ()
+unbindGeometry ShaderInfo{..} = do
+  glDisableVertexAttribArray vertexAttrib
+  glDisableVertexAttribArray normalAttrib
+  glDisableVertexAttribArray centerAttrib
 
 
 bindUniformMatrix :: Program -> String -> Mat44f -> IO ()
@@ -290,12 +311,15 @@ bindUniformVector prog uName vec = do
   with vec $ glUniform4fv vLoc 1 . castPtr
 
 
-render :: GLfloat -> Point3GL -> Mat44f -> Mat44f -> GLIDs -> IO ()
-render t lightDirection vMat mvpMat glids@GLIDs{..} = do
-  let ShaderInfo{..} = shaderInfo
-  let BuffersInfo{..} = buffersInfo
-
+prepareRender :: IO ()
+prepareRender = do
   GL.clear [GL.ColorBuffer, GL.DepthBuffer]
+
+
+renderObject :: GLfloat -> Point3GL -> Mat44f -> Mat44f -> GLIDs -> IO ()
+renderObject t lightDirection vMat mvpMat glids@GLIDs{..} = do
+  let ShaderInfo{..} = objectShaderInfo
+  let BuffersInfo{..} = objectBuffersInfo
 
   currentProgram $= Just prog
 
@@ -323,16 +347,40 @@ render t lightDirection vMat mvpMat glids@GLIDs{..} = do
   uniform timeLoc $= GL.Index1 t
 
   -- bind attributes
-  bindGeometry glids
+  bindGeometry objectShaderInfo objectBuffersInfo
 
   -- bind indice
   bindBuffer ElementArrayBuffer $= Just (indice)
 
   drawElements GL.Triangles indiceCount GL.UnsignedInt offset0
 
-  unbindGeometry glids
+  unbindGeometry objectShaderInfo
 
-  GLFW.swapBuffers
+
+renderPlane :: Mat44f -> GLIDs -> IO ()
+renderPlane mvpMat glids@GLIDs{..} = do
+  let ShaderInfo{..} = planeShaderInfo
+  let BuffersInfo{..} = planeBuffersInfo
+
+  currentProgram $= Just prog
+
+  -- bind matrices
+  bindUniformMatrix prog "u_mvpMat" mvpMat
+
+  -- bind uniform colors
+  colLoc <- get $ uniformLocation prog "u_color"
+  bColLoc <- get $ uniformLocation prog "u_borderColor"
+  uniform colLoc $= GL.Color4 0.8 0.3 0.3 (0.5 :: GLfloat)
+  uniform bColLoc $= GL.Color4 1 0 0 (1 :: GLfloat)
+
+  -- bind attributes
+  bindGeometry planeShaderInfo planeBuffersInfo
+  -- bind indice
+  bindBuffer ElementArrayBuffer $= Just (indice)
+
+  drawElements GL.Triangles indiceCount GL.UnsignedInt offset0
+
+  unbindGeometry planeShaderInfo
 
 
 -- shader / buffer creation, low level opengl code
@@ -543,18 +591,13 @@ updateCam newMouseState global =
     newGlobal = updateZoom oldMouse newMouseState global
 
 
-updateLight :: MouseState -> GlobalState -> GlobalState
-updateLight newMouseState global =
-  global { light = newLight }
+updateCutPlane :: MouseState -> GlobalState -> GlobalState
+updateCutPlane newMouseState global =
+  global { cutPlane = newCutPlane }
   where
     oldMouse = mouse global
     -- get new cam state from mouse actions
-    newLight0 = updateOrbitState oldMouse newMouseState (light global)
-
-    a = 1.05 ** fromIntegral wheelDiff
-    wheelDiff = (wheel newMouseState) - (wheel $ mouse global)
-    -- update intensity (= distance of orbiting state)
-    newLight = newLight0 { distance = distance newLight0 / a }
+    newCutPlane = updateOrbitState oldMouse newMouseState (cutPlane global)
 
 
 loop :: IO Action -> GlobalState -> IO GlobalState
@@ -572,7 +615,7 @@ loop action global = do
   -- update the view related properties in the global state
   let newGlobal1 = if Release == ctrl (keys newGlobal0)
                      then updateCam newMouseState newGlobal0
-                     else updateLight newMouseState newGlobal0
+                     else updateCutPlane newMouseState newGlobal0
 
   let newGlobal = newGlobal1 { mouse = newMouseState }
 
@@ -584,11 +627,16 @@ loop action global = do
   let vp = scaledP `G.multMat` view
   let mvp = vp `G.multMat` (scaledModelMat newGlobal)
 
+  let planeMvp = mvp `G.multMat` (modelMatOf $ cutPlane newGlobal)
+
   -- light direction
   let lightDirection = orbitCenterDirection $ light newGlobal
 
   -- render
-  render (simTime newGlobal) lightDirection (view `G.multMat` modelMat newGlobal) mvp (glids newGlobal)
+  prepareRender
+  renderObject (simTime newGlobal) lightDirection (view `G.multMat` modelMat newGlobal) mvp (glids newGlobal)
+  renderPlane planeMvp (glids newGlobal)
+  GLFW.swapBuffers
 
   -- exit if window closed or Esc pressed
   esc <- GLFW.getKey GLFW.ESC
@@ -619,11 +667,11 @@ loadModel global@GlobalState{..} raw = do
   let newCamera = camera { distance = span * 1.1 }
 
   -- clean gl buffers and recreate them with proper data
-  cleanBuffers buffersInfo
+  cleanBuffers objectBuffersInfo
 
   let vertexBufferData = vs
   newBuffersInfo <- loadBuffers vs ns ids cs
-  let newGlids = glids { buffersInfo = newBuffersInfo }
+  let newGlids = glids { objectBuffersInfo = newBuffersInfo }
 
   return global { glids = newGlids, camera = newCamera, model = m }
 
@@ -644,20 +692,20 @@ main = do
   -- initialize early to have access to time
   GLFW.initialize
 
-  let voroTetra@(VoronoiModel _ vs0 fs0) = toVoronoiModel $ polyhedrons !! 0
+  let voroTetra@(VoronoiModel _ vs0 fs0) = toVoronoiModel $ polyhedrons !! 7
 --  let voroTetra'@(VoronoiModel _ vs1 fs1) = Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 5 1 1) voroTetra
 --  let voroTetra'@(VoronoiModel _ vs1 fs1) = Voronyi.truncate 0.00001 (G.normalized $ G.Point3f (-1) 1 1) voroTetra
-  let voroTetra'@(VoronoiModel _ vs1 fs1) = Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 1 1 1) $
-                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f (-1) 1 (-1)) $
-                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f (-1) (-1) 1) $
-                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 1 (-1) (-1)) $
-                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 0 1 0) $
-                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 0 (-1) 0) $
-                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 0 0 1) $
-                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 0 0 (-1)) $
-                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 1 0 0) $
-                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f (-1) 0 0) $ voroTetra
-  let rawModel = fromVoronoiModel voroTetra'
+--  let voroTetra'@(VoronoiModel _ vs1 fs1) = Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 1 1 1) $
+--                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f (-1) 1 (-1)) $
+--                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f (-1) (-1) 1) $
+--                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 1 (-1) (-1)) $
+--                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 0 1 0) $
+--                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 0 (-1) 0) $
+--                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 0 0 1) $
+--                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 0 0 (-1)) $
+--                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 1 0 0) $
+--                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f (-1) 0 0) $ voroTetra
+  let rawModel = fromVoronoiModel voroTetra
 
   fullscreenMode <- get GLFW.desktopMode
 
@@ -689,6 +737,7 @@ main = do
   projMat <- newIORef identity
   let state0 = GlobalState { camera = defaultCamState
                            , light = defaultLightState
+                           , cutPlane = defaultCutPlaneState
                            , mouse = defaultMouseState
                            , glids = glstuff
                            , simTime = 0
@@ -707,6 +756,7 @@ main = do
   -- main loop
   lastState <- loop waitForPress state
   -- exit
-  cleanBuffers $ buffersInfo $ glids lastState
+  cleanBuffers $ objectBuffersInfo $ glids lastState
+  cleanBuffers $ planeBuffersInfo $ glids lastState
   GLFW.closeWindow
   GLFW.terminate

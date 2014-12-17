@@ -30,21 +30,6 @@ onPlane :: RealFloat a => Plane a -> G.Point3f a -> Bool
 onPlane (Plane a b c d) (G.Point3f x y z) = a*x + b*y + c*z + d == 0
 
 
----- for planes to which the origin does not belong (ie: k0 plane /= 0)
---intersectionOfPlanes :: RealFloat a => Plane a -> Plane a -> Maybe (Line a)
---intersectionOfPlanes (Plane a0 b0 c0 d0) (Plane a1 b1 c1 d1) =
---  let a0' = a0 / d0 in
---  let b0' = b0 / d0 in
---  let c0' = c0 / d0 in
---  let a1' = a1 / d1 in
---  let b1' = b1 / d1 in
---  let c1' = c1 / d1 in
---  if a0' == a1' && b0' == b1' && c0' == c1'
---    then Nothing -- planes are identical or parallel
---    else Just $ Line ( (b0*c1 + b1*c0)/f ) ( (b0*d1 + b1*d0)/f ) ( (a0*c1 + a1*c0)/f ) ( (a0*d1 + a1*d0)/f )
---  where f = a0*b1 + a1*b0
-
-
 -- naive transposition of a model to a voronoi model
 -- face barycenters become seeds
 -- the vertice are scaled so that the seed of the first face belongs to the the unit sphere
@@ -224,11 +209,9 @@ truncate tolerance normal@(G.Point3f x y z) m@(VoronoiModel ss vs fs) =
     -- assemble them into a polygon
     newFace = buildPolygonFromSegments newEdges
     -- combine the new face and the cut faces
-    newFaces =  unsafePerformIO $ do
-                     putStrLn $ show cuts
-                     return $ if length newEdges > 2
-                         then newFace : (fst $ unzip cuts)
-                         else fst $ unzip cuts
+    newFaces =  if length newEdges > 2
+                  then newFace : (fst $ unzip cuts)
+                  else fst $ unzip cuts
 
 
 

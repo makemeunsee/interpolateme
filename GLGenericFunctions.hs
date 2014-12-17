@@ -44,19 +44,25 @@ orbitingEyeForModel modelMatrix orbit = vec4ToPoint3f orbitEye
 
 
 viewMatOf :: RealFloat a => OrbitingState a -> Mat44 a
-viewMatOf orbit = newViewMat
-  where (Point3f px py pz) = orbitingPosition orbit
+viewMatOf orbit@OrbitingState { phi = p } = newViewMat
+  where (Point3f px py pz) = orbitingPosition orbit { phi = max 0.00001 $ min (pi-0.00001) p }
         newViewMat = lookAtMatrix (vec3 px py pz)
                                   (vec3 0 0 0)
                                   (vec3 0 1 0)
 
 
+modelMatOf :: RealFloat a => OrbitingState a -> Mat44 a
+modelMatOf OrbitingState { theta = t, phi = p } = yMat `multMat` xzMat
+  where xzMat = rotMatrix4 t (Point3f 0 1 0)
+        yMat = rotMatrix4 (p-pi/2) $ rotate t (Point3f 0 1 0) (Point3f 0 0 1)
+
+
 limitAngle :: (Floating a, Ord a) => a -> a
 limitAngle angle =
-  if angle < 0.01
-    then 0.01
-    else if angle > pi - 0.01
-      then pi - 0.01
+  if angle < 0
+    then 0
+    else if angle > pi
+      then pi
       else angle
 
 

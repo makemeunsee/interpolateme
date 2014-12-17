@@ -12,6 +12,7 @@ module Geometry ( Point3f(Point3f), Normal
                 , multMat, multInvMatV
                 , rotate
                 , rotateM, rotateL
+                , rotMatrix4
                 , negXRot, posXRot, negYRot, posYRot
                 , barycenter, faceBarycenter
                 , modelAutoNormals
@@ -135,6 +136,10 @@ rotMatrix a (Point3f nx ny nz) = [ [cos a + nx*nx*(1-cos a),    nx*ny*(1-cos a) 
                                  , [nx*ny*(1-cos a) + nz*sin a, cos a + ny*ny*(1-cos a),    ny*nz*(1-cos a) - nx*sin a]
                                  , [nx*nz*(1-cos a) - ny*sin a, ny*nz*(1-cos a) + nx*sin a, cos a + nz*nz*(1-cos a)]
                                  ]
+
+rotMatrix4 :: RealFloat a => a -> Normal a -> V.Mat44 a
+rotMatrix4 a p = V.matFromLists [m3 !! 0 ++ [0], m3 !! 1 ++ [0], m3 !! 2 ++ [0], [0,0,0,1]]
+  where m3 = rotMatrix a p
 
 
 lookAtMatrix :: RealFloat a => V.Vec3 a -> V.Vec3 a -> V.Vec3 a -> V.Mat44 a

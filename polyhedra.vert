@@ -2,7 +2,6 @@
 
 in vec3 position;
 in vec3 normal;
-in vec3 alt_position;
 in vec3 a_barycentrics;
 
 uniform mat4 u_mvpMat;
@@ -24,6 +23,6 @@ void main()
     intensity = max(dot(n, u_lightIntensity * u_lightDirection), 0.0);
 
     float alpha = 0.5 + 0.5 * cos(u_time);
-    gl_Position = u_mvpMat * vec4(alpha*position + (1-alpha)*alt_position, 1.0);
+    gl_Position = u_mvpMat * vec4(position, 1.0);
     v_barycentrics = a_barycentrics;
 }
