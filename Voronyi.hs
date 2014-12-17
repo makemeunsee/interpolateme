@@ -5,8 +5,10 @@ where
 import Control.Exception (assert)
 import qualified Geometry as G
 import ListUtil
-import Data.List ( elemIndex, elemIndices, findIndex, findIndices )
+import Data.List ( elemIndex, elemIndices, findIndex, findIndices, null )
 import Data.Maybe ( fromJust, catMaybes, mapMaybe )
+
+import System.IO.Unsafe ( unsafePerformIO )
 
 -- data model for a voronoi tessellation of a sphere of radius 1
 -- seeds are points on the sphere
@@ -112,7 +114,7 @@ clean tolerance (x0:x1:xs) = r0 : (clean tolerance $ r1 : xs)
 -- the seed must be on the plane
 segmentPlaneIntersection :: RealFloat a => a -> G.Point3f a -> G.Point3f a -> Plane a -> G.Point3f a -> Intersection a
 segmentPlaneIntersection tolerance p0@(G.Point3f x0 y0 z0) p1 pl@(Plane a b c d) (G.Point3f sx sy sz) =
-  if dx*a + dy*b +dz*c == 0
+  if tolerance > coplanarity
     then None -- segment and plane parallel (or segment on plane)
     else
       if abs position < tolerance then OnPoint p0
@@ -123,10 +125,11 @@ segmentPlaneIntersection tolerance p0@(G.Point3f x0 y0 z0) p1 pl@(Plane a b c d)
         at = (a*(sx-x0) + b*(sy-y0) + c*(sz-z0)) / (a*dx + b*dy + c*dz)
         l = G.norm v
         position = at * l
+        coplanarity = abs $ dx*a + dy*b +dz*c
 
 
-cutPolygon :: RealFloat a => a -> [G.Point3f a] -> Plane a -> G.Point3f a -> [G.Point3f a]
-cutPolygon tolerance vertice plane@(Plane a b c d) planeSeed = map (newVertice !!) newFace
+cutPolygon :: RealFloat a => a -> [G.Point3f a] -> Plane a -> G.Point3f a -> ([G.Point3f a], [G.Point3f a])
+cutPolygon tolerance vertice plane@(Plane a b c d) planeSeed = (map (newVertice !!) newFace, map (newVertice !!) $ reverse newEdges)
   where
     l = length vertice
     ids = take l [0..]
@@ -134,80 +137,112 @@ cutPolygon tolerance vertice plane@(Plane a b c d) planeSeed = map (newVertice !
     intersections = map (\(p0,p1) -> segmentPlaneIntersection tolerance p0 p1 plane planeSeed) segments
     cleaned = clean tolerance intersections
     withIds = filter (\(i, _) -> i /= None) $ zip cleaned [0..]
-    (newVertice, newFace) = case withIds of
+    (newVertice, newFace, newEdges) = case withIds of
 
       -- cutting the polygon at 2 edges
       [(OnPoint p0, i0), (OnPoint p1, i1), (OnPoint p2, i2), (OnPoint p3, i3)]
         -- generic case
         | p0 == p1 && p2 == p3 && i0 + 1 == i1 && i2 + 1 == i3 ->
-          let kept = if underPlane $ vertice !! 0 then [0..i1] ++ [i3..l-1] else [i1..i3] in
-          (vertice, kept)
+          let under = underPlane $ vertice !! 0 in
+          let kept = if under then [0..i1] ++ [i3..l-1] else [i1..i3] in
+          let newEdges = if under then [i1,i3] else [i3,i1] in
+          (vertice, kept, newEdges)
         -- cutting 2 edges special case: one edge is first vertex
         | p0 == p3 && p1 == p2 && i0 == 0 && i3 == l - 1 && i1 + 1 == i2 ->
-          let kept = if underPlane $ vertice !! i1 then [0..i2] else 0:[i2..i3] in
-          (vertice, kept)
+          let under = underPlane $ vertice !! i1 in
+          let kept = if under then [0..i2] else 0:[i2..i3] in
+          let newEdges = if under then [i2, 0] else [0,i2] in
+          (vertice, kept, newEdges)
         -- should not happen
         | otherwise ->
-         assert False ([], [])
+         assert False ([], [], [])
 
       -- cutting 1 segment then 1 edge
       [(OnSegment p0, i0), (OnPoint p1, i1), (OnPoint p2, i2)]
         | p1 == p2 && i1 + 1 == i2 ->
-          let kept = if underPlane $ vertice !! 0 then [0..i0] ++ l:[i2..l-1] else l:[i0+1..i2] in
-          (vertice ++ [p0], kept)
+          let under = underPlane $ vertice !! 0 in
+          let kept = if under then [0..i0] ++ l:[i2..l-1] else l:[i0+1..i2] in
+          let newEdges = if under then [l,i2] else [i2,l] in
+          (vertice ++ [p0], kept, newEdges)
         -- should not happen
         | otherwise ->
-          assert False ([], [])
+          assert False ([], [], [])
 
       -- cutting 1 edge then 1 segment
       [(OnPoint p0, i0), (OnPoint p1, i1), (OnSegment p2, i2)]
         | p0 == p1 && i0 + 1 == i1 ->
-          let kept = if underPlane $ vertice !! 0 then [0..i1] ++ l:[i2+1..l-1] else l:[i1..i2] in
-          (vertice ++ [p2], kept)
+          let under = underPlane $ vertice !! 0 in
+          let kept = if under then [0..i1] ++ l:[i2+1..l-1] else l:[i1..i2] in
+          let newEdges = if under then [i1,l] else [l,i1] in
+          (vertice ++ [p2], kept, newEdges)
         -- should not happen
         | otherwise ->
-          assert False ([], [])
+          assert False ([], [], [])
 
       -- cutting 1 edge and 1 segment, special case: edge is first vertex
       [(OnPoint p0, i0), (OnSegment p1, i1), (OnPoint p2, i2)]
         | p0 == p2 && i0 == 0 && i2 == l - 1 ->
-          let kept = if underPlane $ vertice !! i1 then l:[0..i1] else 0:l:[i1+1..l-1] in
-          (vertice ++ [p1], kept)
+          let under = underPlane $ vertice !! i1 in
+          let kept = if under then l:[0..i1] else 0:l:[i1+1..l-1] in
+          let newEdges = if under then [l,0] else [0,l] in
+          (vertice ++ [p1], kept, newEdges)
         -- should not happen
         | otherwise ->
-          assert False ([], [])
+          assert False ([], [], [])
 
       -- cutting the polygon on 2 segments
       [(OnSegment p0, i0), (OnSegment p1, i1)] ->
-        let kept = if underPlane $ vertice !! 0 then [0..i0] ++ [l,l+1] ++ [i1+1..l-1] else l+1:l:[i0+1..i1] in
-        (vertice ++ [p0,p1], kept)
+        let under = underPlane $ vertice !! 0 in
+        let kept = if under then [0..i0] ++ [l,l+1] ++ [i1+1..l-1] else l+1:l:[i0+1..i1] in
+        let newEdges = if under then [l,l+1] else [l+1,l] in
+        (vertice ++ [p0,p1], kept, newEdges)
       -- no intersection case: leave polygon intact
       [] ->
-        (vertice, ids)
+        (vertice, ids, [])
       -- intersection with only 1 point: leave polygon intact
-      [(OnPoint p0, i0), (OnPoint p1, i1)]
-        | p0 == p1 ->
-          (vertice, ids)
-        -- should not happen
-        | otherwise ->
-          assert False ([], [])
+      [(OnPoint p0, i0), (OnPoint p1, i1)] ->
+        (vertice, ids, [])
       -- default case: should not happen
       _ ->
-        assert False ([], [])
+        assert False ([], [], [])
 
     underPlane v = let (G.Point3f cx cy cz) = G.add v $ G.times (-1) planeSeed in
                    cx*a+cy*b+cz*c < 0
 
 
-truncate :: RealFloat a => a -> G.Point3f a -> VoronoiModel a -> VoronoiModel a
+truncate :: (RealFloat a, Show a) => a -> G.Point3f a -> VoronoiModel a -> VoronoiModel a
 truncate tolerance normal@(G.Point3f x y z) m@(VoronoiModel ss vs fs) =
-  buildFromPolygons newFaces ss
+  buildFromPolygons newFaces (normal:ss)
   where
     -- using the tangent plane with the given normal
     tangent = tangentPlane normal
     oldFaces = map (map (vs !!)) fs
     -- cut all faces
-    newFaces = map (\f -> cutPolygon tolerance f tangent normal) oldFaces
+    cuts = map (\f -> cutPolygon tolerance f tangent normal) oldFaces
+    -- extract edges created by the cut
+    newEdges = map snd $ filter (not . null . snd) cuts
+    -- assemble them into a polygon
+    newFace = buildPolygonFromSegments newEdges
+    -- combine the new face and the cut faces
+    newFaces =  unsafePerformIO $ do
+                     putStrLn $ show cuts
+                     return $ if length newEdges > 2
+                         then newFace : (fst $ unzip cuts)
+                         else fst $ unzip cuts
+
+
+
+buildPolygonFromSegments :: RealFloat a => [[G.Point3f a]] -> [G.Point3f a]
+buildPolygonFromSegments segments = rebuild (tail segments) (head segments)
+  where
+    rebuild [] acc = tail acc -- prevent loop
+    rebuild segments acc =
+      let target = head acc in
+      let nextSeg = fst $ foldr (\newSeg (seg, d) ->
+                                   let newD = G.dist (last newSeg) target in
+                                   if newD < d then (newSeg, newD) else (seg, d)
+                                 ) (head segments, 9e99) segments in
+      rebuild (foldr (\e acc -> if e /= nextSeg then (e:acc) else acc) [] segments) (nextSeg ++ tail acc)
 
 
 buildFromPolygons :: RealFloat a => [[G.Point3f a]] -> [G.Point3f a] -> VoronoiModel a

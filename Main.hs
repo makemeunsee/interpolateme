@@ -645,10 +645,18 @@ main = do
   GLFW.initialize
 
   let voroTetra@(VoronoiModel _ vs0 fs0) = toVoronoiModel $ polyhedrons !! 0
-  mapM (putStrLn . show) $ map (map (vs0 !!)) fs0
-  putStrLn ""
-  let voroTetra'@(VoronoiModel _ vs1 fs1) = Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 5 1 1) voroTetra
-  mapM (putStrLn . show) $ map (map (vs1 !!)) fs1
+--  let voroTetra'@(VoronoiModel _ vs1 fs1) = Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 5 1 1) voroTetra
+--  let voroTetra'@(VoronoiModel _ vs1 fs1) = Voronyi.truncate 0.00001 (G.normalized $ G.Point3f (-1) 1 1) voroTetra
+  let voroTetra'@(VoronoiModel _ vs1 fs1) = Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 1 1 1) $
+                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f (-1) 1 (-1)) $
+                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f (-1) (-1) 1) $
+                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 1 (-1) (-1)) $
+                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 0 1 0) $
+                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 0 (-1) 0) $
+                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 0 0 1) $
+                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 0 0 (-1)) $
+                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 1 0 0) $
+                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f (-1) 0 0) $ voroTetra
   let rawModel = fromVoronoiModel voroTetra'
 
   fullscreenMode <- get GLFW.desktopMode
