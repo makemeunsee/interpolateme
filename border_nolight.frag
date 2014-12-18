@@ -2,9 +2,9 @@
 
 uniform vec4 u_color;
 uniform vec4 u_borderColor;
+uniform float u_borderWidth;
 
 in vec3 v_barycentrics;
-in float intensity;
 
 out vec4 color;
 
@@ -18,19 +18,11 @@ float edgeFactor(const float thickness, const vec3 bary)
 
 void main()
 {
-    float f = edgeFactor(1.2, v_barycentrics);
-    vec4 ambient = mix(
-        u_borderColor,
-        u_color,
-        f
-    );
-    vec4 diffuse = intensity * mix(
+    float f = edgeFactor(u_borderWidth, v_barycentrics);
+    color = mix(
         u_borderColor,
         u_color,
         f
     );
     // color = vec4(v_barycentrics, 1.0); // barycentrics debug render
-    // color = vec4(max(diffuse.rgb, ambient.rgb), 1.0);
-    color = vec4(ambient.rgb, 1.0);
-    //color = vec4(smoothstep(vec3(0.0), fwidth(v_barycenter)*5, v_barycenter) , 1.0);
 }

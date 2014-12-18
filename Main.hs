@@ -99,13 +99,11 @@ data MouseState = MouseState { mouseX :: GLint
                              , mouseY :: GLint
                              , wheel :: Int
                              , leftButton :: KeyButtonState
-                             , rightButton :: KeyButtonState
                              }
                   deriving Show
 
 
 data GlobalState = GlobalState { camera :: OrbitingStatef
-                               , light :: OrbitingStatef
                                , cutPlane :: OrbitingStatef
                                , showCutPlane :: Bool
                                , mouse :: MouseState
@@ -137,15 +135,6 @@ defaultMouseState = MouseState { mouseX = 0
                                , wheel = 0
                                , leftButton = Release
                                }
-
-
-defaultLightState :: OrbitingStatef
-defaultLightState = OrbitingState { theta = -1.2
-                                  , phi = 1.8
-                                  , distance = 1
-                                  , thetaSpeed = -0.005
-                                  , phiSpeed = 0.005
-                                  }
 
 
 defaultCamState :: OrbitingStatef
@@ -207,8 +196,7 @@ data BuffersInfo = BuffersInfo { indice :: BufferObject
                                }
 
 
-data GLIDs = GLIDs { objectShaderInfo :: ShaderInfo
-                   , planeShaderInfo :: ShaderInfo
+data GLIDs = GLIDs { shaderInfo :: ShaderInfo
                    , objectBuffersInfo :: BuffersInfo
                    , planeBuffersInfo :: BuffersInfo
                    }
@@ -252,8 +240,7 @@ initGL drawFront drawBack verticeData normalData indiceData centersData = do
   GL.cullFace $= Nothing
 
   -- make shaders & data
-  objectShaderInfo <- Main.createShader "polyhedra.vert" "polyhedra.frag"
-  planeShaderInfo <- Main.createShader "plane.vert" "plane.frag"
+  shaderInfo <- Main.createShader "border_nolight.vert" "border_nolight.frag"
 
   -- create data buffers
   objectBuffersInfo <- loadBuffers verticeData normalData indiceData centersData
@@ -314,30 +301,23 @@ bindUniformVector prog uName vec = do
   with vec $ glUniform4fv vLoc 1 . castPtr
 
 
-prepareRender :: IO ()
-prepareRender = do
+render :: GLfloat -> Bool -> Mat44f -> Mat44f -> GLIDs -> IO ()
+render t drawPlane mvp planeMvp glids@GLIDs{..} = do
   GL.clear [GL.ColorBuffer, GL.DepthBuffer]
 
-
-renderObject :: GLfloat -> Point3GL -> Mat44f -> Mat44f -> GLIDs -> IO ()
-renderObject t lightDirection vMat mvpMat glids@GLIDs{..} = do
-  let ShaderInfo{..} = objectShaderInfo
-  let BuffersInfo{..} = objectBuffersInfo
+  let ShaderInfo{..} = shaderInfo
 
   currentProgram $= Just prog
 
-  -- bind matrices
-  bindUniformMatrix prog "u_mvpMat" mvpMat
-  bindUniformMatrix prog "u_vMat" vMat
+  -- bind time
+  timeLoc <- get $ uniformLocation prog "u_time"
+  uniform timeLoc $= GL.Index1 t
 
-  -- bind light
-  -- direction is normed in shader
-  let G.Point3f x y z = G.normalized lightDirection
-  bindUniformVector prog "u_lightDirection" $ G.vec4 x y z
-  -- intensity decreases with square distance
-  let n = G.norm lightDirection
-  lightILoc <- get $ uniformLocation prog "u_lightIntensity"
-  uniform lightILoc $= GL.Index1 (1 / n / n)
+  -- bind matrices
+  bindUniformMatrix prog "u_mvpMat" mvp
+
+
+  -- draw object
 
   -- bind uniform colors
   colLoc <- get $ uniformLocation prog "u_color"
@@ -345,45 +325,48 @@ renderObject t lightDirection vMat mvpMat glids@GLIDs{..} = do
   uniform colLoc $= GL.Color4 1 1 1 (1 :: GLfloat)
   uniform bColLoc $= GL.Color4 0.4 0.4 0.4 (1 :: GLfloat)
 
-  -- bind time
-  timeLoc <- get $ uniformLocation prog "u_time"
-  uniform timeLoc $= GL.Index1 t
+  borderWidthLoc <- get $ uniformLocation prog "u_borderWidth"
+  uniform borderWidthLoc $= GL.Index1 (1.2 :: GLfloat)
 
   -- bind attributes
-  bindGeometry objectShaderInfo objectBuffersInfo
+  bindGeometry shaderInfo objectBuffersInfo
 
   -- bind indice
-  bindBuffer ElementArrayBuffer $= Just (indice)
+  bindBuffer ElementArrayBuffer $= Just (indice objectBuffersInfo)
 
-  drawElements GL.Triangles indiceCount GL.UnsignedInt offset0
+  drawElements GL.Triangles (indiceCount objectBuffersInfo) GL.UnsignedInt offset0
 
-  unbindGeometry objectShaderInfo
+  unbindGeometry shaderInfo
 
+  -- draw cut plane
 
-renderPlane :: Mat44f -> GLIDs -> IO ()
-renderPlane mvpMat glids@GLIDs{..} = do
-  let ShaderInfo{..} = planeShaderInfo
-  let BuffersInfo{..} = planeBuffersInfo
+  if drawPlane
+    then do
+      -- bind matrices
+      bindUniformMatrix prog "u_mvpMat" planeMvp
 
-  currentProgram $= Just prog
+      -- bind uniform colors
+      colLoc <- get $ uniformLocation prog "u_color"
+      bColLoc <- get $ uniformLocation prog "u_borderColor"
+      uniform colLoc $= GL.Color4 0.8 0.3 0.3 (0.5 :: GLfloat)
+      uniform bColLoc $= GL.Color4 1 0 0 (1 :: GLfloat)
 
-  -- bind matrices
-  bindUniformMatrix prog "u_mvpMat" mvpMat
+      borderWidthLoc <- get $ uniformLocation prog "u_borderWidth"
+      uniform borderWidthLoc $= GL.Index1 (5 :: GLfloat)
 
-  -- bind uniform colors
-  colLoc <- get $ uniformLocation prog "u_color"
-  bColLoc <- get $ uniformLocation prog "u_borderColor"
-  uniform colLoc $= GL.Color4 0.8 0.3 0.3 (0.5 :: GLfloat)
-  uniform bColLoc $= GL.Color4 1 0 0 (1 :: GLfloat)
+      -- bind attributes
+      bindGeometry shaderInfo planeBuffersInfo
 
-  -- bind attributes
-  bindGeometry planeShaderInfo planeBuffersInfo
-  -- bind indice
-  bindBuffer ElementArrayBuffer $= Just (indice)
+      -- bind indice
+      bindBuffer ElementArrayBuffer $= Just (indice planeBuffersInfo)
 
-  drawElements GL.Triangles indiceCount GL.UnsignedInt offset0
+      drawElements GL.Triangles (indiceCount planeBuffersInfo) GL.UnsignedInt offset0
 
-  unbindGeometry planeShaderInfo
+      unbindGeometry shaderInfo
+    else
+      return ()
+
+  GLFW.swapBuffers
 
 
 -- shader / buffer creation, low level opengl code
@@ -629,16 +612,8 @@ loop action global = do
 
   let planeMvp = mvp `G.multMat` (latLongRotMat $ cutPlane newGlobal)
 
-  -- light direction
-  let lightDirection = orbitCenterDirection $ light newGlobal
-
   -- render
-  prepareRender
-  renderObject (simTime newGlobal) lightDirection (view `G.multMat` modelMat newGlobal) mvp (glids newGlobal)
-  if showCutPlane newGlobal0
-    then renderPlane planeMvp (glids newGlobal)
-    else return ()
-  GLFW.swapBuffers
+  render (simTime newGlobal) (showCutPlane newGlobal0) mvp planeMvp (glids newGlobal)
 
   -- exit if window closed or Esc pressed
   esc <- GLFW.getKey GLFW.ESC
@@ -651,11 +626,6 @@ loop action global = do
 
 boolArgument :: String -> [String] -> Bool
 boolArgument arg args = [] /= filter ((==) arg) args
-
-
-parseJsonArgs :: String -> (FilePath, [Int])
-parseJsonArgs args = (head split, map read $ tail split)
-  where split = splitOn "," args
 
 
 loadModel :: GlobalState -> VoronoiModel GLfloat -> IO GlobalState
@@ -725,7 +695,6 @@ main = do
   -- init global state
   projMat <- newIORef identity
   let state0 = GlobalState { camera = defaultCamState
-                           , light = defaultLightState
                            , cutPlane = defaultCutPlaneState
                            , showCutPlane = True
                            , mouse = defaultMouseState

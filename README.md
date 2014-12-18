@@ -37,7 +37,7 @@ In the works
 
 Fuller JS port using Haste. To compile to JS:
 
-``hastec '--start=$HASTE_MAIN(); appMain();' --with-js=web/js/app.js MainJs.hs -o web/js/appHaste.js.``
+``hastec '--start=$HASTE_MAIN(); appMain();' --with-js=web/js/app.js MainJs.hs -o web/js/appHaste.js``
 
 Credits
 -------
