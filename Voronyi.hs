@@ -195,9 +195,9 @@ cutPolygon tolerance vertice plane@(Plane a b c d) planeSeed = (map (newVertice 
                    cx*a+cy*b+cz*c < 0
 
 
-truncate :: (RealFloat a, Show a) => a -> G.Point3f a -> VoronoiModel a -> VoronoiModel a
+truncate :: RealFloat a => a -> G.Point3f a -> VoronoiModel a -> VoronoiModel a
 truncate tolerance normal@(G.Point3f x y z) m@(VoronoiModel ss vs fs) =
-  buildFromPolygons newFaces (normal:ss)
+  buildFromPolygons newFaces newNormals
   where
     -- using the tangent plane with the given normal
     tangent = tangentPlane normal
@@ -209,10 +209,9 @@ truncate tolerance normal@(G.Point3f x y z) m@(VoronoiModel ss vs fs) =
     -- assemble them into a polygon
     newFace = buildPolygonFromSegments newEdges
     -- combine the new face and the cut faces
-    newFaces =  if length newEdges > 2
-                  then newFace : (fst $ unzip cuts)
-                  else fst $ unzip cuts
-
+    (newFaces, newNormals) =  if length newEdges > 2
+                                then (newFace : (fst $ unzip cuts), normal : ss)
+                                else (fst $ unzip cuts, ss)
 
 
 buildPolygonFromSegments :: RealFloat a => [[G.Point3f a]] -> [G.Point3f a]

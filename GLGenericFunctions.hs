@@ -51,8 +51,16 @@ viewMatOf orbit@OrbitingState { phi = p } = newViewMat
                                   (vec3 0 1 0)
 
 
-modelMatOf :: RealFloat a => OrbitingState a -> Mat44 a
-modelMatOf OrbitingState { theta = t, phi = p } = yMat `multMat` xzMat
+latLongPosition :: RealFloat a => OrbitingState a -> Point3f a
+latLongPosition OrbitingState { theta = t, phi = p, distance = d } =
+  Point3f x y z
+  where (x,y,z) = ( d * sin (pi-p) * cos (-t)
+                  , d * cos (pi-p)
+                  , d * sin (pi-p) * sin (-t))
+
+
+latLongRotMat :: RealFloat a => OrbitingState a -> Mat44 a
+latLongRotMat OrbitingState { theta = t, phi = p } = yMat `multMat` xzMat
   where xzMat = rotMatrix4 t (Point3f 0 1 0)
         yMat = rotMatrix4 (p-pi/2) $ rotate t (Point3f 0 1 0) (Point3f 0 0 1)
 

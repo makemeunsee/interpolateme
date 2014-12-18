@@ -187,6 +187,18 @@ main = hspec $ do
       length (newFaces !! 3) `shouldBe` 3
 
 
+  describe "Bug: truncate twice" $ do
+    it "should not crash when truncating twice in a row" $ do
+      let seed@(Point3f sx sy sz) = G.normalized $ Point3f 1 1 1 :: Point3f GLfloat
+      let plane@(Plane a b c d) = tangentPlane seed
+
+      let m0 = toVoronoiModel tetrahedron
+      let m1 = Voronyi.truncate tolerance seed m0
+      let m2 = Voronyi.truncate tolerance seed m1
+
+      m2 `shouldBe` m1
+
+
   describe "Validating cutPolygon function" $ do
     let seed0 = Point3f 1 0 0
     let plane0 = tangentPlane seed0

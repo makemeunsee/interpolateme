@@ -53,10 +53,12 @@ import FloretSphere
 import qualified Geometry as G
 import GLGenericFunctions ( OrbitingState (OrbitingState), theta, phi, distance, thetaSpeed, phiSpeed
                           , interpolate
-                          , viewMatOf, modelMatOf
+                          , viewMatOf, latLongRotMat
                           , orbitingEyeForModel
                           , orbitCenterDirection
+                          , orbitingPosition
                           , updateOrbitAngles
+                          , latLongPosition
                           )
 import FlatModel ( facesToFlatTriangles
                  , facesToCenterFlags
@@ -87,10 +89,8 @@ type FlatModelGL = FlatModel GLfloat GLuint
 data Action = Action (IO Action, MouseState -> MouseState)
 
 
-data KeyState = KeyState { up :: KeyButtonState
-                         , down :: KeyButtonState
-                         , left :: KeyButtonState
-                         , right :: KeyButtonState
+data KeyState = KeyState { tab :: KeyButtonState
+                         , space :: KeyButtonState
                          , ctrl :: KeyButtonState
                          }
 
@@ -99,6 +99,7 @@ data MouseState = MouseState { mouseX :: GLint
                              , mouseY :: GLint
                              , wheel :: Int
                              , leftButton :: KeyButtonState
+                             , rightButton :: KeyButtonState
                              }
                   deriving Show
 
@@ -106,10 +107,12 @@ data MouseState = MouseState { mouseX :: GLint
 data GlobalState = GlobalState { camera :: OrbitingStatef
                                , light :: OrbitingStatef
                                , cutPlane :: OrbitingStatef
+                               , showCutPlane :: Bool
                                , mouse :: MouseState
                                , zoom :: GLfloat     -- scale for the model
                                , modelMat :: Mat44f
-                               , model :: FlatModelGL
+                               , model :: VoronoiModel GLfloat
+                               , span :: GLfloat
                                , glids :: GLIDs
                                , simTime :: GLfloat
                                , keys :: KeyState
@@ -125,7 +128,7 @@ scaledModelMat global = G.scale (zoom global) identity `G.multMat` (modelMat glo
 
 
 defaultKeyState :: KeyState
-defaultKeyState = KeyState Release Release Release Release Release
+defaultKeyState = KeyState Release Release Release
 
 
 defaultMouseState :: MouseState
@@ -549,32 +552,29 @@ handleKeys state = do
   let ks@KeyState{..} = keys state
 
   -- read key inputs
-  u <- GLFW.getKey GLFW.UP
-  d <- GLFW.getKey GLFW.DOWN
-  l <- GLFW.getKey GLFW.LEFT
-  r <- GLFW.getKey GLFW.RIGHT
-  ctrl <- GLFW.getKey GLFW.LCTRL
+  tb <- GLFW.getKey GLFW.TAB
+  sp <- GLFW.getKey ' '
+  lctrl <- GLFW.getKey GLFW.LCTRL
+  rctrl <- GLFW.getKey GLFW.RCTRL
 
-  let (uR, dR, lR, rR) = ( released u up
-                         , released d down
-                         , released l left
-                         , released r right
-                         )
+  let (spR, tbR) = ( released sp space
+                   , released tb tab
+                   )
 
-  -- rotate model matrix when arrow key released
-  let newMat0 = case (uR, dR) of
-                 (False, False) -> modelMatrix
-                 (True, _) -> G.multMat G.negXRot modelMatrix
-                 (False, True) -> G.multMat G.posXRot modelMatrix
+  newState0 <- if spR
+    then do
+      let seed = G.normalized $ latLongPosition $ cutPlane state
+      let cut = Voronyi.truncate 0.00001 seed $ model state
+      loadModel state cut
+    else
+      return state
 
-  let newMat1 = case (lR, rR) of
-                 (False, False) -> newMat0
-                 (True, _) -> G.multMat G.negYRot newMat0
-                 (False, True) -> G.multMat G.posYRot newMat0
+  let newState1 = if tbR then newState0 { showCutPlane = not $ showCutPlane state }
+                         else newState0
 
-  let newKS = ks { up = u, down = d, left = l, right = r, ctrl = ctrl }
+  let newKS = ks { tab = tb, space = sp, ctrl = if lctrl == Release && lctrl == rctrl then Release else Press }
 
-  return state { keys = newKS, modelMat = newMat1 }
+  return newState1 { keys = newKS }
 
   where released newK oldK = newK == Release && newK /= oldK
 
@@ -621,13 +621,13 @@ loop action global = do
 
   -- prepare matrices for rendering
   p <- get $ projMat newGlobal
-  let span = FlatModel.span $ model newGlobal
-  let scaledP = G.scale (1/span) p
+  let scaling = Main.span newGlobal
+  let scaledP = G.scale (1/scaling) p
   let view = viewMatOf $ camera newGlobal
   let vp = scaledP `G.multMat` view
   let mvp = vp `G.multMat` (scaledModelMat newGlobal)
 
-  let planeMvp = mvp `G.multMat` (modelMatOf $ cutPlane newGlobal)
+  let planeMvp = mvp `G.multMat` (latLongRotMat $ cutPlane newGlobal)
 
   -- light direction
   let lightDirection = orbitCenterDirection $ light newGlobal
@@ -635,7 +635,9 @@ loop action global = do
   -- render
   prepareRender
   renderObject (simTime newGlobal) lightDirection (view `G.multMat` modelMat newGlobal) mvp (glids newGlobal)
-  renderPlane planeMvp (glids newGlobal)
+  if showCutPlane newGlobal0
+    then renderPlane planeMvp (glids newGlobal)
+    else return ()
   GLFW.swapBuffers
 
   -- exit if window closed or Esc pressed
@@ -656,12 +658,12 @@ parseJsonArgs args = (head split, map read $ tail split)
   where split = splitOn "," args
 
 
-loadModel :: GlobalState -> G.Model GLfloat -> IO GlobalState
-loadModel global@GlobalState{..} raw = do
+loadModel :: GlobalState -> VoronoiModel GLfloat -> IO GlobalState
+loadModel global@GlobalState{..} vm@VoronoiModel{..} = do
   let GLIDs{..} = glids
 
   -- load next model
-  let m@(FlatModel vs fs ns cs ids vpf span) = fromModel raw
+  let FlatModel vs fs ns cs ids vpf span = fromModel $ G.Model vertice polygons seeds
 
   -- update cam to properly view new model
   let newCamera = camera { distance = span * 1.1 }
@@ -673,7 +675,7 @@ loadModel global@GlobalState{..} raw = do
   newBuffersInfo <- loadBuffers vs ns ids cs
   let newGlids = glids { objectBuffersInfo = newBuffersInfo }
 
-  return global { glids = newGlids, camera = newCamera, model = m }
+  return global { glids = newGlids, camera = newCamera, model = vm, Main.span = span }
 
 
 main :: IO ()
@@ -692,20 +694,7 @@ main = do
   -- initialize early to have access to time
   GLFW.initialize
 
-  let voroTetra@(VoronoiModel _ vs0 fs0) = toVoronoiModel $ polyhedrons !! 7
---  let voroTetra'@(VoronoiModel _ vs1 fs1) = Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 5 1 1) voroTetra
---  let voroTetra'@(VoronoiModel _ vs1 fs1) = Voronyi.truncate 0.00001 (G.normalized $ G.Point3f (-1) 1 1) voroTetra
---  let voroTetra'@(VoronoiModel _ vs1 fs1) = Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 1 1 1) $
---                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f (-1) 1 (-1)) $
---                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f (-1) (-1) 1) $
---                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 1 (-1) (-1)) $
---                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 0 1 0) $
---                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 0 (-1) 0) $
---                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 0 0 1) $
---                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 0 0 (-1)) $
---                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f 1 0 0) $
---                                            Voronyi.truncate 0.00001 (G.normalized $ G.Point3f (-1) 0 0) $ voroTetra
-  let rawModel = fromVoronoiModel voroTetra
+  let model@(VoronoiModel _ vs0 fs0) = toVoronoiModel $ polyhedrons !! 0
 
   fullscreenMode <- get GLFW.desktopMode
 
@@ -738,6 +727,7 @@ main = do
   let state0 = GlobalState { camera = defaultCamState
                            , light = defaultLightState
                            , cutPlane = defaultCutPlaneState
+                           , showCutPlane = True
                            , mouse = defaultMouseState
                            , glids = glstuff
                            , simTime = 0
@@ -747,7 +737,7 @@ main = do
                            , zoom = 1
                            }
 
-  state <- loadModel state0 rawModel
+  state <- loadModel state0 model
 
   -- setup stuff
   GLFW.swapInterval       $= 1 -- vsync
