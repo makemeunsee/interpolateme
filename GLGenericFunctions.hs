@@ -6,11 +6,6 @@ import Data.Vec (Mat44)
 import Data.Vec.LinAlg (NearZero)
 import Geometry
 
--- interpolation mimicking that of polyhedra.vert
-interpolate :: RealFloat a => a -> [a] -> [a] -> [a]
-interpolate t from to = map interp $ zip from to
-  where alpha = 0.5 + 0.5 * cos t
-        interp (f0,f1) = alpha*f0 + (1-alpha)*f1
 
 -- camera and matrice related functions
 

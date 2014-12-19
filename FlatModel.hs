@@ -3,7 +3,7 @@ module FlatModel ( facesToFlatTriangles
                  , facesToFlatIndice
                  , normalsToFlatNormals
                  , applyTranslationsToVertice
-                 , FlatModel (FlatModel), FlatModel.vertice, FlatModel.faces, normals, centers, indice, verticePerFace, FlatModel.span
+                 , FlatModel (FlatModel), FlatModel.vertice, normals, centers, indice, verticePerFace, FlatModel.span
                  , fromModel
 ) where
 
@@ -19,7 +19,6 @@ import ListUtil
 
 
 data FlatModel a b = FlatModel { vertice :: [a]
-                               , faces :: [Int]
                                , normals :: [a]
                                , centers :: [a]
                                , indice :: [b]
@@ -29,7 +28,6 @@ data FlatModel a b = FlatModel { vertice :: [a]
 
 fromModel :: (RealFloat a, Integral b) => Model a -> FlatModel a b
 fromModel (Model vs fs ns) = FlatModel (facesToFlatTriangles vs fs)
-                                       (facesToFlatIndice fs)
                                        (normalsToFlatNormals ns fs)
                                        (facesToCenterFlags fs)
                                        (facesToFlatIndice fs)

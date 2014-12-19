@@ -52,7 +52,6 @@ import qualified Random.MWC.Pure as RND
 import FloretSphere
 import qualified Geometry as G
 import GLGenericFunctions ( OrbitingState (OrbitingState), theta, phi, distance, thetaSpeed, phiSpeed
-                          , interpolate
                           , viewMatOf, latLongRotMat
                           , orbitingEyeForModel
                           , orbitCenterDirection
@@ -60,12 +59,7 @@ import GLGenericFunctions ( OrbitingState (OrbitingState), theta, phi, distance,
                           , updateOrbitAngles
                           , latLongPosition
                           )
-import FlatModel ( facesToFlatTriangles
-                 , facesToCenterFlags
-                 , facesToFlatIndice
-                 , normalsToFlatNormals
-                 , applyTranslationsToVertice
-                 , FlatModel (FlatModel), vertice, normals, verticePerFace, span
+import FlatModel ( FlatModel (FlatModel)
                  , fromModel
                  )
 import ListUtil
@@ -250,7 +244,7 @@ initGL drawFront drawBack verticeData normalData indiceData centersData = do
                                   , 1, -2, 2
                                   , 1, -2, -2
                                   ]
-                                  (take (3*4) $ cycle [ 1, 0, 0 ])
+                                  (take (3*5) $ cycle [ 1, 0, 0 ])
                                   [ 0, 1, 2
                                   , 0, 2, 3
                                   , 0, 3, 4
@@ -633,7 +627,7 @@ loadModel global@GlobalState{..} vm@VoronoiModel{..} = do
   let GLIDs{..} = glids
 
   -- load next model
-  let FlatModel vs fs ns cs ids vpf span = fromModel $ G.Model vertice polygons seeds
+  let FlatModel vs ns cs ids vpf span = fromModel $ G.Model vertice polygons seeds
 
   -- update cam to properly view new model
   let newCamera = camera { distance = span * 1.1 }
