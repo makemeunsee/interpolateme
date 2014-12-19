@@ -1,11 +1,9 @@
 interpolateme
 =============
 
-Haskell demo using OpenGL shaders.
+Voronoi tessellation of a sphere <=> truncating regular polyhedras with planes tangent to inscribed sphere.
 
-[Web demo](http://www.jollycyb.org/haskell_js_3d/)
-
-![Renders](http://i.imgur.com/kEdyM7Q.png)
+[Web demo](http://www.jollycyb.org/haskell_truncate/)
 
 Usage
 -----
@@ -15,29 +13,24 @@ Usage
 Run with:
 
 * "--f" for fullscreen
-* "--s" for static mode, with no deconstruction/reconstruction
-* "--i" to draw back faces, cull front faces (inverse of default rendering)
 * "--b" to draw both faces, back and front
-* "--json file(,i)*" to render the ASSIMP formatted model from the json file. Optional indice allow to select which meshes to draw. By default, all meshes are combined into one.
 
 Features
 --------
 
 * View control: drag the mouse to rotate the view, use the mouse wheel to zoom.
-* Reconstruction: upon mouse / key release, the model reconstructs itself to appear intact to the viewer (in default mode, in static mode, the model is loaded and displayed verbatim).
-* Light control: with the left control key pressed, drag the mouse to orient the light source and use the mouse wheel to adjust the light intensity.
-* Model adjustment: use arrow keys to rotate the model (useful when model is facing downward or upward).
-* Cycle through models: press 'tab'.
+* Cutting plane control: holding the control key, drag the mouse to position the cutting plane.
+* Show/hide cutting plane: tab key.
+* Cut: hit space to truncate the model, keeping what's under the cutting plane.
 * Misc: esc or q to exit.
-* Partial compilation to javascript.
+* Web demo: open web/index.html after compiling to JS with:
 
+``hastec '--start=$HASTE_MAIN(); appMain();' --with-js=web/js/app.js MainJs.hs -o web/js/appHaste.js``
 
 In the works
 ------------
 
-Fuller JS port using Haste. To compile to JS:
-
-``hastec '--start=$HASTE_MAIN(); appMain();' --with-js=web/js/app.js MainJs.hs -o web/js/appHaste.js``
+Turning random truncations / tessellations into spherical labyrinths.
 
 Credits
 -------

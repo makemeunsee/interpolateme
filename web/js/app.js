@@ -7,32 +7,11 @@ function arrToMat( arr ) {
     return mat;
 }
 
-function interpolate(from, to, alpha) {
-    var res = [];
-    var a = 0.5 + 0.5 * Math.cos(alpha);
-    for (var i = 0; i < from.length; i++) {
-       res[i] = new THREE.Vector3( a * from[i].x + (1-a) * to[i].x,
-                                   a * from[i].y + (1-a) * to[i].y,
-                                   a * from[i].z + (1-a) * to[i].z)
-    }
-    return res;
-}
-
-function rndFaces(vertice, span, vpf, lookDir, prng ) {
-    var rnds = [];
-    for (var i = 0; i < vpf.length; i++) {
-        rnds[i] = prng() * 2 * span - span;
-    }
-    return Haste.rndFacesAlongAxis(rnds, lookDir[0], lookDir[1], lookDir[2], vertice, vpf);
-}
-
-function makeMesh( model, lookDir, prng ) {
+function makeMesh( model ) {
     var customUniforms = {
-       u_alpha: { type: "1f", value: 0 },
+       u_time: { type: "1f", value: 0 },
+       u_borderWidth: { type: "1f", value: 0 },
        u_mvpMat: { type: "m4", value: new THREE.Matrix4() },
-       u_vMat: { type: "m4", value: new THREE.Matrix4() },
-       u_lightDirection: { type: "v4", value: new THREE.Vector4( 1, 1, 1, 1 ) },
-       u_lightIntensity: { type: "1f", value: 1 },
        u_color: { type: "v4", value: new THREE.Vector4( 1, 1, 1, 1 ) },
        u_borderColor: { type: "v4", value: new THREE.Vector4( 0, 0, 0, 1 ) }
     };
@@ -43,10 +22,6 @@ function makeMesh( model, lookDir, prng ) {
     // currently 2 colors are given as vertex attributes
     var attributes = {
         a_normal: {
-             type: 'v3',
-             value: []
-        },
-        alt_position: {
              type: 'v3',
              value: []
         },
@@ -64,22 +39,8 @@ function makeMesh( model, lookDir, prng ) {
         side: THREE.DoubleSide
     });
 
-    var static = prng === true;
-    var randomizedFaces = [];
-    var interpolatedFaces = [];
-    if (!static) {
-        randomizedFaces = rndFaces( model.vertice, model.span, model.vpf, lookDir, prng);
-    }
-
-    geometry.dynamic = true;
     for (var i = 0; i < model.vertice.length / 3; i++) {
-        if (static) {
-            attributes.alt_position.value.push( new THREE.Vector3( model.vertice[3*i], model.vertice[3*i+1], model.vertice[3*i+2] ) );
-            geometry.vertices.push( new THREE.Vector3( model.vertice[3*i], model.vertice[3*i+1], model.vertice[3*i+2] ) );
-        } else {
-            geometry.vertices.push( new THREE.Vector3( randomizedFaces[3*i], randomizedFaces[3*i+1], randomizedFaces[3*i+2] ) );
-            attributes.alt_position.value.push( new THREE.Vector3( randomizedFaces[3*i], randomizedFaces[3*i+1], randomizedFaces[3*i+2] ) );
-        }
+        geometry.vertices.push( new THREE.Vector3( model.vertice[3*i], model.vertice[3*i+1], model.vertice[3*i+2] ) );
     }
     for (var i = 0; i < model.normals.length / 3; i++) {
         attributes.a_normal.value.push( new THREE.Vector3( model.normals[3*i], model.normals[3*i+1], model.normals[3*i+2] ) );
@@ -93,15 +54,14 @@ function makeMesh( model, lookDir, prng ) {
     return new THREE.Mesh( geometry, shaderMaterial );
 }
 
-function modelFor(id) {
+function modelFromRaw(model) {
     return {
-        "id": id,
-        "vpf": Haste.verticeCountPerFaceOf( id ),
-        "span": Haste.spanOf( id ),
-        "vertice": Haste.verticeOf( id ),
-        "normals": Haste.normalsOf( id ),
-        "centers": Haste.centersOf( id ),
-        "indice": Haste.indiceOf( id )
+        "vertice": model[0],
+        "normals": model[1],
+        "centers": model[2],
+        "indice": model[3],
+        "vpf": model[4],
+        "span": model[5],
     };
 }
 
@@ -130,8 +90,8 @@ function appMain() {
     // help dialog
     $(function() {
         $( "#dialog" ).dialog({
-            width: 475,
-            height: 180
+            width: 600,
+            height: 210
         });
     });
     $( "#dialog" ).dialog( "close" );
@@ -149,26 +109,28 @@ function appMain() {
       $( "button" ).button();
     });
 
-    var grabLight = false;
-    $( "#grabLight" ).change(function() {
+    var grabPlane = false;
+    $( "#grabPlane" ).change(function() {
         if ( this.checked ) {
-            grabLight = true;
+            grabPlane = true;
         } else {
-            grabLight = false;
+            grabPlane = false;
         }
     });
-    $('#grabLight').attr('checked', false);
+    $('#grabPlane').attr('checked', false);
 
-    var static = false;
-    $( "#static" ).change(function() {
+    var showPlane = true;
+    $( "#showPlane" ).change(function() {
         if ( this.checked ) {
-            static = true;
+            showPlane = true;
+            scene.add( planeMesh );
             switchModel();
         } else {
-            static = false;
+            showPlane = false;
+            scene.remove( planeMesh );
         }
     });
-    $('#static').attr('checked', false);
+    $('#showPlane').attr('checked', true);
 
     function showHelp() {
         if ( $( "#dialog" ).dialog( "isOpen" ) )
@@ -194,42 +156,30 @@ function appMain() {
     $("#fullscreen").unbind("click");
     $("#fullscreen").click(toggleFullscreen);
 
-    function previousModel() {
-        modelId = (modelId - 1 + Haste.modelsLength()) % Haste.modelsLength();
-        switchModel();
-    }
-    $("#prevModel").unbind("click");
-    $("#prevModel").click(previousModel);
-
-    function nextModel() {
-        modelId = (modelId + 1) % Haste.modelsLength();
-        switchModel();
-    }
-    $("#nextModel").unbind("click");
-    $("#nextModel").click(nextModel);
-
-    function switchModel() {
+    function cut() {
         oldMesh = currentMesh;
         scene.remove( oldMesh );
 
-        model = modelFor( modelId );
-        currentMesh = makeMesh( model,
-                                Haste.normedDirectionToOrigin(camTheta, camPhi),
-                                static || prng );
+        baseModel = Haste.truncate ( baseModel
+                                   , planeTheta
+                                   , planePhi);
+        flatModel = modelFromRaw ( Haste.toFlatModel ( baseModel ) );
+        currentMesh = makeMesh ( flatModel );
 
         oldMesh.geometry.dispose();
         oldMesh.material.dispose();
 
         // model span changes, need to recompute matrices
-        updateMVP();
+        updateMVPs();
 
         scene.add( currentMesh );
-        simTime = 0;
-        then = Date.now();
     }
+    $("#cut").unbind("click");
+    $("#cut").click(cut);
 
-    var modelId = 8;
-    var model = modelFor( modelId );
+    var modelId = 0;
+    var baseModel = Haste.loadModel ( modelId );
+    var flatModel = modelFromRaw ( Haste.toFlatModel ( baseModel ) );
 
     var zoomMax = 8;
     var zoomMin = 0.125;
@@ -239,36 +189,61 @@ function appMain() {
     var dummyCam = new DummyCamera();
     var camTheta = Math.PI / 3;
     var camPhi = Math.PI / 3;
-    var camDist = model.span * 1.1;
-
-    var lightTheta = -1.2;
-    var lightPhi = 1.8;
-    var lightDist = 1;
+    var camDist = flatModel.span * 1.1;
 
     var projMat = new THREE.Matrix4();
     var viewMat = arrToMat( Haste.updateViewMat( camTheta, camPhi, camDist ) );
     var modelMat = new THREE.Matrix4();
 
+    var planeTheta = 0;
+    var planePhi = Math.PI / 2;
+    var planeMat = arrToMat( Haste.latLongRotMat( planeTheta, planePhi, 1 ) );
+
     var mvp = new THREE.Matrix4();
-    function updateMVP() {
-        var scaledProj = projMat.clone().multiplyScalar( 1/model.span );
+    var planeMvp = new THREE.Matrix4();
+    function updateMVPs() {
+        var scaledProj = projMat.clone().multiplyScalar( 1/flatModel.span );
         scaledProj.elements[15] = 1;
         var zoomedModel = new THREE.Matrix4();
         zoomedModel.multiplyScalar( zoom ).multiply( modelMat );
         zoomedModel.elements[15] = 1;
         mvp = scaledProj.multiply( viewMat ).multiply( zoomedModel );
+        planeMvp = mvp.clone().multiply( planeMat );
     }
 
     var updateProjection = function(screenWidth, screenHeight) {
         projMat = arrToMat( Haste.orthoMatrixFromScreen( screenWidth, screenHeight ) );
-        updateMVP();
+        updateMVPs();
     };
     
     updateProjection(window.innerWidth, window.innerHeight);
-    
-    var currentMesh =  makeMesh( model,
-                                 Haste.normedDirectionToOrigin(camTheta, camPhi),
-                                 prng );
+
+    var planeMesh = makeMesh ( {
+        "vertice": [ 1, 0, 0
+                   , 1, 2, -2
+                   , 1, 2, 2
+                   , 1, -2, 2
+                   , 1, -2, -2
+                   ],
+        "normals": [ 1, 0, 0
+                   , 1, 0, 0
+                   , 1, 0, 0
+                   , 1, 0, 0
+                   , 1, 0, 0
+                   ],
+        "indice": [ 0, 1, 2
+                  , 0, 2, 3
+                  , 0, 3, 4
+                  , 0, 4, 1
+                  ],
+        "centers": [ 1, 1, 1
+                   , 1, 0, 0
+                   , 0, 1, 0
+                   , 1, 0, 0
+                   , 0, 1, 0]
+    } );
+    planeMesh.material.transparent = true;
+    var currentMesh =  makeMesh( flatModel );
 
     var mainContainer = document.getElementById( 'main' );
 
@@ -287,6 +262,7 @@ function appMain() {
     mainContainer.appendChild( canvas );
 
     scene.add( currentMesh );
+    scene.add( planeMesh );
     
     function leftButton(evt) {
         var button = evt.which || evt.button;
@@ -316,7 +292,6 @@ function appMain() {
             canvas.addEventListener( "touchend", onTouchEnd, false );
             canvas.addEventListener( "mousemove", onMouseMove, false );
             canvas.addEventListener( "touchmove", onTouchMove, false );
-            timeFlowing = grabLight;
             if(!tapped){ //if tap is not set, set up single tap
                 tapped = setTimeout(function() {
                     tapped = null
@@ -340,24 +315,6 @@ function appMain() {
         canvas.removeEventListener( "touchend", onTouchEnd, false );
         canvas.removeEventListener( "mousemove", onMouseMove, false );
         canvas.removeEventListener( "touchmove", onTouchMove, false );
-        if (!grabLight && !static) {
-            var interpolated = interpolate( currentMesh.geometry.vertices,
-                                            currentMesh.material.attributes.alt_position.value,
-                                            simTime );
-            var newRnd = rndFaces( model.vertice,
-                                   model.span,
-                                   model.vpf,
-                                   Haste.normedDirectionToOrigin(camTheta, camPhi),
-                                   prng);
-            for (var i = 0; i < model.vertice.length / 3; i++) {
-                currentMesh.geometry.vertices[i] = interpolated[i];
-                currentMesh.material.attributes.alt_position.value[i] = new THREE.Vector3( newRnd[3*i], newRnd[3*i+1], newRnd[3*i+2] );
-            }
-            currentMesh.geometry.verticesNeedUpdate = true;
-            currentMesh.material.attributes.alt_position.needsUpdate = true;
-            simTime = 0;
-        }
-        timeFlowing =  true;
     }
 
     function onMouseMove(event) {
@@ -373,14 +330,16 @@ function appMain() {
             var deltaX = event.touches[0].clientX - mx;
             var deltaY = event.touches[0].clientY - my;
 
-            if (grabLight) {
-                lightTheta = lightTheta - deltaX * 0.005;
-                lightPhi = Math.min( Math.PI - 0.01, Math.max( 0.01, lightPhi - deltaY * 0.005 ) );
+            if (grabPlane) {
+                planeTheta = planeTheta + deltaX * 0.005;
+                planePhi = Math.min( Math.PI, Math.max( 0, planePhi - deltaY * 0.005 ) );
+                planeMat = arrToMat( Haste.latLongRotMat( planeTheta, planePhi, 1 ) );
+                updateMVPs();
             } else {
                 camTheta = camTheta + deltaX * 0.005;
-                camPhi = Math.min( Math.PI - 0.01, Math.max( 0.01, camPhi - deltaY * 0.005 ) );
+                camPhi = Math.min( Math.PI, Math.max( 0, camPhi - deltaY * 0.005 ) );
                 viewMat = arrToMat( Haste.updateViewMat( camTheta, camPhi, camDist ) );
-                updateMVP();
+                updateMVPs();
             }
 
             mx = event.touches[0].clientX;
@@ -390,11 +349,9 @@ function appMain() {
     }
 
     function zoomFct(delta, alpha) {
-        if (grabLight) {
-            lightDist = lightDist / Math.pow( alpha, delta );
-        } else {
+        if (!grabPlane) {
             zoom = Math.min( Math.max( zoom * ( Math.pow( alpha, delta ) ), zoomMin ), zoomMax );
-            updateMVP();
+            updateMVPs();
         }
     }
 
@@ -438,7 +395,7 @@ function appMain() {
     });
 
     reset();
-    var then = Date.now();
+//    var then = Date.now();
     var running = true;
     main();
 
@@ -456,12 +413,11 @@ function appMain() {
 
     function unpause() {
         running = true;
-        then = Date.now();
+//        then = Date.now();
         main();
     }
 
     var simTime = 0.0;
-    var timeFlowing = true;
 
     // The main game loop
     function main() {
@@ -469,29 +425,26 @@ function appMain() {
             return;
         }
 
-        var lightDir = Haste.directionFromOrigin(lightTheta, lightPhi, lightDist);
+//        var now = Date.now();
+//        var dt = now - then;
 
-        var now = Date.now();
-        var dt = now - then;
-
-        if (timeFlowing) {
-            simTime = Math.min(simTime+dt/1000, Math.PI);
-        }
-
-        // shaders use the current time to animate properly
-        currentMesh.material.uniforms.u_alpha.value = 0.5 + 0.5*Math.cos(simTime);
+        currentMesh.material.uniforms.u_time.value = simTime;
+        currentMesh.material.uniforms.u_borderWidth.value = 1.2;
         currentMesh.material.uniforms.u_mvpMat.value = mvp;
-        currentMesh.material.uniforms.u_vMat.value = viewMat;
-        currentMesh.material.uniforms.u_lightDirection.value = new THREE.Vector4( lightDir[0]/lightDist,
-                                                                                  lightDir[1]/lightDist,
-                                                                                  lightDir[2]/lightDist);
-        currentMesh.material.uniforms.u_lightIntensity.value = 1 / lightDist / lightDist;
         currentMesh.material.uniforms.u_color.value = new THREE.Vector4(1,1,1,1);
         currentMesh.material.uniforms.u_borderColor.value = new THREE.Vector4(0.4,0.4,0.4,1);
 
+        if (showPlane) {
+            planeMesh.material.uniforms.u_time.value = simTime;
+            planeMesh.material.uniforms.u_borderWidth.value = 5;
+            planeMesh.material.uniforms.u_mvpMat.value = planeMvp;
+            planeMesh.material.uniforms.u_color.value = new THREE.Vector4(0.8, 0.3, 0.3, 0.5);
+            planeMesh.material.uniforms.u_borderColor.value = new THREE.Vector4(1,0,0,1);
+        }
+
         renderer.render(scene, dummyCam);
 
-        then = now;
+//        then = now;
         requestAnimFrame(main);
     }
 

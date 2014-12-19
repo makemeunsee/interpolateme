@@ -4,7 +4,7 @@
     <meta charset="utf-8" name="viewport" content="user-scalable=no, width=device-width, initial-scale=1, maximum-scale=1">
     <link rel="icon" href="favicon.ico" />
     
-    <title>Interpol ate me</title>
+    <title>Truncate me</title>
     <meta name="description" content="Keeping the mask on">
     <meta name="viewport" content="width=device-width">
 
@@ -17,24 +17,24 @@
   <body>
     <div id="dialog" title="Keeping the mask on">
       <p>Click and drag to interact.</p>
+      <p>'Cut' truncates the object using the cutting plane.</p>
       <p>Scroll / pinch to zoom.</p>
       <p>Double click / tap to hide the UI.</p>
     </div>
     <div id="gui" class="gui-container">
         <div>
-            <button id="prevModel">←</button>
-            <button id="nextModel">→</button>
+            <button id="cut">cut</button>
             <button id="screenshot">screenshot</button>
             <button id="fullscreen">fullscreen</button>
             <button id="showHelp">?</button>
         </div>
         <div>
             <br/>
-            <input type="checkbox" id="grabLight"><label id="grabLightLabel" for="grabLight">Grab light</label>
+            <input type="checkbox" id="grabPlane"><label id="grabPlaneLabel" for="grabPlane">Grab cut plane</label>
         </div>
         <div>
             <br/>
-            <input type="checkbox" id="static"><label id="staticLabel" for="static">Solid mesh</label>
+            <input type="checkbox" id="showPlane"><label id="showPlaneLabel" for="showPlane">Show cut plane</label>
         </div>
     </div>
     <div id="main"></div>
@@ -49,8 +49,9 @@
 uniform vec4 u_color;
 uniform vec4 u_borderColor;
 
+uniform float u_borderWidth;
+
 varying vec3 v_barycentrics;
-varying float v_intensity;
 
 float edgeFactor(const float thickness, const vec3 bary)
 {
@@ -62,42 +63,28 @@ float edgeFactor(const float thickness, const vec3 bary)
 
 void main()
 {
-    float f = edgeFactor(1.2, v_barycentrics);
-    vec4 ambient = 0.15 * mix(
-        u_color,
-        u_borderColor,
-        f
-    );
-    vec4 diffuse = v_intensity * mix(
+    float f = edgeFactor(u_borderWidth, v_barycentrics);
+    gl_FragColor = mix(
         u_borderColor,
         u_color,
         f
     );
-    gl_FragColor = vec4(max(diffuse.rgb, ambient.rgb), 1.0);
+    // gl_FragColor = vec4(v_barycentrics, 1.0); // barycentrics debug render
 }</script>
     <script id="shader-vs" type="x-shader/x-vertex">#ifdef GL_ES
 #extension GL_OES_standard_derivatives : enable
 #endif
 attribute vec3 a_barycentrics;
 attribute vec3 a_normal;
-attribute vec3 alt_position;
 uniform mat4 u_mvpMat;
-uniform mat4 u_vMat;
 
-uniform vec4 u_lightDirection;
-uniform float u_lightIntensity;
-
-uniform float u_alpha;
+uniform float u_time;
 
 varying vec3 v_barycentrics;
-varying float v_intensity;
 
 void main()
 {
-    vec4 n = normalize(u_vMat * vec4(a_normal, 0.0));
-    v_intensity = max(dot(n, u_lightIntensity * u_lightDirection), 0.0);
-
-    gl_Position = u_mvpMat * vec4(u_alpha*position + (1.0-u_alpha)*alt_position, 1.0);
+    gl_Position = u_mvpMat * vec4(position, 1.0);
     v_barycentrics = a_barycentrics;
 }</script>
     <script type="text/javascript" src="http://cdnjs.cloudflare.com/ajax/libs/seedrandom/2.3.10/seedrandom.min.js"></script>
