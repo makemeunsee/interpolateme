@@ -1,8 +1,10 @@
+{-# LANGUAGE RecordWildCards #-}
+
 module Geometry ( Point3f(Point3f), Normal
                 , origin
-                , norm, normalized, cross, times, pointToArr, add, forceNorm, vec, divBy
+                , norm, normalized, cross, times, pointToArr, add, forceNorm, vec, divBy, dot
                 , dist
-                , Model(Model), vertice, faces
+                , Model(Model), vertice, faces, neighbours
                 , combine
                 , gold
                 , vec3, vec4, vec4ToPoint3f
@@ -21,7 +23,8 @@ where
 
 import qualified Data.Vec as V
 import Data.Word
-import Data.Maybe (fromJust)
+import Data.List (elemIndex, elemIndices)
+import Data.Maybe (fromJust, listToMaybe)
 import ListUtil
 
 data Point3f a = Point3f a a a
@@ -32,6 +35,23 @@ origin :: RealFloat a => Point3f a
 origin = Point3f 0 0 0
 
 data Model a = Model { vertice :: [Point3f a], faces :: [[Int]], normals :: [Normal a] }
+
+
+-- list neighbours of each face (neighbour = sharing at least 2 consecutive vertice)
+neighbours :: RealFloat a => Model a -> [[Int]]
+neighbours Model{..} = map myNeighbours actualFaces
+  where
+    -- use actual vertice, not indice
+    actualFaces = map (map (vertice !!)) faces
+    -- retrieve indice of faces which are neighbours of a face
+    myNeighbours face = elemIndices True $ map (areNeighbours face) actualFaces
+    -- 2 faces are neighbours if they share a vertice (and are not identical)
+    areNeighbours f0 f1 = f0 /= f1 && shareTwoConsecutiveVertice f0 f1
+    -- look for matching pairs of vertice among the 2 faces (regardless of face orientation)
+    shareTwoConsecutiveVertice f0 f1 = any (\p -> (any (p ==) pairs1) || any (p ==) revPairs1) pairs0
+      where pairs0 = cyclicConsecutivePairs f0
+            pairs1 = cyclicConsecutivePairs f1
+            revPairs1 = cyclicConsecutivePairs $ reverse f1
 
 
 -- combine 2 models
