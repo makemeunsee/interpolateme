@@ -168,6 +168,13 @@ instance RND.RangeRandom CInt where
     where (r, s') = RND.range_random(fromIntegral x0 :: Int, fromIntegral x1 :: Int) s
 
 
+rndSpherePosition :: (RealFloat a, RND.RangeRandom a) => RND.Seed -> (a, a, RND.Seed)
+rndSpherePosition seed = (2*pi*u, acos $ 2*v - 1, newSeed)
+  where
+    (u, newSeed0) = RND.range_random (0, 1) seed
+    (v, newSeed) = RND.range_random (0, 1) newSeed0
+
+
 -- how many to draw
 indexCount :: [GLuint] -> GLint
 indexCount polyIndice = fromIntegral $ length polyIndice
@@ -642,6 +649,21 @@ loadModel global@GlobalState{..} vm@VoronoiModel{..} = do
   return global { glids = newGlids, camera = newCamera, model = vm, Main.span = span }
 
 
+applyRndCuts :: (RealFloat a, RND.RangeRandom a) => RND.Seed -> Int -> VoronoiModel a -> (VoronoiModel a, RND.Seed)
+applyRndCuts seed n model
+  | n <= 0    = (model, seed)
+  | otherwise =
+    if oldL == newL
+      then applyRndCuts seed n model
+      else applyRndCuts newSeed (n-1) cutModel
+    where
+      oldL = length $ seeds model
+      newL = length $ seeds cutModel
+      (theta, phi, newSeed) = rndSpherePosition seed
+      normal = latLongPosition OrbitingState { theta = theta, phi = phi, distance = 1 }
+      cutModel = Voronyi.truncate 0.00001 normal model
+
+
 main :: IO ()
 main = do
 
@@ -659,6 +681,13 @@ main = do
   GLFW.initialize
 
   let model@(VoronoiModel _ vs0 fs0) = toVoronoiModel $ polyhedrons !! 0
+
+  t0 <- get time
+  let (rndCutsModel, newSeed) = applyRndCuts defaultSeed 150 model
+  putStrLn $ show $ length $ show rndCutsModel
+  t1 <- get time
+  putStr "Truncation duration: "
+  putStrLn $ show (t1 - t0)
 
   fullscreenMode <- get GLFW.desktopMode
 
@@ -700,7 +729,7 @@ main = do
                            , zoom = 1
                            }
 
-  state <- loadModel state0 model
+  state <- loadModel state0 rndCutsModel
 
   -- setup stuff
   GLFW.swapInterval       $= 1 -- vsync
