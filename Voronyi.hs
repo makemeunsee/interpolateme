@@ -13,10 +13,13 @@ import System.IO.Unsafe ( unsafePerformIO )
 -- data model for a voronoi tessellation of a sphere of radius 1
 -- seeds are points on the sphere
 -- vertice are the actual points of the tessellation
+-- neighbours are the indice of vertex neighbour faces (sharing at least one vertex)
 -- a polygon exists for each seed, each polygon is a list of vertex indice
+-- TODO replace neighbours with the list of all the faces touching at each vertex
 data VoronoiModel a = VoronoiModel { seeds :: [G.Point3f a]
                                    , vertice :: [G.Point3f a]
                                    , polygons :: [[Int]]
+                                   , neighbours :: [[Int]]
                                    }
                       deriving (Eq, Show)
 
@@ -34,9 +37,10 @@ onPlane (Plane a b c d) (G.Point3f x y z) = a*x + b*y + c*z + d == 0
 -- face barycenters become seeds
 -- the vertice are scaled so that the seed of the first face belongs to the the unit sphere
 toVoronoiModel :: RealFloat a => G.Model a -> VoronoiModel a
-toVoronoiModel (G.Model vs fs _) = VoronoiModel (scale ss) (scale vs) fs
+toVoronoiModel m@(G.Model vs fs _) = VoronoiModel (scale ss) (scale vs) fs neighs
   where ss = map (G.faceBarycenter vs) fs
         scale = map (G.divBy $ G.norm $ ss !! 0)
+        neighs = G.vertexNeighbours m
 
 
 fromVoronoiModel :: RealFloat a => VoronoiModel a -> G.Model a
@@ -45,7 +49,7 @@ fromVoronoiModel vModel = G.modelAutoNormals (vertice vModel) (polygons vModel)
 
 -- find the closest seed of a voronoi model to the projection of a point on the unit sphere
 closestSeed :: RealFloat a => VoronoiModel a -> G.Point3f a -> G.Point3f a
-closestSeed (VoronoiModel ss _ _) p = foldr1 closer ss
+closestSeed (VoronoiModel ss _ _ _) p = foldr1 closer ss
   where projected = G.normalized p
         closer p0 p1 = if projected `G.dist` p0 < projected `G.dist` p1
                          then p0
@@ -53,7 +57,7 @@ closestSeed (VoronoiModel ss _ _) p = foldr1 closer ss
 
 
 wallsOfSeed :: RealFloat a => VoronoiModel a -> Int -> [G.Point3f a]
-wallsOfSeed m@(VoronoiModel ss vs ps) i = assert (i > -1 && i < length ss)
+wallsOfSeed m@(VoronoiModel ss vs ps _) i = assert (i > -1 && i < length ss)
   map (vs !!) (ps !! i)
 
 
@@ -113,6 +117,10 @@ segmentPlaneIntersection tolerance p0@(G.Point3f x0 y0 z0) p1 pl@(Plane a b c d)
         coplanarity = abs $ dx*a + dy*b +dz*c
 
 
+-- cut a flat, convex polygon with a plane
+-- vertice contains the points of the polygon to cut
+-- planeSeed is a point of the cutting plane, which could be extracted from the plane equation but is not
+-- returns the truncated part of the polygon 'under' the plane, and the points were the cut occurred (so 2 or 0)
 cutPolygon :: RealFloat a => a -> [G.Point3f a] -> Plane a -> G.Point3f a -> ([G.Point3f a], [G.Point3f a])
 cutPolygon tolerance vertice plane@(Plane a b c d) planeSeed = (map (newVertice !!) newFace, map (newVertice !!) $ reverse newEdges)
   where
@@ -196,22 +204,28 @@ cutPolygon tolerance vertice plane@(Plane a b c d) planeSeed = (map (newVertice 
 
 
 truncate :: RealFloat a => a -> G.Point3f a -> VoronoiModel a -> VoronoiModel a
-truncate tolerance normal@(G.Point3f x y z) m@(VoronoiModel ss vs fs) =
-  buildFromPolygons newFaces newNormals
+truncate tolerance spherePt@(G.Point3f x y z) m@(VoronoiModel ss vs fs neighs) =
+  -- a new face is created only if 3 or more edges were created by truncating
+  if length newEdges <= 2
+    then m
+    else
+      VoronoiModel (spherePt : ss) newVertice newIndexedFaces updatedNeighbours
   where
     -- using the tangent plane with the given normal
-    tangent = tangentPlane normal
+    tangent = tangentPlane spherePt
     oldFaces = map (map (vs !!)) fs
     -- cut all faces
-    cuts = map (\f -> cutPolygon tolerance f tangent normal) oldFaces
-    -- extract edges created by the cut
-    newEdges = map snd $ filter (not . null . snd) cuts
-    -- assemble them into a polygon
+    rawCuts = map (\f -> cutPolygon tolerance f tangent spherePt) oldFaces
+    -- the existing faces, after the cut
+    facesAfterCut = fst $ unzip rawCuts
+    -- extract new edges created by the cut
+    newEdges = map snd $ filter (not . null . snd) rawCuts
+    -- assemble them into a face
     newFace = buildPolygonFromSegments newEdges
-    -- combine the new face and the cut faces
-    (newFaces, newNormals) =  if length newEdges > 2
-                                then (newFace : (fst $ unzip cuts), normal : ss)
-                                else (fst $ unzip cuts, ss)
+    -- clean vertice, rebuild faces
+    (newVertice, newIndexedFaces) = reducePolygons $ newFace : facesAfterCut
+    -- find new neighbours
+    updatedNeighbours = neighs
 
 
 buildPolygonFromSegments :: RealFloat a => [[G.Point3f a]] -> [G.Point3f a]
@@ -227,8 +241,9 @@ buildPolygonFromSegments segments = rebuild (tail segments) (head segments)
       rebuild (foldr (\e acc -> if e /= nextSeg then (e:acc) else acc) [] segments) (nextSeg ++ tail acc)
 
 
-buildFromPolygons :: RealFloat a => [[G.Point3f a]] -> [G.Point3f a] -> VoronoiModel a
-buildFromPolygons polygons normals = VoronoiModel normals (reverse reducedVertice) $ reverse $ map reverse faces
+-- from a list of polygons, gather distinct vertice into a list, transform polygons into lists of indice
+reducePolygons :: RealFloat a => [[G.Point3f a]] -> ([G.Point3f a], [[Int]])
+reducePolygons polygons = (reverse reducedVertice, reverse $ map reverse faces)
   where
     -- Note: all lists are built backward then reversed
     (reducedVertice, faces) = reduce polygons ([], [])

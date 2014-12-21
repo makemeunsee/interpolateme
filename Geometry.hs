@@ -4,7 +4,8 @@ module Geometry ( Point3f(Point3f), Normal
                 , origin
                 , norm, normalized, cross, times, pointToArr, add, forceNorm, vec, divBy, dot
                 , dist
-                , Model(Model), vertice, faces, neighbours
+                , Model(Model), vertice, faces
+                , edgeNeighbours, vertexNeighbours
                 , combine
                 , gold
                 , vec3, vec4, vec4ToPoint3f
@@ -36,22 +37,32 @@ origin = Point3f 0 0 0
 
 data Model a = Model { vertice :: [Point3f a], faces :: [[Int]], normals :: [Normal a] }
 
+-- neighbour functions look at indice, not vertice
 
--- list neighbours of each face (neighbour = sharing at least 2 consecutive vertice)
-neighbours :: RealFloat a => Model a -> [[Int]]
-neighbours Model{..} = map myNeighbours actualFaces
+-- list edge neighbours of each face (neighbour = sharing at least 2 consecutive vertice)
+edgeNeighbours :: RealFloat a => Model a -> [[Int]]
+edgeNeighbours = genericNeighboursFct shareTwoConsecutiveVertice
   where
-    -- use actual vertice, not indice
-    actualFaces = map (map (vertice !!)) faces
-    -- retrieve indice of faces which are neighbours of a face
-    myNeighbours face = elemIndices True $ map (areNeighbours face) actualFaces
-    -- 2 faces are neighbours if they share a vertice (and are not identical)
-    areNeighbours f0 f1 = f0 /= f1 && shareTwoConsecutiveVertice f0 f1
     -- look for matching pairs of vertice among the 2 faces (regardless of face orientation)
     shareTwoConsecutiveVertice f0 f1 = any (\p -> (any (p ==) pairs1) || any (p ==) revPairs1) pairs0
       where pairs0 = cyclicConsecutivePairs f0
             pairs1 = cyclicConsecutivePairs f1
             revPairs1 = cyclicConsecutivePairs $ reverse f1
+
+
+vertexNeighbours :: RealFloat a => Model a -> [[Int]]
+vertexNeighbours = genericNeighboursFct shareOneVertex
+  where
+    shareOneVertex f0 f1 = any (\p -> (any (p ==) f1)) f0
+
+
+genericNeighboursFct :: RealFloat a => ([Int] -> [Int] -> Bool) -> Model a -> [[Int]]
+genericNeighboursFct neighbourTestFct Model{..}  = map myNeighbours faces
+  where
+    -- retrieve indice of faces which are neighbours of a face
+    myNeighbours face = elemIndices True $ map (areNeighbours face) faces
+    -- 2 faces are neighbours if they share a vertice (and are not identical)
+    areNeighbours f0 f1 = f0 /= f1 && neighbourTestFct f0 f1
 
 
 -- combine 2 models
@@ -179,8 +190,8 @@ orthoMatrixFromScreen w h = orthoMatrix left right bottom top near far
   where hh = if h < 0 then 1 else h
         aspect = (fromIntegral w) / (fromIntegral hh)
         s = 1.5
-        far = 5*s
-        near = -3*s
+        far = 100
+        near = -100
         right = s * aspect
         top = s
         left = -right

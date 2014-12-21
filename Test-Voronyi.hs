@@ -130,9 +130,9 @@ main = hspec $ do
 
   describe "Validating buildFromPolygons function" $ do
     it "should rebuild self consistently" $ do
-      let oldM@(VoronoiModel seeds oldVertice oldFaces) = toVoronoiModel tetrahedron :: VoronoiModel Float
+      let oldM@(VoronoiModel seeds oldVertice oldFaces _) = toVoronoiModel tetrahedron :: VoronoiModel Float
       let oldPolys = map (map (oldVertice !!)) oldFaces
-      let newM@(VoronoiModel newSeeds newVertice newFaces) = buildFromPolygons oldPolys seeds
+      let (newVertice, newFaces) = reducePolygons oldPolys
       let newPolys = map (map (newVertice !!)) newFaces
       newPolys `shouldBe` oldPolys
       return ()
@@ -156,10 +156,10 @@ main = hspec $ do
       let seed@(Point3f sx sy sz) = G.normalized $ Point3f 5 1 1 :: Point3f GLfloat
       let plane@(Plane a b c d) = tangentPlane seed
 
-      let oldM@(VoronoiModel _ oldVertice oldFaces) = toVoronoiModel tetrahedron
+      let oldM@(VoronoiModel _ oldVertice oldFaces _) = toVoronoiModel tetrahedron
       let actualFaces = map (map (oldVertice !!)) oldFaces
 
-      let newM@(VoronoiModel _ newVertice newFaces) = Voronyi.truncate tolerance seed oldM
+      let newM@(VoronoiModel _ newVertice newFaces _) = Voronyi.truncate tolerance seed oldM
       let newActualFaces = map (map (newVertice !!)) newFaces
 
       length (newFaces !! 1) `shouldBe` 3
@@ -175,10 +175,10 @@ main = hspec $ do
       let seed@(Point3f sx sy sz) = G.normalized $ Point3f (-1) 1 1 :: Point3f GLfloat
       let plane@(Plane a b c d) = tangentPlane seed
 
-      let oldM@(VoronoiModel _ oldVertice oldFaces) = toVoronoiModel tetrahedron
+      let oldM@(VoronoiModel _ oldVertice oldFaces _) = toVoronoiModel tetrahedron
       let actualFaces = map (map (oldVertice !!)) oldFaces
 
-      let newM@(VoronoiModel _ newVertice newFaces) = Voronyi.truncate tolerance seed oldM
+      let newM@(VoronoiModel _ newVertice newFaces _) = Voronyi.truncate tolerance seed oldM
       let newActualFaces = map (map (newVertice !!)) newFaces
 
       length (newFaces !! 0) `shouldBe` 3

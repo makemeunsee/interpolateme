@@ -206,9 +206,9 @@ data GLIDs = GLIDs { shaderInfo :: ShaderInfo
 createShader :: FilePath -> FilePath -> IO ShaderInfo
 createShader vertexShaderFile fragShaderFile = do
   prog <- loadProgram vertexShaderFile fragShaderFile
-  (AttribLocation vertexAttrib) <- get (attribLocation prog "position")
-  (AttribLocation normalAttrib) <- get (attribLocation prog "normal")
-  (AttribLocation centerAttrib) <- get (attribLocation prog "a_barycentrics")
+  AttribLocation vertexAttrib <- get (attribLocation prog "position")
+  AttribLocation normalAttrib <- get (attribLocation prog "normal")
+  AttribLocation centerAttrib <- get (attribLocation prog "a_barycentrics")
   return ShaderInfo{..}
 
 
@@ -429,6 +429,18 @@ bindFloatBufferToAttrib components bufId attribLoc = do
                         nullPtr -- vertex buffer offset
 
 
+bindIntBufferToAttrib :: GLint -> GLuint -> GLuint -> IO ()
+bindIntBufferToAttrib components bufId attribLoc = do
+  glEnableVertexAttribArray attribLoc
+  glBindBuffer gl_ARRAY_BUFFER bufId
+  glVertexAttribPointer attribLoc -- attribute location in the shader
+                        components -- components per vertex
+                        gl_FLOAT -- coordinates type
+                        (fromBool False) -- normalize?
+                        (fromIntegral $ sizeOf (undefined::GLint) * fromIntegral components) -- stride
+                        nullPtr -- vertex buffer offset
+
+
 loadProgram :: String -> String -> IO Program
 loadProgram vertShader fragShader = do
   shaders <- mapM (uncurry loadShader)
@@ -626,7 +638,7 @@ loop action global = do
 
 
 boolArgument :: String -> [String] -> Bool
-boolArgument arg args = [] /= filter ((==) arg) args
+boolArgument arg args = [] /= filter (== arg) args
 
 
 loadModel :: GlobalState -> VoronoiModel GLfloat -> IO GlobalState
@@ -680,7 +692,7 @@ main = do
   -- initialize early to have access to time
   GLFW.initialize
 
-  let model@(VoronoiModel _ vs0 fs0) = toVoronoiModel $ polyhedrons !! 0
+  let model@(VoronoiModel _ vs0 fs0 _) = toVoronoiModel icosahedron
 
   t0 <- get time
   let (rndCutsModel, newSeed) = applyRndCuts defaultSeed 150 model
