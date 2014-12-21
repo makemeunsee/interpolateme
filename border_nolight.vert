@@ -9,7 +9,7 @@ uniform mat4 u_mvpMat;
 uniform float u_time;
 
 out vec3 v_barycentrics;
-out float intensity;
+out float v_marked;
 
 void main()
 {
