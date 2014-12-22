@@ -2,7 +2,7 @@ module Main where
 
 import Voronyi
 import ListUtil
-import Geometry ( Point3f (Point3f) )
+import Geometry ( Point3f (Point3f), add )
 import qualified Geometry as G
 import FloretSphere
 import Data.Maybe ( fromJust, isJust )
@@ -332,3 +332,104 @@ main = hspec $ do
 
       let cut3 = cutPolygon tolerance horn3 plane0 seed0
       fst cut3 `shouldBe` [horn3 !! 0, Point3f 1 0 1, horn3 !! 2, horn3 !! 3]
+
+
+  describe "Validating cutEdge function" $ do
+    it "should cut the unit segment" $ do
+      let seed = Point3f 1 0 0
+      let plane = tangentPlane seed
+
+      -- plane touches 1 0 0
+      cutEdge tolerance plane seed 4 ((0, Point3f 0 0 0, [0,1,2]), (1, Point3f 1 0 0, [0,2,3])) `shouldBe` ([(0, Point3f 0 0 0, [0,1,2]) , (1, Point3f 1 0 0, [0,2,3,4])], [])
+      cutEdge tolerance plane seed 4 ((0, Point3f 1 0 0, [0,1,2]), (1, Point3f 0 0 0, [0,2,3])) `shouldBe` ([(0, Point3f 1 0 0, [0,1,2,4]) , (1, Point3f 0 0 0, [0,2,3])], [])
+
+      cutEdge tolerance plane seed 4 ((0, Point3f 1 0 0, [0,1,2]), (1, Point3f 2 0 0, [0,2,3])) `shouldBe` ([(0, Point3f 1 0 0, [0,1,2,4])], [1])
+      cutEdge tolerance plane seed 4 ((0, Point3f 2 0 0, [0,1,2]), (1, Point3f 1 0 0, [0,2,3])) `shouldBe` ([(1, Point3f 1 0 0, [0,2,3,4])], [0])
+
+      cutEdge tolerance plane seed 4 ((0, Point3f 0.5 0 0, [0,1,2]), (1, Point3f 1.5 0 0, [0,2,3])) `shouldBe` ([(0, Point3f 0.5 0 0, [0,1,2]), ((-1), Point3f 1 0 0, [0,2,4])], [1])
+      cutEdge tolerance plane seed 4 ((0, Point3f 1.5 0 0, [0,1,2]), (1, Point3f 0.5 0 0, [0,2,3])) `shouldBe` ([((-1), Point3f 1 0 0, [0,2,4]), (1, Point3f 0.5 0 0, [0,2,3])], [0])
+
+      cutEdge tolerance plane seed 4 ((0, Point3f 1.5 0 0, [0,1,2]), (1, Point3f 2.5 0 0, [0,2,3])) `shouldBe` ([], [0,1])
+      cutEdge tolerance plane seed 4 ((0, Point3f 2.5 0 0, [0,1,2]), (1, Point3f 1.5 0 0, [0,2,3])) `shouldBe` ([], [0,1])
+
+      cutEdge tolerance plane seed 4 ((0, Point3f (-0.5) 0 0, [0,1,2]), (1, Point3f 0.5 0 0, [0,2,3])) `shouldBe` ([(0, Point3f (-0.5) 0 0, [0,1,2]), (1, Point3f 0.5 0 0, [0,2,3])], [])
+      cutEdge tolerance plane seed 4 ((0, Point3f 0.5 0 0, [0,1,2]), (1, Point3f (-0.5) 0 0, [0,2,3])) `shouldBe` ([(0, Point3f 0.5 0 0, [0,1,2]), (1, Point3f (-0.5) 0 0, [0,2,3])], [])
+
+  describe "Validating cutFace function" $ do
+    it "should cut a triangle" $ do
+      let p0 = Point3f 1 3 0
+      let p0' = Point3f 0 3 0
+      let p1 = Point3f (-1) (-1) 0
+      let p2 = Point3f 2 (-1) 0
+      let p2' = Point3f 1 0 0
+      let allVertice = [p0,p1,p2]
+      let allVertice' = [p0',p1,p2']
+      let facesOfVertice = [[0,1,2],[0,2,3],[0,1,3]] -- fake references to tetrahedron faces
+
+      let seed0 = Point3f 1 0 0
+      let plane0 = tangentPlane seed0
+      let seed1 = Point3f 0 1 0
+      let plane1 = tangentPlane seed1
+
+      cutFace plane0 seed0 allVertice facesOfVertice 4 3 [0,1,2] `shouldBe` ([0,1,3], [ (0, Point3f 1 3 0, [0,1,2,4]), (3, Point3f 1 (-1) 0, [0,3,4])], [2])
+
+      cutFace plane1 seed1 allVertice facesOfVertice 4 3 [0,1,2] `shouldBe` ([4,1,2,3], [(4, Point3f 0 1 0, [0,2,4]), (3, Point3f 1.5 1 0, [0,1,4])], [0])
+
+      cutFace plane0 seed0 allVertice' facesOfVertice 4 3 [0,1,2] `shouldBe` ([0,1,2], [(2, Point3f 1 0 0, [0,1,3,4])], [])
+
+    it "should cut a polygon" $ do
+      let seed = Point3f 0 1 0
+      let plane = tangentPlane seed
+
+      let p0 = Point3f 0 0 0
+      let p1 = Point3f (-1) (-1) 0
+      let p2 = Point3f (-1) (-2) 0
+      let p3 = Point3f 0 (-3) 0
+      let p4 = Point3f 2 (-2) 0
+      let all = [p0,p1,p2,p3,p4]
+      let face = [0,1,2,3,4]
+      let facesOfVertice = [[0,1,5], [0,1,2], [0,2,3], [0,3,4], [0,4,5]]
+
+      -- cut plane fully above polygon
+      cutFace plane seed all facesOfVertice 6 5 face `shouldBe` (face, [], [])
+
+      -- cut plane touches polygon top vertex
+      let all1 = map (add (Point3f 0 1 0)) all
+      cutFace plane seed all1 facesOfVertice 6 5 face `shouldBe` (face, [(0, Point3f 0 1 0, [0,1,5,6])], [])
+
+      -- cut plane truncates top vertex of polygon, through 2 segments
+      let all2 = map (add (Point3f 0 1.5 0)) all
+      cutFace plane seed all2 facesOfVertice 6 5 face `shouldBe` ( [6,1,2,3,4,5]
+                                                                 , [ (6, Point3f (-0.5) 1 0, [0,1,6])
+                                                                   , (5, Point3f 0.5 1 0, [0,5,6])
+                                                                   ]
+                                                                 , [0])
+
+      -- cut plane truncates top vertex of polygon, through 1 vertex and 1 segment
+      let all3 = map (add (Point3f 0 2 0)) all
+      cutFace plane seed all3 facesOfVertice 6 5 face `shouldBe` ( [1,2,3,4,5]
+                                                                 , [ (1, Point3f (-1) 1 0, [0,1,2,6])
+                                                                   , (5, Point3f 1 1 0, [0,5,6])
+                                                                   ]
+                                                                 , [0])
+
+      -- cut plane truncates 2 top vertice of polygon, through 2 vertice
+      let all4 = map (add (Point3f 0 3 0)) all
+      cutFace plane seed all4 facesOfVertice 6 5 face `shouldBe` ( [2,3,4]
+                                                                 , [ (2, Point3f (-1) 1 0, [0,2,3,6])
+                                                                   , (4, Point3f 2 1 0, [0,4,5,6])
+                                                                   ]
+                                                                 , [0,1])
+
+      -- cut plane truncates all but bottom vertex of polygon, through bottom vertex
+      let all5 = map (add (Point3f 0 4 0)) all
+      cutFace plane seed all5 facesOfVertice 6 5 face `shouldBe` ( [3]
+                                                                 , [ (3, Point3f 0 1 0, [0,3,4,6])
+                                                                   ]
+                                                                 , [4,2,0,1])
+
+      -- cut plane fully below polygon
+      let all6 = map (add (Point3f 0 5 0)) all
+      cutFace plane seed all6 facesOfVertice 6 5 face `shouldBe` ( []
+                                                                 , []
+                                                                 , [4,3,2,0,1])

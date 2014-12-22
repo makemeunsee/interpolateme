@@ -1,3 +1,5 @@
+{-# LANGUAGE RecordWildCards #-}
+
 module Voronyi
 
 where
@@ -13,13 +15,12 @@ import System.IO.Unsafe ( unsafePerformIO )
 -- data model for a voronoi tessellation of a sphere of radius 1
 -- seeds are points on the sphere
 -- vertice are the actual points of the tessellation
--- neighbours are the indice of vertex neighbour faces (sharing at least one vertex)
 -- a polygon exists for each seed, each polygon is a list of vertex indice
--- TODO replace neighbours with the list of all the faces touching at each vertex
+-- facesOfVertice is, for each vertex, the list of the id of the faces the vertex is part of. used for finding neighbours of a face/edge/vertex.
 data VoronoiModel a = VoronoiModel { seeds :: [G.Point3f a]
                                    , vertice :: [G.Point3f a]
                                    , polygons :: [[Int]]
-                                   , neighbours :: [[Int]]
+                                   , facesOfVertice :: [[Int]]
                                    }
                       deriving (Eq, Show)
 
@@ -40,7 +41,7 @@ toVoronoiModel :: RealFloat a => G.Model a -> VoronoiModel a
 toVoronoiModel m@(G.Model vs fs _) = VoronoiModel (scale ss) (scale vs) fs neighs
   where ss = map (G.faceBarycenter vs) fs
         scale = map (G.divBy $ G.norm $ ss !! 0)
-        neighs = G.vertexNeighbours m
+        neighs = G.facesForEachVertex m
 
 
 fromVoronoiModel :: RealFloat a => VoronoiModel a -> G.Model a
@@ -226,6 +227,98 @@ truncate tolerance spherePt@(G.Point3f x y z) m@(VoronoiModel ss vs fs neighs) =
     (newVertice, newIndexedFaces) = reducePolygons $ newFace : facesAfterCut
     -- find new neighbours
     updatedNeighbours = neighs
+
+
+--truncateModel :: RealFloat a => VoronoiModel a -> (Int, [Int]) -> [Int] -> [(G.Point3f a, [Int])] -> [Int] -> ([(G.Point3f a, [Int])], [Int])
+--truncateModel VoronoiModel{..} (faceId, faceIndice) processedFaces newVertice cutVertice =
+--  case elem faceId processedFaces of
+--    Just _ -> (newVertice, cutVertice)
+--    Nothing ->
+--      let newFaceId = length vertice in
+--      let cuts = cutPolygon 0.00001 (map) in
+
+
+-- remove consecutive duplicates, mark updated vertice as such
+merge ((i0,p0,fs0) : (i1,p1,fs1) : xs) =
+  if i0 == i1 && p0 == p1
+    then if fs0 == fs1
+      then
+        -- keep only 1 of the 2 identical vert
+        merge ( (i0, p0, fs0) : xs)
+      else
+        -- list the vertex as updated, keep on merging
+        merge ( (i0, p0, union fs0 fs1) : xs )
+    else
+      (i0, p0, fs0) : merge ( (i1, p1, fs1) : xs)
+merge xs = xs
+
+
+-- remove/merge head and last if same vertex
+mergeHeadAndLast [] = []
+mergeHeadAndLast [x] = [x]
+mergeHeadAndLast (x:xs) =
+  if i0 == iLast && p0 == pLast
+    then if fs0 == fsLast
+      then x : take (length xs - 1) xs
+      else (iLast, pLast, union fs0 fsLast) : take (length xs -1) xs
+    else
+      x:xs
+  where
+    (i0, p0, fs0) = x
+    (iLast, pLast, fsLast) = last xs
+    u = union fs0 fsLast
+
+
+-- cut a face, returning the new face (as index list), the vertice created by the cut, the indice of the vertice removed by the cut
+cutFace :: RealFloat a => Plane a -> G.Point3f a -> [G.Point3f a] -> [[Int]] -> Int -> Int -> [Int] -> ([Int], [(Int, G.Point3f a, [Int])], [Int])
+cutFace plane seed allVertice facesOfVertice newFaceId newVertexIdStart faceIndice = (newFace, modifiedVertice, concatDistinct removedVertice)
+  where
+    fullVertice = map (\i -> (i, allVertice !! i, facesOfVertice !! i)) faceIndice
+    segments = cyclicConsecutivePairs fullVertice
+    cuts = map (cutEdge 0.00001 plane seed newFaceId) segments
+    (newEdges, removedVertice) = unzip cuts
+
+    -- flatten edges to get a vertice list
+    rawVerts = concatMap id newEdges
+
+    newVerticeNoIndex = mergeHeadAndLast $ merge rawVerts
+
+    -- assign proper indice to created vertice
+    newVerticeWithIndex = snd $ foldr (\v@(i,p,fs) (from, acc) ->
+                            if i == -1
+                              then (from+1, (from,p,fs):acc)
+                              else (from, (i,p,fs):acc)
+                            )
+                            (newVertexIdStart, [])
+                            newVerticeNoIndex
+
+    -- extract face (indice list) once indice are properly set
+    newFace = map (\(i,_,_) -> i) newVerticeWithIndex
+
+    -- find created and updated vertice
+    modifiedVertice = filter (\t@(i,_,fs) -> i >= newVertexIdStart || fs /= facesOfVertice !! i ) newVerticeWithIndex
+
+
+-- return the new edge = its points and the faces they are part of, and the removed vertice (as indice)
+cutEdge :: RealFloat a => a -> Plane a -> G.Point3f a -> Int -> ((Int, G.Point3f a, [Int]), (Int, G.Point3f a, [Int])) -> ([(Int, G.Point3f a, [Int])], [Int])
+cutEdge tolerance plane@Plane{..} planeSeed newFaceId ((i0, p0, faces0), (i1, p1, faces1)) =
+  case intersection of
+    None
+      | abovePlane p0 -> ([], [i0, i1])
+      | otherwise -> ([(i0, p0, faces0), (i1, p1, faces1)], [])
+    OnPoint p
+      | p == p0 && abovePlane p1 -> ([(i0, p0, faces0 ++ [newFaceId])], [i1])
+      | p == p0 -> ([(i0, p0, faces0 ++ [newFaceId]), (i1, p1, faces1)], [])
+      | p == p1 && abovePlane p0 -> ([(i1, p1, faces1 ++ [newFaceId])], [i0])
+      | otherwise -> ([(i0, p0, faces0), (i1, p1, faces1 ++ [newFaceId])], [])
+    OnSegment p
+      | abovePlane p0 -> ([((-1), p, commonFaces ++ [newFaceId]), (i1, p1, faces1)], [i0])
+      | otherwise -> ([(i0, p0, faces0), ((-1), p, commonFaces ++ [newFaceId])], [i1])
+  where
+    intersection = segmentPlaneIntersection tolerance p0 p1 plane planeSeed
+    abovePlane p = let (G.Point3f cx cy cz) = G.add p $ G.times (-1) planeSeed in
+                   cx*kx+cy*ky+cz*kz > 0
+    commonFaces = filter (\i -> elem i faces1) faces0
 
 
 buildPolygonFromSegments :: RealFloat a => [[G.Point3f a]] -> [G.Point3f a]
