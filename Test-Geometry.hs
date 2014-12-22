@@ -50,3 +50,31 @@ main = hspec $ do
 
     it "should find the right count of vertex neighbours for the icosahedron faces" $ do
       map length (vertexNeighbours icosahedron) `shouldBe` (take 20 $ cycle [9])
+
+
+  describe "Validating facesForEachVertex function" $ do
+    it "should compute the face ids for each vertex of the tetrahedron" $ do
+      facesForEachVertex tetrahedron `shouldBe` [[0,1,2],[0,1,3],[0,2,3],[1,2,3]]
+
+    it "should compute the face ids for each vertex of the dodecahedron" $ do
+      facesForEachVertex dodecahedron `shouldBe` [ [0,1,9]
+                                                 , [0,2,11]
+                                                 , [1,6,7]
+                                                 , [5,7,11]
+                                                 , [3,9,10]
+                                                 , [2,3,8]
+                                                 , [4,6,10]
+                                                 , [4,5,8]
+                                                 , [1,9,10]
+                                                 , [2,8,11]
+                                                 , [1,6,10]
+                                                 , [5,8,11]
+                                                 , [0,2,9]
+                                                 , [5,6,7]
+                                                 , [2,3,9]
+                                                 , [4,5,6]
+                                                 , [0,1,7]
+                                                 , [0,7,11]
+                                                 , [3,4,10]
+                                                 , [3,4,8]
+                                                 ]

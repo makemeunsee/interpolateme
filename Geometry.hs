@@ -5,7 +5,7 @@ module Geometry ( Point3f(Point3f), Normal
                 , norm, normalized, cross, times, pointToArr, add, forceNorm, vec, divBy, dot
                 , dist
                 , Model(Model), vertice, faces
-                , edgeNeighbours, vertexNeighbours
+                , edgeNeighbours, vertexNeighbours, facesForEachVertex
                 , combine
                 , gold
                 , vec3, vec4, vec4ToPoint3f
@@ -40,7 +40,7 @@ data Model a = Model { vertice :: [Point3f a], faces :: [[Int]], normals :: [Nor
 -- neighbour functions look at indice, not vertice
 
 -- list edge neighbours of each face (neighbour = sharing at least 2 consecutive vertice)
-edgeNeighbours :: RealFloat a => Model a -> [[Int]]
+edgeNeighbours :: Model a -> [[Int]]
 edgeNeighbours = genericNeighboursFct shareTwoConsecutiveVertice
   where
     -- look for matching pairs of vertice among the 2 faces (regardless of face orientation)
@@ -50,13 +50,13 @@ edgeNeighbours = genericNeighboursFct shareTwoConsecutiveVertice
             revPairs1 = cyclicConsecutivePairs $ reverse f1
 
 
-vertexNeighbours :: RealFloat a => Model a -> [[Int]]
+vertexNeighbours :: Model a -> [[Int]]
 vertexNeighbours = genericNeighboursFct shareOneVertex
   where
     shareOneVertex f0 f1 = any (\p -> (any (p ==) f1)) f0
 
 
-genericNeighboursFct :: RealFloat a => ([Int] -> [Int] -> Bool) -> Model a -> [[Int]]
+genericNeighboursFct :: ([Int] -> [Int] -> Bool) -> Model a -> [[Int]]
 genericNeighboursFct neighbourTestFct Model{..}  = map myNeighbours faces
   where
     -- retrieve indice of faces which are neighbours of a face
@@ -64,6 +64,10 @@ genericNeighboursFct neighbourTestFct Model{..}  = map myNeighbours faces
     -- 2 faces are neighbours if they share a vertice (and are not identical)
     areNeighbours f0 f1 = f0 /= f1 && neighbourTestFct f0 f1
 
+
+-- for each vertex in a model, build a list of face (indice list) the vertex is part of
+facesForEachVertex :: Model a -> [[Int]]
+facesForEachVertex Model{..} = map (\i -> elemIndices True $ map (elem i) faces ) $ take (length vertice) [0..]
 
 -- combine 2 models
 combine :: RealFloat a => Model a -> Model a -> Model a
