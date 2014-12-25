@@ -229,13 +229,45 @@ truncate tolerance spherePt@(G.Point3f x y z) m@(VoronoiModel ss vs fs neighs) =
     updatedNeighbours = neighs
 
 
---truncateModel :: RealFloat a => VoronoiModel a -> (Int, [Int]) -> [Int] -> [(G.Point3f a, [Int])] -> [Int] -> ([(G.Point3f a, [Int])], [Int])
---truncateModel VoronoiModel{..} (faceId, faceIndice) processedFaces newVertice cutVertice =
---  case elem faceId processedFaces of
---    Just _ -> (newVertice, cutVertice)
---    Nothing ->
---      let newFaceId = length vertice in
---      let cuts = cutPolygon 0.00001 (map) in
+--truncateModel :: RealFloat a => VoronoiModel a -> G.Point3f a -> VoronoiModel a
+--truncateModel m@VoronoiModel{..} newSeed =
+--  let cutPlane = tangentPlane newSeed in
+--  let seed0 = closestSeed m newSeed in
+--  let i0 = fromJust $ elemIndex seed0 seeds in
+--  if seed0 == newSeed
+--    then m -- no cut
+--    else
+--      let (newPolygons, modifVerts, removedVerts) = recCut cutPlane newSeed vertice facesOfVertice (length polygons) (length vertice) [i0] in
+--      let newSeeds = newSeed : seeds in
+--      let (vertsInfo, facesInfo) = unzip $ map (\(a,b,c) -> ((a,b),(a,c))) modifVerts in
+--      VoronoiModel newSeeds
+--                   (updateVertice verticeInfo removedVerts vertice)
+--                   (updatePolygons newPolygons removedVerts polygons)
+--                   (updateFaceOfVertice facesInfo removedVerts facesOfVertice)
+
+
+recCut :: RealFloat a => Plane a -> G.Point3f a -> [G.Point3f a] -> [[Int]] -> [[Int]] -> Int -> Int -> Int -> [Int] -> ([(Int, [Int])], [(Int, G.Point3f a, [Int])], [Int])
+recCut plane seed allVerts allFaces facesOfVerts newFaceId newVertIdStart toCut alreadyCut =
+  if cut
+    then
+      let extToCut = filter (\i -> not $ elem i alreadyCut) $ concatDistinct $ map (facesOfVerts !!) face in
+      sucCut plane seed allVerts allFaces facesOfVerts newFaceId newVertIdStart extToCut (toCut:alreadyCut)
+    else
+      ([], [], [])
+  where
+    face = allFaces !! toCut
+    (newFace, modified, removed) = cutFace plane seed allVerts facesOfVerts newFaceId newVertIdStart face
+    cut = not $ modified == [] && removed == []
+
+
+sucCut :: RealFloat a => Plane a -> G.Point3f a -> [G.Point3f a] -> [[Int]] -> [[Int]] -> Int -> Int -> [Int] -> [Int] -> ([(Int, [Int])], [(Int, G.Point3f a, [Int])], [Int])
+sucCut plane seed allVerts allFaces facesOfVerts newFaceId newVertIdStart alreadyCut [] = ([], [], [])
+sucCut plane seed allVerts allFaces facesOfVerts newFaceId newVertIdStart alreadyCut (i:is) =
+  ((i, newFace) : newFaces, [], concatDistinct [removedVerts', removedVerts])
+  where
+    (newFace, modifVerts, removedVerts) = cutFace plane seed allVerts facesOfVerts newFaceId newVertIdStart $ allFaces !! i
+    newIdStart = foldr (\(i,_,_) m -> max i m) newVertIdStart modifVerts
+    (newFaces, modifVerts', removedVerts') = sucCut plane seed allVerts allFaces facesOfVerts newFaceId newIdStart (i : alreadyCut) is
 
 
 -- remove consecutive duplicates, mark updated vertice as such

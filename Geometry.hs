@@ -15,7 +15,7 @@ module Geometry ( Point3f(Point3f), Normal
                 , multMat, multInvMatV
                 , rotate
                 , rotateM, rotateL
-                , rotMatrix4
+                , rotMatrix4, transMatrix4
                 , negXRot, posXRot, negYRot, posYRot
                 , barycenter, faceBarycenter
                 , modelAutoNormals
@@ -176,6 +176,8 @@ rotMatrix4 :: RealFloat a => a -> Normal a -> V.Mat44 a
 rotMatrix4 a p = V.matFromLists [m3 !! 0 ++ [0], m3 !! 1 ++ [0], m3 !! 2 ++ [0], [0,0,0,1]]
   where m3 = rotMatrix a p
 
+transMatrix4 :: RealFloat a => Point3f a -> V.Mat44 a
+transMatrix4 (Point3f x y z) = V.matFromLists [[1,0,0,x], [0,1,0,y], [0,0,1,z], [0,0,0,1]]
 
 lookAtMatrix :: RealFloat a => V.Vec3 a -> V.Vec3 a -> V.Vec3 a -> V.Mat44 a
 lookAtMatrix eye target up = x V.:. y V.:. z V.:. h V.:. ()

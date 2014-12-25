@@ -27,3 +27,20 @@ concatDistinct = foldr union []
 -- duplicates may occur.
 union :: Eq a => [a] -> [a] -> [a]
 union xs0 xs1 = (filter (\f -> not $ elem f xs0) xs1) ++ xs0
+
+
+intersection :: Eq a => [a] -> [a] -> [a]
+intersection xs [] = []
+intersection xs (y:ys) =
+  if elem y xs && not (elem y rem)
+    then y : rem
+    else rem
+  where rem = intersection xs ys
+
+
+removeDups :: Eq a => [a] -> [a]
+removeDups [] = []
+removeDups (h:t) =
+  if elem h t
+    then removeDups t
+    else h : removeDups t

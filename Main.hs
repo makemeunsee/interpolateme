@@ -63,8 +63,7 @@ import FlatModel ( FlatModel (FlatModel)
                  , fromModel
                  )
 import ListUtil
-import Voronyi
-
+import qualified PlaneCut as PC
 
 -- NearZero instance for GLfloat
 import Data.Vec.LinAlg (NearZero(..))
@@ -103,7 +102,7 @@ data GlobalState = GlobalState { camera :: OrbitingStatef
                                , mouse :: MouseState
                                , zoom :: GLfloat     -- scale for the model
                                , modelMat :: Mat44f
-                               , model :: VoronoiModel GLfloat
+                               , model :: PC.FacedModel GLfloat
                                , span :: GLfloat
                                , glids :: GLIDs
                                , simTime :: GLfloat
@@ -559,8 +558,15 @@ handleKeys state = do
 
   newState0 <- if spR
     then do
-      let seed = G.normalized $ latLongPosition $ cutPlane state
-      let cut = Voronyi.truncate 0.00001 seed $ model state
+      let m = model state
+      -- origin point of the cutting plane
+      let seed = latLongPosition $ cutPlane state
+      -- normal of the plane
+      let G.Point3f kx ky kz = G.normalized $ G.times (distance $ cutPlane state) seed
+      let plane = PC.Plane kx ky kz seed
+      let cut = PC.cutModel 0.00001 plane $ model state
+      putStrLn ""
+      putStrLn $ show cut
       loadModel state cut
     else
       return state
@@ -593,7 +599,11 @@ updateCutPlane newMouseState global =
   where
     oldMouse = mouse global
     -- get new cam state from mouse actions
-    newCutPlane = updateOrbitState oldMouse newMouseState (cutPlane global)
+    newCutPlane0 = updateOrbitState oldMouse newMouseState (cutPlane global)
+    d0 = distance newCutPlane0
+    newCutPlane = newCutPlane0 { distance = d0-a }
+    a = 0.05 * fromIntegral wheelDiff
+    wheelDiff = (wheel newMouseState) - (wheel oldMouse)
 
 
 loop :: IO Action -> GlobalState -> IO GlobalState
@@ -641,12 +651,28 @@ boolArgument :: String -> [String] -> Bool
 boolArgument arg args = [] /= filter (== arg) args
 
 
-loadModel :: GlobalState -> VoronoiModel GLfloat -> IO GlobalState
-loadModel global@GlobalState{..} vm@VoronoiModel{..} = do
+loadModel :: GlobalState -> PC.FacedModel GLfloat -> IO GlobalState
+loadModel global@GlobalState{..} m@(PC.FacedModel vs fs ns) = do
   let GLIDs{..} = glids
 
   -- load next model
-  let FlatModel vs ns cs ids vpf span = fromModel $ G.Model vertice polygons seeds
+  let FlatModel vs' ns' cs ids vpf span = fromModel $ G.Model (fst $ unzip vs)
+                                                              (fst $ unzip fs)
+                                                              (fst $ unzip ns)
+
+  putStrLn "loaded"
+  putStr "vs': "
+  putStrLn $ show vs'
+  putStr "ns': "
+  putStrLn $ show ns'
+  putStr "cs: "
+  putStrLn $ show cs
+  putStr "ids: "
+  putStrLn $ show ids
+  putStr "vpf: "
+  putStrLn $ show vpf
+  putStr "span: "
+  putStrLn $ show span
 
   -- update cam to properly view new model
   let newCamera = camera { distance = span * 1.1 }
@@ -655,25 +681,25 @@ loadModel global@GlobalState{..} vm@VoronoiModel{..} = do
   cleanBuffers objectBuffersInfo
 
   let vertexBufferData = vs
-  newBuffersInfo <- loadBuffers vs ns ids cs
+  newBuffersInfo <- loadBuffers vs' ns' ids cs
   let newGlids = glids { objectBuffersInfo = newBuffersInfo }
 
-  return global { glids = newGlids, camera = newCamera, model = vm, Main.span = span }
+  return global { glids = newGlids, camera = newCamera, model = m, Main.span = span }
 
 
-applyRndCuts :: (RealFloat a, RND.RangeRandom a) => RND.Seed -> Int -> VoronoiModel a -> (VoronoiModel a, RND.Seed)
-applyRndCuts seed n model
-  | n <= 0    = (model, seed)
-  | otherwise =
-    if oldL == newL
-      then applyRndCuts seed n model
-      else applyRndCuts newSeed (n-1) cutModel
-    where
-      oldL = length $ seeds model
-      newL = length $ seeds cutModel
-      (theta, phi, newSeed) = rndSpherePosition seed
-      normal = latLongPosition OrbitingState { theta = theta, phi = phi, distance = 1 }
-      cutModel = Voronyi.truncate 0.00001 normal model
+--applyRndCuts :: (RealFloat a, RND.RangeRandom a) => RND.Seed -> Int -> VoronoiModel a -> (VoronoiModel a, RND.Seed)
+--applyRndCuts seed n model
+--  | n <= 0    = (model, seed)
+--  | otherwise =
+--    if oldL == newL
+--      then applyRndCuts seed n model
+--      else applyRndCuts newSeed (n-1) cutModel
+--    where
+--      oldL = length $ seeds model
+--      newL = length $ seeds cutModel
+--      (theta, phi, newSeed) = rndSpherePosition seed
+--      normal = latLongPosition OrbitingState { theta = theta, phi = phi, distance = 1 }
+--      cutModel = Voronyi.truncate 0.00001 normal model
 
 
 main :: IO ()
@@ -692,14 +718,19 @@ main = do
   -- initialize early to have access to time
   GLFW.initialize
 
-  let model@(VoronoiModel _ vs0 fs0 _) = toVoronoiModel icosahedron
+  let m0@(G.Model vs fs ns) = icosahedron
+  let cuttableModel = PC.FacedModel (zip vs $ G.facesForEachVertex m0) (zip fs [0..]) (zip ns [0..])
 
-  t0 <- get time
-  let (rndCutsModel, newSeed) = applyRndCuts defaultSeed 150 model
-  putStrLn $ show $ length $ show rndCutsModel
-  t1 <- get time
-  putStr "Truncation duration: "
-  putStrLn $ show (t1 - t0)
+--  let PC.FacedModel vs' fs' = PC.cutModel 0.00001 (PC.Plane { kx=0, ky=0, kz=1, seed=G.Point3f 1 0 0 }) cuttableModel
+--  let model = G.Model (fst $ unzip vs') fs' ns
+--  let model@(VoronoiModel _ vs0 fs0 _) = toVoronoiModel icosahedron
+
+--  t0 <- get time
+--  let (rndCutsModel, newSeed) = applyRndCuts defaultSeed 150 model
+--  putStrLn $ show $ length $ show rndCutsModel
+--  t1 <- get time
+--  putStr "Truncation duration: "
+--  putStrLn $ show (t1 - t0)
 
   fullscreenMode <- get GLFW.desktopMode
 
@@ -741,7 +772,7 @@ main = do
                            , zoom = 1
                            }
 
-  state <- loadModel state0 rndCutsModel
+  state <- loadModel state0 cuttableModel -- rndCutsModel
 
   -- setup stuff
   GLFW.swapInterval       $= 1 -- vsync

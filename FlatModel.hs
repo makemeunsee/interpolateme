@@ -32,7 +32,7 @@ fromModel (Model vs fs ns) = FlatModel (facesToFlatTriangles vs fs)
                                        (facesToCenterFlags fs)
                                        (facesToFlatIndice fs)
                                        (map vCount fs)
-                                       (maximum $ map norm vs)
+                                       (if vs == [] then 1 else maximum $ map norm vs)
   where vCount face = let l = length face in
                       if length face == 3 then 3   -- no additional points for triangles
                                           else l+1 -- 1 barycenter added to larger poly faces

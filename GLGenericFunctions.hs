@@ -55,7 +55,7 @@ latLongPosition OrbitingState { theta = t, phi = p, distance = d } =
 
 
 latLongRotMat :: RealFloat a => OrbitingState a -> Mat44 a
-latLongRotMat OrbitingState { theta = t, phi = p } = yMat `multMat` xzMat
+latLongRotMat OrbitingState { theta = t, phi = p, distance = d } = (yMat `multMat` xzMat) `multMat` (transMatrix4 $ Point3f (d-1) 0 0)
   where xzMat = rotMatrix4 t (Point3f 0 1 0)
         yMat = rotMatrix4 (p-pi/2) $ rotate t (Point3f 0 1 0) (Point3f 0 0 1)
 
