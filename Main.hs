@@ -565,8 +565,8 @@ handleKeys state = do
       let G.Point3f kx ky kz = G.normalized $ G.times (distance $ cutPlane state) seed
       let plane = PC.Plane kx ky kz seed
       let cut = PC.cutModel 0.00001 plane $ model state
-      putStrLn ""
-      putStrLn $ show cut
+--      putStrLn ""
+--      putStrLn $ show cut
       loadModel state cut
     else
       return state
@@ -660,19 +660,19 @@ loadModel global@GlobalState{..} m@(PC.FacedModel vs fs ns) = do
                                                               (fst $ unzip fs)
                                                               (fst $ unzip ns)
 
-  putStrLn "loaded"
-  putStr "vs': "
-  putStrLn $ show vs'
-  putStr "ns': "
-  putStrLn $ show ns'
-  putStr "cs: "
-  putStrLn $ show cs
-  putStr "ids: "
-  putStrLn $ show ids
-  putStr "vpf: "
-  putStrLn $ show vpf
-  putStr "span: "
-  putStrLn $ show span
+--  putStrLn "loaded"
+--  putStr "vs': "
+--  putStrLn $ show vs'
+--  putStr "ns': "
+--  putStrLn $ show ns'
+--  putStr "cs: "
+--  putStrLn $ show cs
+--  putStr "ids: "
+--  putStrLn $ show ids
+--  putStr "vpf: "
+--  putStrLn $ show vpf
+--  putStr "span: "
+--  putStrLn $ show span
 
   -- update cam to properly view new model
   let newCamera = camera { distance = span * 1.1 }
