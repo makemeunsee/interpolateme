@@ -633,7 +633,8 @@ loop action global = do
   let vp = scaledP `G.multMat` view
   let mvp = vp `G.multMat` (scaledModelMat newGlobal)
 
-  let planeMvp = mvp `G.multMat` (latLongRotMat $ cutPlane newGlobal)
+  let cp = cutPlane newGlobal
+  let planeMvp = mvp `G.multMat` (latLongRotMat cp { distance = 0.0001 + distance cp })
 
   -- render
   render (simTime newGlobal) (showCutPlane newGlobal0) mvp planeMvp (glids newGlobal)
