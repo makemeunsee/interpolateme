@@ -687,19 +687,22 @@ loadModel global@GlobalState{..} m@(PC.FacedModel vs fs ns) = do
   return global { glids = newGlids, camera = newCamera, model = m, Main.span = span }
 
 
---applyRndCuts :: (RealFloat a, RND.RangeRandom a) => RND.Seed -> Int -> VoronoiModel a -> (VoronoiModel a, RND.Seed)
---applyRndCuts seed n model
---  | n <= 0    = (model, seed)
---  | otherwise =
---    if oldL == newL
---      then applyRndCuts seed n model
---      else applyRndCuts newSeed (n-1) cutModel
---    where
---      oldL = length $ seeds model
---      newL = length $ seeds cutModel
---      (theta, phi, newSeed) = rndSpherePosition seed
---      normal = latLongPosition OrbitingState { theta = theta, phi = phi, distance = 1 }
---      cutModel = Voronyi.truncate 0.00001 normal model
+applyRndCut :: (RealFloat a, RND.RangeRandom a) => RND.Seed -> PC.FacedModel a -> (PC.FacedModel a, RND.Seed)
+applyRndCut seed model = (cut, newSeed)
+  where
+    oldL = length $ PC.faces model
+    newL = length $ PC.faces cut
+    (theta, phi, newSeed) = rndSpherePosition seed
+    sfPt@(G.Point3f nx ny nz) = latLongPosition OrbitingState { theta = theta, phi = phi, distance = 1 }
+    cut = PC.cutModel 0.00001 (PC.Plane nx ny nz sfPt) model
+
+
+applyRndCuts n seed m =
+  if n <= 0
+    then (m, seed)
+    else applyRndCuts (n-1) seed' m'
+  where
+    (m', seed') = applyRndCut seed m
 
 
 main :: IO ()
@@ -719,18 +722,18 @@ main = do
   GLFW.initialize
 
   let m0@(G.Model vs fs ns) = icosahedron
-  let cuttableModel = PC.FacedModel (zip vs $ G.facesForEachVertex m0) (zip fs [0..]) (zip ns [0..])
+  -- scale vertice, so that the distance from face centers to origin is 1
+  let center0 = G.faceBarycenter vs $ fs !! 0
+  let scale = map (G.divBy $ G.norm center0)
+  let vs' = scale vs
+  let cuttableModel = PC.FacedModel (zip vs' $ G.facesForEachVertex m0) (zip fs [0..]) (zip ns [0..])
 
---  let PC.FacedModel vs' fs' = PC.cutModel 0.00001 (PC.Plane { kx=0, ky=0, kz=1, seed=G.Point3f 1 0 0 }) cuttableModel
---  let model = G.Model (fst $ unzip vs') fs' ns
---  let model@(VoronoiModel _ vs0 fs0 _) = toVoronoiModel icosahedron
-
---  t0 <- get time
---  let (rndCutsModel, newSeed) = applyRndCuts defaultSeed 150 model
---  putStrLn $ show $ length $ show rndCutsModel
---  t1 <- get time
---  putStr "Truncation duration: "
---  putStrLn $ show (t1 - t0)
+  t0 <- get time
+  let (rndCutsModel, newSeed) = applyRndCuts 100 defaultSeed cuttableModel
+  putStrLn $ show $ length $ show rndCutsModel
+  t1 <- get time
+  putStr "Truncation duration: "
+  putStrLn $ show (t1 - t0)
 
   fullscreenMode <- get GLFW.desktopMode
 
@@ -772,7 +775,7 @@ main = do
                            , zoom = 1
                            }
 
-  state <- loadModel state0 cuttableModel -- rndCutsModel
+  state <- loadModel state0 rndCutsModel
 
   -- setup stuff
   GLFW.swapInterval       $= 1 -- vsync

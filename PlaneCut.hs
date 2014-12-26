@@ -38,7 +38,7 @@ data Plane f = Plane { kx :: f
                deriving (Eq, Show)
 
 
-cutModel :: (Show a, RealFloat a) => a -> Plane a -> FacedModel a -> FacedModel a
+cutModel :: RealFloat a => a -> Plane a -> FacedModel a -> FacedModel a
 cutModel tolerance plane@Plane{..} m@FacedModel{..} =
   FacedModel updatedVertice updatedFaces updatedNormals
   where
