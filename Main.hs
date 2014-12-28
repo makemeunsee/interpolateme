@@ -84,6 +84,7 @@ data Action = Action (IO Action, MouseState -> MouseState)
 
 data KeyState = KeyState { tab :: KeyButtonState
                          , space :: KeyButtonState
+                         , n :: KeyButtonState
                          , ctrl :: KeyButtonState
                          }
 
@@ -99,6 +100,7 @@ data MouseState = MouseState { mouseX :: GLint
 data GlobalState = GlobalState { camera :: OrbitingStatef
                                , cutPlane :: OrbitingStatef
                                , showCutPlane :: Bool
+                               , drawNormals :: Bool
                                , mouse :: MouseState
                                , zoom :: GLfloat     -- scale for the model
                                , modelMat :: Mat44f
@@ -119,7 +121,7 @@ scaledModelMat global = G.scale (zoom global) identity `G.multMat` (modelMat glo
 
 
 defaultKeyState :: KeyState
-defaultKeyState = KeyState Release Release Release
+defaultKeyState = KeyState Release Release Release Release
 
 
 defaultMouseState :: MouseState
@@ -191,7 +193,11 @@ data BuffersInfo = BuffersInfo { indice :: BufferObject
                                , indiceCount :: GLint
                                , vertexBuffersLength :: Int
                                , vertexBufferId :: GLuint
-                               , normalBufferId :: GLuint
+                               , ext :: Maybe ExtGeomInfo
+                               }
+
+
+data ExtGeomInfo = ExtGeomInfo { normalBufferId :: GLuint
                                , centerBufferId :: GLuint
                                }
 
@@ -199,6 +205,7 @@ data BuffersInfo = BuffersInfo { indice :: BufferObject
 data GLIDs = GLIDs { shaderInfo :: ShaderInfo
                    , objectBuffersInfo :: BuffersInfo
                    , planeBuffersInfo :: BuffersInfo
+                   , normalsBuffersInfo :: BuffersInfo
                    }
 
 
@@ -211,22 +218,28 @@ createShader vertexShaderFile fragShaderFile = do
   return ShaderInfo{..}
 
 
-loadBuffers :: [GLfloat] -> [GLfloat] -> [GLuint] -> [GLfloat] -> IO BuffersInfo
-loadBuffers verticeData normalData indiceData centersData = do
+loadBuffers :: [GLfloat] -> Maybe [GLfloat] -> [GLuint] -> Maybe [GLfloat] -> IO BuffersInfo
+loadBuffers verticeData m_normalData indiceData m_centersData = do
 
   indice <- makeBuffer ElementArrayBuffer indiceData
   let indiceCount = indexCount indiceData
 
   let vertexBuffersLength = length verticeData
   vertexBufferId <- fillNewFloatBuffer verticeData
-  normalBufferId <- fillNewFloatBuffer normalData
-  centerBufferId <- fillNewFloatBuffer centersData
+
+  ext <- case (m_normalData, m_centersData) of
+    (Just normalData, Just centersData) -> do
+      normalBufferId <- fillNewFloatBuffer normalData
+      centerBufferId <- fillNewFloatBuffer centersData
+      return $ Just ExtGeomInfo{..}
+    _ ->
+      return Nothing
 
   return BuffersInfo{..}
 
 
-initGL :: Bool -> Bool -> [GLfloat] -> [GLfloat] -> [GLuint] -> [GLfloat] -> IO GLIDs
-initGL drawFront drawBack verticeData normalData indiceData centersData = do
+initGL :: Bool -> Bool -> IO GLIDs
+initGL drawFront drawBack = do
   GL.depthFunc $= Just GL.Less
   GL.blend $= GL.Enabled
   GL.blendFunc $= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
@@ -243,24 +256,26 @@ initGL drawFront drawBack verticeData normalData indiceData centersData = do
   shaderInfo <- Main.createShader "border_nolight.vert" "border_nolight.frag"
 
   -- create data buffers
-  objectBuffersInfo <- loadBuffers verticeData normalData indiceData centersData
+  objectBuffersInfo <- loadBuffers [] Nothing [] Nothing
+  normalsBuffersInfo <- loadBuffers [] Nothing [] Nothing
   planeBuffersInfo <- loadBuffers [ 1, 0, 0
                                   , 1, 2, -2
                                   , 1, 2, 2
                                   , 1, -2, 2
                                   , 1, -2, -2
                                   ]
-                                  (take (3*5) $ cycle [ 1, 0, 0 ])
+                                  (Just $ take (3*5) $ cycle [ 1, 0, 0 ])
                                   [ 0, 1, 2
                                   , 0, 2, 3
                                   , 0, 3, 4
                                   , 0, 4, 1
                                   ]
+                                  (Just
                                   [ 1, 1, 1
                                   , 1, 0, 0
                                   , 0, 1, 0
                                   , 1, 0, 0
-                                  , 0, 1, 0]
+                                  , 0, 1, 0] )
 
   return GLIDs{..}
 
@@ -268,18 +283,29 @@ initGL drawFront drawBack verticeData normalData indiceData centersData = do
 cleanBuffers :: BuffersInfo -> IO ()
 cleanBuffers BuffersInfo{..} = do
   with vertexBufferId $ glDeleteBuffers 1
-  with normalBufferId $ glDeleteBuffers 1
-  with centerBufferId $ glDeleteBuffers 1
+  case ext of
+    Just ExtGeomInfo{..} -> do
+      with normalBufferId $ glDeleteBuffers 1
+      with centerBufferId $ glDeleteBuffers 1
+    _ -> return ()
 
 
 -- rendering code
 
 
+bindSimpleGeometry :: ShaderInfo -> BuffersInfo -> IO ()
+bindSimpleGeometry ShaderInfo{..} BuffersInfo{..} = do
+  bindFloatBufferToAttrib 3 vertexBufferId vertexAttrib
+
+
 bindGeometry :: ShaderInfo -> BuffersInfo -> IO ()
 bindGeometry ShaderInfo{..} BuffersInfo{..} = do
   bindFloatBufferToAttrib 3 vertexBufferId vertexAttrib
-  bindFloatBufferToAttrib 3 normalBufferId normalAttrib
-  bindFloatBufferToAttrib 3 centerBufferId centerAttrib
+  case ext of
+    Just ExtGeomInfo{..} -> do
+      bindFloatBufferToAttrib 3 normalBufferId normalAttrib
+      bindFloatBufferToAttrib 3 centerBufferId centerAttrib
+    _ -> return ()
 
 
 unbindGeometry :: ShaderInfo -> IO ()
@@ -301,13 +327,17 @@ bindUniformVector prog uName vec = do
   with vec $ glUniform4fv vLoc 1 . castPtr
 
 
-render :: GLfloat -> Bool -> Mat44f -> Mat44f -> GLIDs -> IO ()
-render t drawPlane mvp planeMvp glids@GLIDs{..} = do
+render :: GLfloat -> Bool -> Bool -> Mat44f -> Mat44f -> GLIDs -> IO ()
+render t drawPlane drawNormals mvp planeMvp glids@GLIDs{..} = do
   GL.clear [GL.ColorBuffer, GL.DepthBuffer]
 
   let ShaderInfo{..} = shaderInfo
 
   currentProgram $= Just prog
+
+  colLoc <- get $ uniformLocation prog "u_color"
+  bColLoc <- get $ uniformLocation prog "u_borderColor"
+  borderWidthLoc <- get $ uniformLocation prog "u_borderWidth"
 
   -- bind time
   timeLoc <- get $ uniformLocation prog "u_time"
@@ -316,16 +346,30 @@ render t drawPlane mvp planeMvp glids@GLIDs{..} = do
   -- bind matrices
   bindUniformMatrix prog "u_mvpMat" mvp
 
+  if drawNormals
+    then do
+      uniform colLoc $= GL.Color4 0 0 1 (1 :: GLfloat)
+      uniform bColLoc $= GL.Color4 0 0 1 (1 :: GLfloat)
+
+      uniform borderWidthLoc $= GL.Index1 (0 :: GLfloat)
+
+      -- bind attributes
+      bindGeometry shaderInfo normalsBuffersInfo
+
+      -- bind indice
+      bindBuffer ElementArrayBuffer $= Just (indice normalsBuffersInfo)
+
+      drawElements GL.Lines (indiceCount normalsBuffersInfo) GL.UnsignedInt offset0
+
+      unbindGeometry shaderInfo
+    else return ()
 
   -- draw object
 
   -- bind uniform colors
-  colLoc <- get $ uniformLocation prog "u_color"
-  bColLoc <- get $ uniformLocation prog "u_borderColor"
   uniform colLoc $= GL.Color4 1 1 1 (1 :: GLfloat)
   uniform bColLoc $= GL.Color4 0.4 0.4 0.4 (1 :: GLfloat)
 
-  borderWidthLoc <- get $ uniformLocation prog "u_borderWidth"
   uniform borderWidthLoc $= GL.Index1 (1.2 :: GLfloat)
 
   -- bind attributes
@@ -551,10 +595,12 @@ handleKeys state = do
   sp <- GLFW.getKey ' '
   lctrl <- GLFW.getKey GLFW.LCTRL
   rctrl <- GLFW.getKey GLFW.RCTRL
+  kn <- GLFW.getKey 'N'
 
-  let (spR, tbR) = ( released sp space
-                   , released tb tab
-                   )
+  let (spR, tbR, nR) = ( released sp space
+                       , released tb tab
+                       , released kn n
+                       )
 
   newState0 <- if spR
     then do
@@ -571,12 +617,16 @@ handleKeys state = do
     else
       return state
 
-  let newState1 = if tbR then newState0 { showCutPlane = not $ showCutPlane state }
-                         else newState0
+  let newKS = ks { tab = tb
+                 , space = sp
+                 , ctrl = if lctrl == Release && lctrl == rctrl then Release else Press
+                 , n = kn
+                 }
 
-  let newKS = ks { tab = tb, space = sp, ctrl = if lctrl == Release && lctrl == rctrl then Release else Press }
-
-  return newState1 { keys = newKS }
+  return newState0 { keys = newKS
+                   , drawNormals = if nR then not $ drawNormals newState0 else drawNormals newState0
+                   , showCutPlane = if tbR then not $ showCutPlane newState0 else showCutPlane newState0
+                   }
 
   where released newK oldK = newK == Release && newK /= oldK
 
@@ -637,7 +687,7 @@ loop action global = do
   let planeMvp = mvp `G.multMat` (latLongRotMat cp { distance = 0.0001 + distance cp })
 
   -- render
-  render (simTime newGlobal) (showCutPlane newGlobal0) mvp planeMvp (glids newGlobal)
+  render (simTime newGlobal) (showCutPlane newGlobal0) (drawNormals newGlobal0) mvp planeMvp (glids newGlobal)
 
   -- exit if window closed or Esc pressed
   esc <- GLFW.getKey GLFW.ESC
@@ -653,13 +703,14 @@ boolArgument arg args = [] /= filter (== arg) args
 
 
 loadModel :: GlobalState -> PC.FacedModel GLfloat -> IO GlobalState
-loadModel global@GlobalState{..} m@(PC.FacedModel vs fs ns) = do
+loadModel global@GlobalState{..} m = do
   let GLIDs{..} = glids
 
+  let vs = fst $ unzip $ PC.vertice m
+  let fs = fst $ unzip $ PC.faces m
+  let ns = fst $ unzip $ PC.normals m
   -- load next model
-  let FlatModel vs' ns' cs ids vpf span = fromModel $ G.Model (fst $ unzip vs)
-                                                              (fst $ unzip fs)
-                                                              (fst $ unzip ns)
+  let FlatModel vs' ns' cs ids vpf span = fromModel $ G.Model vs fs ns
 
 --  putStrLn "loaded"
 --  putStr "vs': "
@@ -680,10 +731,16 @@ loadModel global@GlobalState{..} m@(PC.FacedModel vs fs ns) = do
 
   -- clean gl buffers and recreate them with proper data
   cleanBuffers objectBuffersInfo
+  cleanBuffers normalsBuffersInfo
 
   let vertexBufferData = vs
-  newBuffersInfo <- loadBuffers vs' ns' ids cs
-  let newGlids = glids { objectBuffersInfo = newBuffersInfo }
+  newBuffersInfo <- loadBuffers vs' (Just ns') ids (Just cs)
+  let faceCenters = map (G.faceBarycenter vs) fs
+  let verticeOfNormalsBuffer = concatMap (\(G.Point3f cx cy cz, G.Point3f nx ny nz) ->
+                                         [cx, cy, cz, cx + span / 10 * nx, cy + span / 10 * ny, cz + span / 10 * nz])
+                                         $ zip faceCenters ns
+  newNormalsBuffersInfo <- loadBuffers verticeOfNormalsBuffer Nothing (take (length verticeOfNormalsBuffer) [0..]) Nothing
+  let newGlids = glids { objectBuffersInfo = newBuffersInfo, normalsBuffersInfo = newNormalsBuffersInfo }
 
   return global { glids = newGlids, camera = newCamera, model = m, Main.span = span }
 
@@ -757,16 +814,13 @@ main = do
   -- init GL state
   glstuff <- initGL (True)
                     (bothFaces)
-                    []
-                    []
-                    []
-                    []
 
   -- init global state
   projMat <- newIORef identity
   let state0 = GlobalState { camera = defaultCamState
                            , cutPlane = defaultCutPlaneState
                            , showCutPlane = True
+                           , drawNormals = False
                            , mouse = defaultMouseState
                            , glids = glstuff
                            , simTime = 0
@@ -787,5 +841,6 @@ main = do
   -- exit
   cleanBuffers $ objectBuffersInfo $ glids lastState
   cleanBuffers $ planeBuffersInfo $ glids lastState
+  cleanBuffers $ normalsBuffersInfo $ glids lastState
   GLFW.closeWindow
   GLFW.terminate
