@@ -147,8 +147,5 @@ facesToCenterFlags (triangle@[_,_,_]:arrs) = 1 : 0 : 0 : 0 : 1 : 0 : 0 : 0 : 1 :
 -- larger poly barycentric coords
 facesToCenterFlags (arr:arrs) =
   1 : 1 : 1 : barycentrics ++ facesToCenterFlags arrs
-  where barycentrics = if l `mod` 2 == 0
-                         then bs
-                         else 0 : 0 : 1 : bs
+  where barycentrics = take (3*l) $ cycle [1,0,0]
         l = length arr
-        bs = take ((*) 6 $ l `quot` 2) $ cycle [1,0,0,0,1,0]
