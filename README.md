@@ -14,6 +14,8 @@ Run with:
 
 * "--f" for fullscreen
 * "--b" to draw both faces, back and front
+* "--c xxx" to specify the number of cuts to apply on the model
+* "--s someString" to specify the seed to use to randomize the cuts
 
 Features
 --------

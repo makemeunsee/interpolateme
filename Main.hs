@@ -46,7 +46,9 @@ import Foreign.C.Types (CFloat, CInt)
 import Data.Maybe (listToMaybe)
 import Data.IORef (IORef, newIORef)
 import Data.Vec (Mat44, Vec4, multmv, identity)
+import Data.List (findIndices)
 import Data.List.Split (splitOn)
+import Data.Maybe (fromJust)
 import qualified Random.MWC.Pure as RND
 
 import FloretSphere
@@ -141,19 +143,19 @@ defaultCamState = OrbitingState { theta = pi/2
                                 }
 
 
-defaultCutPlaneState :: OrbitingStatef
-defaultCutPlaneState = OrbitingState { theta = 0
-                                     , phi = pi/2
-                                     , distance = 1
-                                     , thetaSpeed = 0.005
-                                     , phiSpeed = 0.005
-                                     }
+defaultCutPlaneState :: GLfloat -> GLfloat -> OrbitingStatef
+defaultCutPlaneState theta phi = OrbitingState { theta = theta
+                                               , phi = phi
+                                               , distance = 1
+                                               , thetaSpeed = 0.005
+                                               , phiSpeed = 0.005
+                                               }
 
 -- rnd / num distribution functions
 
 
-defaultSeed :: RND.Seed
-defaultSeed = RND.seed $ map charToWord32 "defaultSeed"
+seedForString :: String -> RND.Seed
+seedForString str = RND.seed $ map charToWord32 str
   where charToWord32 c = fromIntegral $ fromEnum c
 
 
@@ -348,8 +350,8 @@ render t drawPlane drawNormals mvp planeMvp glids@GLIDs{..} = do
 
   if drawNormals
     then do
-      uniform colLoc $= GL.Color4 0 0 1 (1 :: GLfloat)
-      uniform bColLoc $= GL.Color4 0 0 1 (1 :: GLfloat)
+      uniform colLoc $= GL.Color4 0 1 0 (1 :: GLfloat)
+      uniform bColLoc $= GL.Color4 0 1 0 (1 :: GLfloat)
 
       uniform borderWidthLoc $= GL.Index1 (0 :: GLfloat)
 
@@ -534,7 +536,7 @@ updateOrbitState oldMouse newMouse orbit =
 
 updateZoom :: MouseState -> MouseState -> GlobalState -> GlobalState
 updateZoom oldMouse newMouse global = global { zoom = newZoom }
-  where newZoom = max (min (zoom0*a) 8) 0.125
+  where newZoom = max (min (zoom0*a) 16) 0.0625
         zoom0 = zoom global
         a = 1.1 ** fromIntegral wheelDiff
         wheelDiff = (wheel newMouse) - (wheel oldMouse)
@@ -652,7 +654,7 @@ updateCutPlane newMouseState global =
     newCutPlane0 = updateOrbitState oldMouse newMouseState (cutPlane global)
     d0 = distance newCutPlane0
     newCutPlane = newCutPlane0 { distance = d0-a }
-    a = 0.05 * fromIntegral wheelDiff
+    a = 0.01 * fromIntegral wheelDiff
     wheelDiff = (wheel newMouseState) - (wheel oldMouse)
 
 
@@ -702,12 +704,16 @@ boolArgument :: String -> [String] -> Bool
 boolArgument arg args = [] /= filter (== arg) args
 
 
+strArgument :: String -> [String] -> Maybe String
+strArgument arg args = listToMaybe $ drop 1 $ dropWhile (/= arg) args
+
+
 loadModel :: GlobalState -> PC.FacedModel GLfloat -> IO GlobalState
 loadModel global@GlobalState{..} m = do
   let GLIDs{..} = glids
 
-  let vs = fst $ unzip $ PC.vertice m
-  let fs = fst $ unzip $ PC.faces m
+  let vs = map (\(p,_,_) -> p) $ PC.vertice m
+  let fs = map (\(f,_) -> map (\i -> head $ findIndices (\(_,_,j) -> j == i) $ PC.vertice m) f) $ PC.faces m
   let ns = fst $ unzip $ PC.normals m
   -- load next model
   let FlatModel vs' ns' cs ids vpf span = fromModel $ G.Model vs fs ns
@@ -745,7 +751,7 @@ loadModel global@GlobalState{..} m = do
   return global { glids = newGlids, camera = newCamera, model = m, Main.span = span }
 
 
-applyRndCut :: (RealFloat a, RND.RangeRandom a) => RND.Seed -> PC.FacedModel a -> (PC.FacedModel a, RND.Seed)
+applyRndCut :: (Show a, RealFloat a, RND.RangeRandom a) => RND.Seed -> PC.FacedModel a -> (PC.FacedModel a, RND.Seed)
 applyRndCut seed model = (cut, newSeed)
   where
     oldL = length $ PC.faces model
@@ -755,12 +761,31 @@ applyRndCut seed model = (cut, newSeed)
     cut = PC.cutModel 0.00001 (PC.Plane nx ny nz sfPt) model
 
 
+applyCuts [] m = Just m
+applyCuts ((theta, phi):t) m =
+  if m == m' then
+    Nothing
+  else
+    applyCuts t m'
+  where m' = PC.cutModel 0.00001 (PC.Plane nx ny nz sfPt) m
+        sfPt@(G.Point3f nx ny nz) = latLongPosition OrbitingState { theta = theta, phi = phi, distance = 1 }
+
+
 applyRndCuts n seed m =
   if n <= 0
     then (m, seed)
     else applyRndCuts (n-1) seed' m'
   where
     (m', seed') = applyRndCut seed m
+
+
+generateRndCuts 0 seed = ([], seed)
+generateRndCuts n seed
+  | n <= 0    = ([], seed)
+  | otherwise = ((theta, phi) : arr, seed'')
+  where
+    (arr, seed'') = generateRndCuts (n-1) seed'
+    (theta, phi, seed') = rndSpherePosition seed
 
 
 main :: IO ()
@@ -776,6 +801,19 @@ main = do
   -- draw back and front faces
   let bothFaces = boolArgument "--b" args
 
+  -- seed input
+  let seedStr = strArgument "--s" args
+  let seed = seedForString $ maybe "elohim" id seedStr
+
+  -- cuts input
+  let cutsStr = strArgument "--c" args
+  let cuts = maybe 150
+                   (\str -> case reads str of
+                     [] -> 150
+                     [(i, _)] -> i)
+                   cutsStr
+
+
   -- initialize early to have access to time
   GLFW.initialize
 
@@ -784,10 +822,11 @@ main = do
   let center0 = G.faceBarycenter vs $ fs !! 0
   let scale = map (G.divBy $ G.norm center0)
   let vs' = scale vs
-  let cuttableModel = PC.FacedModel (zip vs' $ G.facesForEachVertex m0) (zip fs [0..]) (zip ns [0..])
+  let cuttableModel = PC.FacedModel (map (\(i,(p,f)) -> (p,f,i)) $ zip [0..] $ zip vs' $ G.facesForEachVertex m0) (zip fs [0..]) (zip ns [0..])
 
   t0 <- get time
-  let (rndCutsModel, newSeed) = applyRndCuts 100 defaultSeed cuttableModel
+  let (rndCuts, _) = generateRndCuts cuts seed
+  let rndCutsModel = fromJust $ applyCuts rndCuts cuttableModel
   putStrLn $ show $ length $ show rndCutsModel
   t1 <- get time
   putStr "Truncation duration: "
@@ -818,7 +857,7 @@ main = do
   -- init global state
   projMat <- newIORef identity
   let state0 = GlobalState { camera = defaultCamState
-                           , cutPlane = defaultCutPlaneState
+                           , cutPlane = defaultCutPlaneState (-pi/4) (4*pi/7)
                            , showCutPlane = True
                            , drawNormals = False
                            , mouse = defaultMouseState
