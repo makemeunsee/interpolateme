@@ -87,6 +87,12 @@ function appMain() {
 
     nextSeed();
 
+    function rndSpherePosition() {
+        var u = Math.random();
+        var v = Math.random();
+        return { "theta": 2*Math.PI*u, "phi": Math.acos( 2*v - 1 ) };
+    }
+
     // help dialog
     $(function() {
         $( "#dialog" ).dialog({
@@ -109,28 +115,18 @@ function appMain() {
       $( "button" ).button();
     });
 
-    var grabPlane = false;
-    $( "#grabPlane" ).change(function() {
-        if ( this.checked ) {
-            grabPlane = true;
-        } else {
-            grabPlane = false;
-        }
-    });
-    $('#grabPlane').attr('checked', false);
-
     var showPlane = true;
-    $( "#showPlane" ).change(function() {
-        if ( this.checked ) {
-            showPlane = true;
+    function showPlaneFct() {
+        showPlane = !showPlane;
+        if ( showPlane ) {
             scene.add( planeMesh );
-            switchModel();
         } else {
-            showPlane = false;
             scene.remove( planeMesh );
         }
-    });
-    $('#showPlane').attr('checked', true);
+    }
+    $("#showPlane").unbind("click");
+    $("#showPlane").click(showPlaneFct);
+    $('#showPlane').attr('checked', false);
 
     function showHelp() {
         if ( $( "#dialog" ).dialog( "isOpen" ) )
@@ -161,8 +157,7 @@ function appMain() {
         scene.remove( oldMesh );
 
         baseModel = Haste.truncate ( baseModel
-                                   , planeTheta
-                                   , planePhi);
+                                   , scaledModelMat.clone().transpose().elements);
         flatModel = modelFromRaw ( Haste.toFlatModel ( baseModel ) );
         currentMesh = makeMesh ( flatModel );
 
@@ -177,38 +172,64 @@ function appMain() {
     $("#cut").unbind("click");
     $("#cut").click(cut);
 
-    var modelId = 0;
+    function rndCutsFct() {
+        oldMesh = currentMesh;
+        scene.remove( oldMesh );
+
+        for (var index = 0; index < 10; index++) {
+            var cutSeed = rndSpherePosition();
+            baseModel = Haste.truncateAtPoint ( baseModel
+                                              , cutSeed.theta
+                                              , cutSeed.phi);
+        }
+        flatModel = modelFromRaw ( Haste.toFlatModel ( baseModel ) );
+        currentMesh = makeMesh ( flatModel );
+
+        oldMesh.geometry.dispose();
+        oldMesh.material.dispose();
+
+        // model span changes, need to recompute matrices
+        updateMVPs();
+
+        scene.add( currentMesh );
+    }
+    $("#rndCuts").unbind("click");
+    $("#rndCuts").click(rndCutsFct);
+
+    var modelId = 2;
     var baseModel = Haste.loadModel ( modelId );
     var flatModel = modelFromRaw ( Haste.toFlatModel ( baseModel ) );
 
-    var zoomMax = 8;
-    var zoomMin = 0.125;
-    var zoomSpeed = 1.1;
+    var zoomMax = 16;
+    var zoomMin = 0.0625;
+    var zoomSpeed = 1.01;
     var zoom = 1;
     
     var dummyCam = new DummyCamera();
-    var camTheta = Math.PI / 3;
-    var camPhi = Math.PI / 3;
-    var camDist = flatModel.span * 1.1;
+    var camTheta = Math.PI / 2;
+    var camPhi = Math.PI / 2;
+    var camDist = 1;
 
     var projMat = new THREE.Matrix4();
     var viewMat = arrToMat( Haste.updateViewMat( camTheta, camPhi, camDist ) );
     var modelMat = new THREE.Matrix4();
-
-    var planeTheta = 0;
-    var planePhi = Math.PI / 2;
-    var planeMat = arrToMat( Haste.latLongRotMat( planeTheta, planePhi, 1 ) );
+    modelMat.elements[0] = Math.sqrt(2) / 2;
+    modelMat.elements[2] = Math.sqrt(2) / 2;
+    modelMat.elements[5] = 1;
+    modelMat.elements[8] = -Math.sqrt(2) / 2;
+    modelMat.elements[10] = Math.sqrt(2) / 2;
+    var scaledModelMat = modelMat.clone();
 
     var mvp = new THREE.Matrix4();
     var planeMvp = new THREE.Matrix4();
     function updateMVPs() {
-        var scaledProj = projMat.clone().multiplyScalar( 1/flatModel.span );
-        scaledProj.elements[15] = 1;
-        var zoomedModel = new THREE.Matrix4();
-        zoomedModel.multiplyScalar( zoom ).multiply( modelMat );
-        zoomedModel.elements[15] = 1;
-        mvp = scaledProj.multiply( viewMat ).multiply( zoomedModel );
-        planeMvp = mvp.clone().multiply( planeMat );
+        var p = projMat.clone();
+        var vp = p.multiply( viewMat );
+        planeMvp = vp.clone();
+        scaledModelMat = new THREE.Matrix4();
+        scaledModelMat.multiplyScalar( zoom ).multiply( modelMat );
+        scaledModelMat.elements[15] = 1;
+        mvp = vp.multiply( scaledModelMat );
     }
 
     var updateProjection = function(screenWidth, screenHeight) {
@@ -219,11 +240,11 @@ function appMain() {
     updateProjection(window.innerWidth, window.innerHeight);
 
     var planeMesh = makeMesh ( {
-        "vertice": [ 1, 0, 0
-                   , 1, 2, -2
-                   , 1, 2, 2
-                   , 1, -2, 2
-                   , 1, -2, -2
+        "vertice": [ 0, 0, 1.00001
+                   , 2, -2, 1.00001
+                   , 2, 2, 1.00001
+                   , -2, 2, 1.00001
+                   , -2, -2, 1.00001
                    ],
         "normals": [ 1, 0, 0
                    , 1, 0, 0
@@ -330,17 +351,8 @@ function appMain() {
             var deltaX = event.touches[0].clientX - mx;
             var deltaY = event.touches[0].clientY - my;
 
-            if (grabPlane) {
-                planeTheta = planeTheta + deltaX * 0.005;
-                planePhi = Math.min( Math.PI, Math.max( 0, planePhi - deltaY * 0.005 ) );
-                planeMat = arrToMat( Haste.latLongRotMat( planeTheta, planePhi, 1 ) );
-                updateMVPs();
-            } else {
-                camTheta = camTheta + deltaX * 0.005;
-                camPhi = Math.min( Math.PI, Math.max( 0, camPhi - deltaY * 0.005 ) );
-                viewMat = arrToMat( Haste.updateViewMat( camTheta, camPhi, camDist ) );
-                updateMVPs();
-            }
+            modelMat = arrToMat( Haste.naiveRotMat( deltaX * 0.005, deltaY * 0.005 ) ).multiply( modelMat );
+            updateMVPs();
 
             mx = event.touches[0].clientX;
             my = event.touches[0].clientY;
@@ -349,10 +361,8 @@ function appMain() {
     }
 
     function zoomFct(delta, alpha) {
-        if (!grabPlane) {
-            zoom = Math.min( Math.max( zoom * ( Math.pow( alpha, delta ) ), zoomMin ), zoomMax );
-            updateMVPs();
-        }
+        zoom = Math.min( Math.max( zoom * ( Math.pow( alpha, delta ) ), zoomMin ), zoomMax );
+        updateMVPs();
     }
 
     // mouse wheel -> zoom in / out

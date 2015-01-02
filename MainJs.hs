@@ -2,8 +2,7 @@
 
 import FlatModel ( FlatModel (..), fromModel )
 import FloretSphere ( polyhedrons )
-import qualified Voronyi as Vor
-import GLGenericFunctions ( OrbitingState (OrbitingState), theta, phi, distance )
+import qualified PlaneCut as PC
 import qualified GLGenericFunctions as GF
 import qualified Geometry as G
 import qualified Data.Vec as V
@@ -13,53 +12,49 @@ import Haste.Prim
 import Haste.Foreign
 
 
-models :: [Opaque (Vor.VoronoiModel Float)]
-models = map (toOpaque . Vor.toVoronoiModel) polyhedrons
+models :: [Opaque (PC.FacedModel Float)]
+models = map (toOpaque . PC.fromModel) polyhedrons
 
-loadModel :: Int -> IO (Opaque (Vor.VoronoiModel Float))
+loadModel :: Int -> IO (Opaque (PC.FacedModel Float))
 loadModel modelId = return $ models !! modelId
 
-truncateModel :: Opaque (Vor.VoronoiModel Float) -> Float -> Float -> IO (Opaque (Vor.VoronoiModel Float))
-truncateModel model theta phi = return $ toOpaque $ Vor.truncate 0.00001 cutNormal $ fromOpaque model
+truncateRotatedModel :: Opaque (PC.FacedModel Float) -> [Float] -> IO (Opaque (PC.FacedModel Float))
+truncateRotatedModel model scaledModelMat = return $ toOpaque m'
   where
-    cutNormal = GF.latLongPosition GF.OrbitingState { theta = theta, phi = phi, distance = 1 }
+    m' = PC.cutModel 0.00001 plane $ fromOpaque model
+    seed = G.vec4ToPoint3f $ G.multInvMatV (V.matFromList scaledModelMat) $ G.vec4 0 0 1
+    -- normal of the plane
+    G.Point3f kx ky kz = G.normalized seed
+    plane = PC.Plane kx ky kz seed
 
-toFlatModel :: Opaque (Vor.VoronoiModel Float) -> IO ([Float], [Float], [Float], [Int], [Int], Float)
+truncateModelAtPoint :: Opaque (PC.FacedModel Float) -> Float -> Float -> IO (Opaque (PC.FacedModel Float))
+truncateModelAtPoint model theta phi = return $ toOpaque m'
+  where
+    m' = PC.cutModel 0.00001 (PC.Plane nx ny nz sfPt) $ fromOpaque model
+    sfPt@(G.Point3f nx ny nz) = GF.latLongPosition theta phi 1
+
+toFlatModel :: Opaque (PC.FacedModel Float) -> IO ([Float], [Float], [Float], [Int], [Int], Float)
 toFlatModel model = return (vs, ns, cs, ids, vpf, span)
   where
-   FlatModel vs ns cs ids vpf span = fromModel $ G.Model vertice polygons seeds
-   Vor.VoronoiModel seeds vertice polygons = fromOpaque model
-
-modelsSize :: IO Int
-modelsSize = return $ length models
+   FlatModel vs ns cs ids vpf span = fromModel $ PC.toModel fm
+   fm = fromOpaque model
 
 updateViewMat :: Float -> Float -> Float -> IO [Float]
 updateViewMat t p d =
-  return $ V.matToList $ GF.viewMatOf OrbitingState { theta = t, phi = p, distance = d }
+  return $ V.matToList $ GF.viewMatOf t p d
+
+naiveRotMat :: Float -> Float -> IO [Float]
+naiveRotMat t p =
+  return $ V.matToList $ GF.naiveRotMat t p
 
 orthoMatrixFromScreen :: Int -> Int -> IO [Float]
 orthoMatrixFromScreen w h = return $ V.matToList $ G.orthoMatrixFromScreen w h
 
-directionFromOrigin :: Float -> Float -> Float -> IO [Float]
-directionFromOrigin theta phi dist = do
-  let G.Point3f x y z = GF.orbitingEyeForModel V.identity $ OrbitingState { theta = theta, phi = phi, distance = dist }
-  return [x, y, z]
-
-normedDirectionToOrigin :: Float -> Float -> IO [Float]
-normedDirectionToOrigin theta phi = return $ [x, y, z]
-  where G.Point3f x y z = GF.orbitCenterDirection OrbitingState { theta = theta, phi = phi, distance = 1 }
-
-latLongRotMat :: Float -> Float -> Float -> IO [Float]
-latLongRotMat t p d =
-  return $ V.matToList $ GF.latLongRotMat OrbitingState { theta = t, phi = p, distance = d }
-
 main = do
-  export (toJSStr "modelsLength") modelsSize
-  export (toJSStr "loadModel") loadModel
-  export (toJSStr "updateViewMat") updateViewMat
+  export (toJSStr "naiveRotMat") naiveRotMat
   export (toJSStr "orthoMatrixFromScreen") orthoMatrixFromScreen
-  export (toJSStr "normedDirectionToOrigin") normedDirectionToOrigin
-  export (toJSStr "directionFromOrigin") directionFromOrigin
-  export (toJSStr "latLongRotMat") latLongRotMat
-  export (toJSStr "truncate") truncateModel
+  export (toJSStr "updateViewMat") updateViewMat
+  export (toJSStr "loadModel") loadModel
+  export (toJSStr "truncate") truncateRotatedModel
+  export (toJSStr "truncateAtPoint") truncateModelAtPoint
   export (toJSStr "toFlatModel") toFlatModel

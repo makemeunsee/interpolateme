@@ -659,14 +659,12 @@ strArgument arg args = listToMaybe $ drop 1 $ dropWhile (/= arg) args
 
 
 loadModel :: GlobalState -> PC.FacedModel GLfloat -> IO GlobalState
-loadModel global@GlobalState{..} m = do
+loadModel global@GlobalState{..} fm = do
   let GLIDs{..} = glids
 
-  let vs = map (\(p,_,_) -> p) $ PC.vertice m
-  let fs = map (\(f,_) -> map (\i -> head $ findIndices (\(_,_,j) -> j == i) $ PC.vertice m) f) $ PC.faces m
-  let ns = fst $ unzip $ PC.normals m
+  let m@(G.Model vs fs ns) = PC.toModel fm
   -- load next model
-  let FlatModel vs' ns' cs ids vpf span = fromModel $ G.Model vs fs ns
+  let FlatModel vs' ns' cs ids vpf span = fromModel m
 
 --  putStrLn "loaded"
 --  putStr "vs': "
@@ -695,7 +693,7 @@ loadModel global@GlobalState{..} m = do
   newNormalsBuffersInfo <- loadBuffers verticeOfNormalsBuffer Nothing (take (length verticeOfNormalsBuffer) [0..]) Nothing
   let newGlids = glids { objectBuffersInfo = newBuffersInfo, normalsBuffersInfo = newNormalsBuffersInfo }
 
-  return global { glids = newGlids, model = m }
+  return global { glids = newGlids, model = fm }
 
 
 applyCuts [] m = Just m
@@ -746,12 +744,7 @@ main = do
   -- initialize early to have access to time
   GLFW.initialize
 
-  let m0@(G.Model vs fs ns) = icosahedron
-  -- scale vertice, so that the distance from face centers to origin is 1
-  let center0 = G.faceBarycenter vs $ fs !! 0
-  let scale = map (G.divBy $ G.norm center0)
-  let vs' = scale vs
-  let cuttableModel = PC.FacedModel (map (\(i,(p,f)) -> (p,f,i)) $ zip [0..] $ zip vs' $ G.facesForEachVertex m0) (zip fs [0..]) (zip ns [0..])
+  let cuttableModel = PC.fromModel icosahedron
 
   t0 <- get time
   let (rndCuts, _) = generateRndCuts cuts seed
