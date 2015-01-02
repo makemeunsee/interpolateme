@@ -53,13 +53,9 @@ import qualified Random.MWC.Pure as RND
 
 import FloretSphere
 import qualified Geometry as G
-import GLGenericFunctions ( OrbitingState (OrbitingState), theta, phi, distance, thetaSpeed, phiSpeed
-                          , viewMatOf, latLongRotMat
-                          , orbitingEyeForModel
-                          , orbitCenterDirection
-                          , orbitingPosition
-                          , updateOrbitAngles
+import GLGenericFunctions ( naiveRotMat
                           , latLongPosition
+                          , viewMatOf
                           )
 import FlatModel ( FlatModel (FlatModel)
                  , fromModel
@@ -74,7 +70,6 @@ instance NearZero CFloat where
   {-# INLINE nearZero #-}
 
 
-type OrbitingStatef = OrbitingState GLfloat
 type Vec4f = Vec4 GLfloat
 type Mat44f = Mat44 GLfloat
 type Point3GL = G.Point3f GLfloat
@@ -87,7 +82,6 @@ data Action = Action (IO Action, MouseState -> MouseState)
 data KeyState = KeyState { tab :: KeyButtonState
                          , space :: KeyButtonState
                          , n :: KeyButtonState
-                         , ctrl :: KeyButtonState
                          }
 
 
@@ -99,15 +93,13 @@ data MouseState = MouseState { mouseX :: GLint
                   deriving Show
 
 
-data GlobalState = GlobalState { camera :: OrbitingStatef
-                               , cutPlane :: OrbitingStatef
+data GlobalState = GlobalState { viewMat :: Mat44f
                                , showCutPlane :: Bool
                                , drawNormals :: Bool
                                , mouse :: MouseState
                                , zoom :: GLfloat     -- scale for the model
                                , modelMat :: Mat44f
                                , model :: PC.FacedModel GLfloat
-                               , span :: GLfloat
                                , glids :: GLIDs
                                , simTime :: GLfloat
                                , keys :: KeyState
@@ -123,7 +115,7 @@ scaledModelMat global = G.scale (zoom global) identity `G.multMat` (modelMat glo
 
 
 defaultKeyState :: KeyState
-defaultKeyState = KeyState Release Release Release Release
+defaultKeyState = KeyState Release Release Release
 
 
 defaultMouseState :: MouseState
@@ -133,23 +125,6 @@ defaultMouseState = MouseState { mouseX = 0
                                , leftButton = Release
                                }
 
-
-defaultCamState :: OrbitingStatef
-defaultCamState = OrbitingState { theta = pi/2
-                                , phi = pi/2
-                                , distance = 50
-                                , thetaSpeed = 0.005
-                                , phiSpeed = 0.005
-                                }
-
-
-defaultCutPlaneState :: GLfloat -> GLfloat -> OrbitingStatef
-defaultCutPlaneState theta phi = OrbitingState { theta = theta
-                                               , phi = phi
-                                               , distance = 1
-                                               , thetaSpeed = 0.005
-                                               , phiSpeed = 0.005
-                                               }
 
 -- rnd / num distribution functions
 
@@ -260,11 +235,11 @@ initGL drawFront drawBack = do
   -- create data buffers
   objectBuffersInfo <- loadBuffers [] Nothing [] Nothing
   normalsBuffersInfo <- loadBuffers [] Nothing [] Nothing
-  planeBuffersInfo <- loadBuffers [ 1, 0, 0
-                                  , 1, 2, -2
-                                  , 1, 2, 2
-                                  , 1, -2, 2
-                                  , 1, -2, -2
+  planeBuffersInfo <- loadBuffers [ 0, 0, 1
+                                  , 2, -2, 1
+                                  , 2, 2, 1
+                                  , -2, 2, 1
+                                  , -2, -2, 1
                                   ]
                                   (Just $ take (3*5) $ cycle [ 1, 0, 0 ])
                                   [ 0, 1, 2
@@ -525,20 +500,11 @@ resize projMatRef size@(GL.Size w h) = do
   return ()
 
 
-updateOrbitState :: MouseState -> MouseState -> OrbitingStatef -> OrbitingStatef
-updateOrbitState oldMouse newMouse orbit =
-  if leftButton newMouse == Press
-    then updateOrbitAngles ((fromIntegral diffX) * thetaSpeed orbit) ((fromIntegral diffY) * phiSpeed orbit) orbit
-    else orbit
-  where diffX = (mouseX newMouse) - (mouseX oldMouse)
-        diffY = (mouseY oldMouse) - (mouseY newMouse)
-
-
 updateZoom :: MouseState -> MouseState -> GlobalState -> GlobalState
 updateZoom oldMouse newMouse global = global { zoom = newZoom }
   where newZoom = max (min (zoom0*a) 16) 0.0625
         zoom0 = zoom global
-        a = 1.1 ** fromIntegral wheelDiff
+        a = 1.01 ** fromIntegral wheelDiff
         wheelDiff = (wheel newMouse) - (wheel oldMouse)
 
 
@@ -595,8 +561,6 @@ handleKeys state = do
   -- read key inputs
   tb <- GLFW.getKey GLFW.TAB
   sp <- GLFW.getKey ' '
-  lctrl <- GLFW.getKey GLFW.LCTRL
-  rctrl <- GLFW.getKey GLFW.RCTRL
   kn <- GLFW.getKey 'N'
 
   let (spR, tbR, nR) = ( released sp space
@@ -607,10 +571,12 @@ handleKeys state = do
   newState0 <- if spR
     then do
       let m = model state
-      -- origin point of the cutting plane
-      let seed = latLongPosition $ cutPlane state
+      -- origin point of the cutting plane:
+      -- plane is static, with normal 0 0 1 and seed 0 0 1
+      -- apply inverse of model matrix to find its position relative to the model
+      let seed = G.vec4ToPoint3f $ G.multInvMatV (scaledModelMat state) $ G.vec4 0 0 1
       -- normal of the plane
-      let G.Point3f kx ky kz = G.normalized $ G.times (distance $ cutPlane state) seed
+      let G.Point3f kx ky kz = G.normalized seed
       let plane = PC.Plane kx ky kz seed
       let cut = PC.cutModel 0.00001 plane $ model state
 --      putStrLn ""
@@ -621,7 +587,6 @@ handleKeys state = do
 
   let newKS = ks { tab = tb
                  , space = sp
-                 , ctrl = if lctrl == Release && lctrl == rctrl then Release else Press
                  , n = kn
                  }
 
@@ -633,29 +598,20 @@ handleKeys state = do
   where released newK oldK = newK == Release && newK /= oldK
 
 
-updateCam :: MouseState -> GlobalState -> GlobalState
-updateCam newMouseState global =
-  newGlobal { camera = newCamera }
+updateModelRot :: MouseState -> GlobalState -> GlobalState
+updateModelRot newMouseState global =
+  if leftButton newMouseState == Press then
+    newGlobal { modelMat = naiveRotMat (diffX * 0.005) (diffY * 0.005) `G.multMat` modelMat global }
+  else
+    newGlobal
   where
     oldMouse = mouse global
-    -- get new cam state from mouse actions
-    newCamera = updateOrbitState oldMouse newMouseState (camera global)
+
+    diffX = fromIntegral $ (mouseX newMouseState) - (mouseX oldMouse)
+    diffY = fromIntegral $ (mouseY newMouseState) - (mouseY oldMouse)
 
     -- apply zoom
     newGlobal = updateZoom oldMouse newMouseState global
-
-
-updateCutPlane :: MouseState -> GlobalState -> GlobalState
-updateCutPlane newMouseState global =
-  global { cutPlane = newCutPlane }
-  where
-    oldMouse = mouse global
-    -- get new cam state from mouse actions
-    newCutPlane0 = updateOrbitState oldMouse newMouseState (cutPlane global)
-    d0 = distance newCutPlane0
-    newCutPlane = newCutPlane0 { distance = d0-a }
-    a = 0.01 * fromIntegral wheelDiff
-    wheelDiff = (wheel newMouseState) - (wheel oldMouse)
 
 
 loop :: IO Action -> GlobalState -> IO GlobalState
@@ -671,22 +627,16 @@ loop action global = do
   let newMouseState = mouseStateUpdater $ mouse newGlobal0
 
   -- update the view related properties in the global state
-  let newGlobal1 = if Release == ctrl (keys newGlobal0)
-                     then updateCam newMouseState newGlobal0
-                     else updateCutPlane newMouseState newGlobal0
+  let newGlobal1 = updateModelRot newMouseState newGlobal0
 
   let newGlobal = newGlobal1 { mouse = newMouseState }
 
   -- prepare matrices for rendering
   p <- get $ projMat newGlobal
-  let scaling = Main.span newGlobal
-  let scaledP = G.scale (1/scaling) p
-  let view = viewMatOf $ camera newGlobal
-  let vp = scaledP `G.multMat` view
+  let vp = p `G.multMat` viewMat newGlobal
   let mvp = vp `G.multMat` (scaledModelMat newGlobal)
 
-  let cp = cutPlane newGlobal
-  let planeMvp = mvp `G.multMat` (latLongRotMat cp { distance = 0.0001 + distance cp })
+  let planeMvp = vp
 
   -- render
   render (simTime newGlobal) (showCutPlane newGlobal0) (drawNormals newGlobal0) mvp planeMvp (glids newGlobal)
@@ -732,9 +682,6 @@ loadModel global@GlobalState{..} m = do
 --  putStr "span: "
 --  putStrLn $ show span
 
-  -- update cam to properly view new model
-  let newCamera = camera { distance = span * 1.1 }
-
   -- clean gl buffers and recreate them with proper data
   cleanBuffers objectBuffersInfo
   cleanBuffers normalsBuffersInfo
@@ -748,17 +695,7 @@ loadModel global@GlobalState{..} m = do
   newNormalsBuffersInfo <- loadBuffers verticeOfNormalsBuffer Nothing (take (length verticeOfNormalsBuffer) [0..]) Nothing
   let newGlids = glids { objectBuffersInfo = newBuffersInfo, normalsBuffersInfo = newNormalsBuffersInfo }
 
-  return global { glids = newGlids, camera = newCamera, model = m, Main.span = span }
-
-
-applyRndCut :: (Show a, RealFloat a, RND.RangeRandom a) => RND.Seed -> PC.FacedModel a -> (PC.FacedModel a, RND.Seed)
-applyRndCut seed model = (cut, newSeed)
-  where
-    oldL = length $ PC.faces model
-    newL = length $ PC.faces cut
-    (theta, phi, newSeed) = rndSpherePosition seed
-    sfPt@(G.Point3f nx ny nz) = latLongPosition OrbitingState { theta = theta, phi = phi, distance = 1 }
-    cut = PC.cutModel 0.00001 (PC.Plane nx ny nz sfPt) model
+  return global { glids = newGlids, model = m }
 
 
 applyCuts [] m = Just m
@@ -768,15 +705,7 @@ applyCuts ((theta, phi):t) m =
   else
     applyCuts t m'
   where m' = PC.cutModel 0.00001 (PC.Plane nx ny nz sfPt) m
-        sfPt@(G.Point3f nx ny nz) = latLongPosition OrbitingState { theta = theta, phi = phi, distance = 1 }
-
-
-applyRndCuts n seed m =
-  if n <= 0
-    then (m, seed)
-    else applyRndCuts (n-1) seed' m'
-  where
-    (m', seed') = applyRndCut seed m
+        sfPt@(G.Point3f nx ny nz) = latLongPosition theta phi 1
 
 
 generateRndCuts 0 seed = ([], seed)
@@ -856,8 +785,7 @@ main = do
 
   -- init global state
   projMat <- newIORef identity
-  let state0 = GlobalState { camera = defaultCamState
-                           , cutPlane = defaultCutPlaneState (-pi/4) (4*pi/7)
+  let state0 = GlobalState { viewMat = viewMatOf (pi/2) (pi/2) 1
                            , showCutPlane = True
                            , drawNormals = False
                            , mouse = defaultMouseState

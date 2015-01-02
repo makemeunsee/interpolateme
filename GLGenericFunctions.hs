@@ -10,68 +10,33 @@ import Geometry
 -- camera and matrice related functions
 
 
-data OrbitingState a = OrbitingState { theta :: a    -- angle between x axis and the orbiting point projected on the xz plane
-                                     , phi :: a      -- angle between y axis and the orbiting point
-                                     , distance :: a -- orbiting distance
-                                     , thetaSpeed :: a -- angular speed for theta variations
-                                     , phiSpeed :: a   -- angular speed for phi variations
-                                     }
-
-
--- direction to origin from orbiting position
-orbitCenterDirection :: RealFloat a => OrbitingState a -> Point3f a
-orbitCenterDirection orbit = (-1) `times` (orbitingPosition orbit)
-
-
 -- orbiting point position
-orbitingPosition :: RealFloat a => OrbitingState a -> Point3f a
-orbitingPosition orbit = Point3f x y z
-  where (x,y,z) = ( d * sin (phi orbit) * cos (theta orbit)
-                  , d * cos (phi orbit)
-                  , d * sin (phi orbit) * sin (theta orbit))
-        d = distance orbit
+orbitingPosition :: RealFloat a => a -> a -> a -> Point3f a
+orbitingPosition theta phi distance = Point3f x y z
+  where (x,y,z) = ( distance * sin phi * cos theta
+                  , distance * cos phi
+                  , distance * sin phi * sin theta)
 
 
-orbitingEyeForModel :: (RealFloat a, NearZero a) => Mat44 a -> OrbitingState a -> Point3f a
-orbitingEyeForModel modelMatrix orbit = vec4ToPoint3f orbitEye
-  where orbitEye = multInvMatV modelMatrix $ vec4 ex ey ez
-        Point3f ex ey ez = orbitCenterDirection orbit
-
-
-viewMatOf :: RealFloat a => OrbitingState a -> Mat44 a
-viewMatOf orbit@OrbitingState { phi = p } = newViewMat
-  where (Point3f px py pz) = orbitingPosition orbit { phi = max 0.00001 $ min (pi-0.00001) p }
+-- view matrix from point orbiting origin at spheric coords theta, phi, distance
+viewMatOf :: RealFloat a => a -> a -> a -> Mat44 a
+viewMatOf theta phi distance = newViewMat
+  where (Point3f px py pz) = orbitingPosition theta (max 0.00001 $ min (pi-0.00001) phi) distance
         newViewMat = lookAtMatrix (vec3 px py pz)
                                   (vec3 0 0 0)
                                   (vec3 0 1 0)
 
 
-latLongPosition :: RealFloat a => OrbitingState a -> Point3f a
-latLongPosition OrbitingState { theta = t, phi = p, distance = d } =
+latLongPosition :: RealFloat a => a -> a -> a -> Point3f a
+latLongPosition theta phi distance =
   Point3f x y z
-  where (x,y,z) = ( d * sin (pi-p) * cos (-t)
-                  , d * cos (pi-p)
-                  , d * sin (pi-p) * sin (-t))
+  where (x,y,z) = ( distance * sin (pi-phi) * cos (-theta)
+                  , distance * cos (pi-phi)
+                  , distance * sin (pi-phi) * sin (-theta))
 
 
-latLongRotMat :: RealFloat a => OrbitingState a -> Mat44 a
-latLongRotMat OrbitingState { theta = t, phi = p, distance = d } = (yMat `multMat` xzMat) `multMat` (transMatrix4 $ Point3f (d-1) 0 0)
-  where xzMat = rotMatrix4 t (Point3f 0 1 0)
-        yMat = rotMatrix4 (p-pi/2) $ rotate t (Point3f 0 1 0) (Point3f 0 0 1)
-
-
-limitAngle :: (Floating a, Ord a) => a -> a
-limitAngle angle =
-  if angle < 0
-    then 0
-    else if angle > pi
-      then pi
-      else angle
-
-
-updateOrbitAngles :: RealFloat a => a -> a -> OrbitingState a -> OrbitingState a
-updateOrbitAngles diffTheta diffPhi orbit =
-  orbit { theta = (theta orbit) + diffTheta
-        , phi = limitAngle $ (phi orbit) + diffPhi
-        }
-
+-- simple rotation matrix of angle theta around y axis, phi around x axis
+naiveRotMat :: RealFloat a => a -> a -> Mat44 a
+naiveRotMat theta phi = (yMat `multMat` xzMat)
+  where xzMat = rotMatrix4 theta (Point3f 0 1 0)
+        yMat = rotMatrix4 phi (Point3f 1 0 0)

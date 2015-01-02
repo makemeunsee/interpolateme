@@ -21,9 +21,8 @@ Features
 --------
 
 * View control: drag the mouse to rotate the view, use the mouse wheel to zoom.
-* Cutting plane control: holding the control key, drag the mouse to position the cutting plane.
 * Show/hide cutting plane: tab key.
-* Cut: hit space to truncate the model, keeping what's under the cutting plane.
+* Cut: hit space to truncate the model, keeping what's beyond the cutting plane.
 * Misc: esc or q to exit.
 * Web demo: open web/index.html after compiling to JS with:
 
