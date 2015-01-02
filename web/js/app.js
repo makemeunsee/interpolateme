@@ -97,18 +97,18 @@ function appMain() {
     $(function() {
         $( "#dialog" ).dialog({
             width: 600,
-            height: 210
+            height: 240
         });
     });
     $( "#dialog" ).dialog( "close" );
 
-    function toggleUI() {
-        console.log("toggling ui");
-        if ( $( "#gui" ).css( "display" ) === "none" )
-            $( "#gui" ).show();
-        else
-            $( "#gui" ).hide();
-    }
+//    function toggleUI() {
+//        console.log("toggling ui");
+//        if ( $( "#gui" ).css( "display" ) === "none" )
+//            $( "#gui" ).show();
+//        else
+//            $( "#gui" ).hide();
+//    }
 
     // jqueryui widgets
     $(function() {
@@ -320,7 +320,7 @@ function appMain() {
             } else {    //tapped within 300ms of last tap. double tap
               clearTimeout(tapped); //stop single tap callback
               tapped = null;
-              toggleUI();
+              cut();
             }
         }
     }
@@ -377,7 +377,7 @@ function appMain() {
       // Firefox
     canvas.addEventListener( "DOMMouseScroll", onMouseWheel, false );
 
-    canvas.addEventListener( "dblclick", toggleUI, false );
+    canvas.addEventListener( "dblclick", cut, false );
     
     THREEx.WindowResize(renderer, updateProjection);
     THREEx.FullScreen.bindKey({ charCode : 'f'.charCodeAt(0) });
