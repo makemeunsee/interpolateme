@@ -60,8 +60,6 @@ function modelFromRaw(model) {
         "normals": model[1],
         "centers": model[2],
         "indice": model[3],
-        "vpf": model[4],
-        "span": model[5],
     };
 }
 
@@ -164,9 +162,6 @@ function appMain() {
         oldMesh.geometry.dispose();
         oldMesh.material.dispose();
 
-        // model span changes, need to recompute matrices
-        updateMVPs();
-
         scene.add( currentMesh );
     }
     $("#cut").unbind("click");
@@ -187,9 +182,6 @@ function appMain() {
 
         oldMesh.geometry.dispose();
         oldMesh.material.dispose();
-
-        // model span changes, need to recompute matrices
-        updateMVPs();
 
         scene.add( currentMesh );
     }

@@ -29,15 +29,16 @@ fromModel m@(G.Model vs fs ns) = m'
     center0 = G.faceBarycenter vs $ fs !! 0
     scale = map (G.divBy $ G.norm center0)
     vs' = scale vs
-    m' = FacedModel (map (\(i,(p,f)) -> (p,f,i)) $ zip [0..] $ zip vs' $ G.facesForEachVertex m) (zip fs [0..]) (zip ns [0..])
+    m' = FacedModel (map (\(i,(p,f)) -> (p,f,i)) $ zip [0..] $ zip vs' $ G.facesForEachVertex m)
+                    (zip fs [0..])
+                    (zip (map (\f -> foldr1 G.add $ map (ns !!) f) fs) [0..])
 
 
-toModel :: FacedModel a -> G.Model a
-toModel FacedModel{..} = G.Model vs fs ns
+toModel :: RealFloat a => FacedModel a -> G.Model a
+toModel FacedModel{..} = G.modelAutoNormals vs fs
   where
     vs = map (\(p,_,_) -> p) vertice
     fs = map (\(f,_) -> map (\i -> head $ findIndices (\(_,_,j) -> j == i) vertice) f) faces
-    ns = fst $ unzip normals
 
 -- list unique edges in the model
 edges :: FacedModel a -> [(Int, Int)]

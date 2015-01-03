@@ -73,7 +73,7 @@ instance NearZero CFloat where
 type Vec4f = Vec4 GLfloat
 type Mat44f = Mat44 GLfloat
 type Point3GL = G.Point3f GLfloat
-type FlatModelGL = FlatModel GLfloat GLuint
+type FlatModelGL = FlatModel GLfloat
 
 
 data Action = Action (IO Action, MouseState -> MouseState)
@@ -191,7 +191,7 @@ createShader vertexShaderFile fragShaderFile = do
   prog <- loadProgram vertexShaderFile fragShaderFile
   AttribLocation vertexAttrib <- get (attribLocation prog "position")
   AttribLocation normalAttrib <- get (attribLocation prog "normal")
-  AttribLocation centerAttrib <- get (attribLocation prog "a_barycentrics")
+  AttribLocation centerAttrib <- get (attribLocation prog "a_centerFlag")
   return ShaderInfo{..}
 
 
@@ -248,11 +248,11 @@ initGL drawFront drawBack = do
                                   , 0, 4, 1
                                   ]
                                   (Just
-                                  [ 1, 1, 1
-                                  , 1, 0, 0
-                                  , 0, 1, 0
-                                  , 1, 0, 0
-                                  , 0, 1, 0] )
+                                  [ 1
+                                  , 0
+                                  , 0
+                                  , 0
+                                  , 0] )
 
   return GLIDs{..}
 
@@ -281,7 +281,7 @@ bindGeometry ShaderInfo{..} BuffersInfo{..} = do
   case ext of
     Just ExtGeomInfo{..} -> do
       bindFloatBufferToAttrib 3 normalBufferId normalAttrib
-      bindFloatBufferToAttrib 3 centerBufferId centerAttrib
+      bindFloatBufferToAttrib 1 centerBufferId centerAttrib
     _ -> return ()
 
 
@@ -495,8 +495,8 @@ loadProgram vertShader fragShader = do
 
 resize :: IORef Mat44f -> GLFW.WindowSizeCallback
 resize projMatRef size@(GL.Size w h) = do
-  GL.viewport   $= (GL.Position 0 0, size)
-  projMatRef $= G.orthoMatrixFromScreen w h
+  GL.viewport $= (GL.Position 0 0, size)
+  projMatRef  $= G.orthoMatrixFromScreen w h
   return ()
 
 
@@ -614,8 +614,8 @@ updateModelRot newMouseState global =
     newGlobal = updateZoom oldMouse newMouseState global
 
 
-loop :: IO Action -> GlobalState -> IO GlobalState
-loop action global = do
+loop :: IO Action -> GlobalState -> [(GLfloat, GLfloat)] -> Double -> IO GlobalState
+loop action global cuts lastCutTime = do
 
   -- read keyboard actions & update global state
   newGlobal0 <- handleKeys global
@@ -629,15 +629,26 @@ loop action global = do
   -- update the view related properties in the global state
   let newGlobal1 = updateModelRot newMouseState newGlobal0
 
-  let newGlobal = newGlobal1 { mouse = newMouseState }
+  let newGlobal2 = newGlobal1 { mouse = newMouseState }
+
+
+  -- cut model
+  t <- get time
+  (newGlobal, rCuts, lastCutTime') <- case cuts of
+                         [] -> return (newGlobal2, [], lastCutTime)
+                         c : cs
+                           | t - lastCutTime > 0.1 -> do
+                             let m' = fromJust $ applyCuts [c] $ model newGlobal2
+                             newState <- loadModel newGlobal2 m'
+                             return (newState, cs, t)
+                           | otherwise -> return (newGlobal2, cuts, lastCutTime)
 
   -- prepare matrices for rendering
-  p <- get $ projMat newGlobal
-  let vp = p `G.multMat` viewMat newGlobal
-  let mvp = vp `G.multMat` (scaledModelMat newGlobal)
+  p <- get $ projMat newGlobal2
+  let vp = p `G.multMat` viewMat newGlobal2
+  let mvp = vp `G.multMat` (scaledModelMat newGlobal2)
 
   let planeMvp = vp
-
   -- render
   render (simTime newGlobal) (showCutPlane newGlobal0) (drawNormals newGlobal0) mvp planeMvp (glids newGlobal)
 
@@ -646,7 +657,7 @@ loop action global = do
   q <- GLFW.getKey 'Q'
   open <- GLFW.getParam GLFW.Opened
   if open && esc /= GLFW.Press && q /= GLFW.Press
-    then loop action' newGlobal
+    then loop action' newGlobal rCuts lastCutTime'
     else return newGlobal
 
 
@@ -664,32 +675,30 @@ loadModel global@GlobalState{..} fm = do
 
   let m@(G.Model vs fs ns) = PC.toModel fm
   -- load next model
-  let FlatModel vs' ns' cs ids vpf span = fromModel m
+  let FlatModel vs' ns' cs ids = fromModel m
 
---  putStrLn "loaded"
---  putStr "vs': "
---  putStrLn $ show vs'
---  putStr "ns': "
---  putStrLn $ show ns'
---  putStr "cs: "
---  putStrLn $ show cs
---  putStr "ids: "
---  putStrLn $ show ids
---  putStr "vpf: "
---  putStrLn $ show vpf
---  putStr "span: "
---  putStrLn $ show span
+
+--  putStrLn "geom"
+--  putStrLn $ "vs:\t" ++ show (length vs) ++ "\t" ++ show vs
+--  putStrLn $ "ns:\t" ++ show (length ns) ++ "\t" ++ show ns
+--  putStrLn $ "fs:\t" ++ show (length fs) ++ "\t" ++ show fs
+--  putStrLn "flat"
+--  putStrLn $ "vs':\t" ++ show (length vs') ++ "\t" ++ show vs'
+--  putStrLn $ "cs:\t" ++ show (length cs) ++ "\t" ++ show cs
+--  putStrLn $ "ids:\t" ++ show (length ids) ++ "\t" ++ show ids
+--  putStrLn $ "ns':\t" ++ show (length ns') ++ "\t" ++ show ns'
 
   -- clean gl buffers and recreate them with proper data
   cleanBuffers objectBuffersInfo
   cleanBuffers normalsBuffersInfo
 
   let vertexBufferData = vs
-  newBuffersInfo <- loadBuffers vs' (Just ns') ids (Just cs)
+  newBuffersInfo <- loadBuffers vs' (Just ns') (map fromIntegral ids) (Just cs)
   let faceCenters = map (G.faceBarycenter vs) fs
+  let faceNormals = fst $ unzip $ PC.normals fm
   let verticeOfNormalsBuffer = concatMap (\(G.Point3f cx cy cz, G.Point3f nx ny nz) ->
-                                         [cx, cy, cz, cx + span / 10 * nx, cy + span / 10 * ny, cz + span / 10 * nz])
-                                         $ zip faceCenters ns
+                                         [cx, cy, cz, cx + 0.1 * nx, cy + 0.1 * ny, cz + 0.1 * nz])
+                                         $ zip faceCenters faceNormals
   newNormalsBuffersInfo <- loadBuffers verticeOfNormalsBuffer Nothing (take (length verticeOfNormalsBuffer) [0..]) Nothing
   let newGlids = glids { objectBuffersInfo = newBuffersInfo, normalsBuffersInfo = newNormalsBuffersInfo }
 
@@ -732,11 +741,12 @@ main = do
   let seedStr = strArgument "--s" args
   let seed = seedForString $ maybe "elohim" id seedStr
 
+  let defaultCutCount = 150
   -- cuts input
   let cutsStr = strArgument "--c" args
-  let cuts = maybe 150
+  let cuts = maybe defaultCutCount
                    (\str -> case reads str of
-                     [] -> 150
+                     [] -> defaultCutCount
                      [(i, _)] -> i)
                    cutsStr
 
@@ -744,15 +754,15 @@ main = do
   -- initialize early to have access to time
   GLFW.initialize
 
-  let cuttableModel = PC.fromModel icosahedron
+  let cuttableModel = PC.fromModel cube
 
   t0 <- get time
   let (rndCuts, _) = generateRndCuts cuts seed
-  let rndCutsModel = fromJust $ applyCuts rndCuts cuttableModel
-  putStrLn $ show $ length $ show rndCutsModel
-  t1 <- get time
-  putStr "Truncation duration: "
-  putStrLn $ show (t1 - t0)
+--  let rndCutsModel = fromJust $ applyCuts rndCuts cuttableModel
+--  putStrLn $ show $ length $ show rndCutsModel
+--  t1 <- get time
+--  putStr "Truncation duration: "
+--  putStrLn $ show (t1 - t0)
 
   fullscreenMode <- get GLFW.desktopMode
 
@@ -790,14 +800,15 @@ main = do
                            , zoom = 1
                            }
 
-  state <- loadModel state0 rndCutsModel
+  state <- loadModel state0 cuttableModel
 
   -- setup stuff
   GLFW.swapInterval       $= 1 -- vsync
   GLFW.windowTitle        $= "Voronyi maze"
   GLFW.windowSizeCallback $= resize projMat
   -- main loop
-  lastState <- loop waitForPress state
+  t <- get time
+  lastState <- loop waitForPress state rndCuts t
   -- exit
   cleanBuffers $ objectBuffersInfo $ glids lastState
   cleanBuffers $ planeBuffersInfo $ glids lastState

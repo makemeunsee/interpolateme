@@ -33,10 +33,10 @@ truncateModelAtPoint model theta phi = return $ toOpaque m'
     m' = PC.cutModel 0.00001 (PC.Plane nx ny nz sfPt) $ fromOpaque model
     sfPt@(G.Point3f nx ny nz) = GF.latLongPosition theta phi 1
 
-toFlatModel :: Opaque (PC.FacedModel Float) -> IO ([Float], [Float], [Float], [Int], [Int], Float)
-toFlatModel model = return (vs, ns, cs, ids, vpf, span)
+toFlatModel :: Opaque (PC.FacedModel Float) -> IO ([Float], [Float], [Float], [Int])
+toFlatModel model = return (vs, ns, cs, ids)
   where
-   FlatModel vs ns cs ids vpf span = fromModel $ PC.toModel fm
+   FlatModel vs ns cs ids = fromModel $ PC.toModel fm
    fm = fromOpaque model
 
 updateViewMat :: Float -> Float -> Float -> IO [Float]

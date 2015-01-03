@@ -69,6 +69,7 @@ genericNeighboursFct neighbourTestFct Model{..}  = map myNeighbours faces
 facesForEachVertex :: Model a -> [[Int]]
 facesForEachVertex Model{..} = map (\i -> elemIndices True $ map (elem i) faces ) $ take (length vertice) [0..]
 
+
 -- combine 2 models
 combine :: RealFloat a => Model a -> Model a -> Model a
 combine (Model v0 f0 n0) (Model v1 f1 n1) =
@@ -77,11 +78,10 @@ combine (Model v0 f0 n0) (Model v1 f1 n1) =
         idCount0 = length v0
 
 
--- provide a normal for each face
+-- provide a normal for each vertex = normalized vector (origin -> vertex)
 modelAutoNormals :: RealFloat a => [Point3f a] -> [[Int]] -> Model a
 modelAutoNormals vs fs = Model vs fs ns
-  where ns = map faceNormal fs
-        faceNormal = normalized . faceBarycenter vs
+  where ns = map normalized vs
 
 
 -- using vertex data and a face, creates the barycenter of this face
@@ -195,7 +195,7 @@ orthoMatrixFromScreen :: (RealFloat a, Integral b) => b -> b -> V.Mat44 a
 orthoMatrixFromScreen w h = orthoMatrix left right bottom top near far
   where hh = if h < 0 then 1 else h
         aspect = (fromIntegral w) / (fromIntegral hh)
-        s = 1.5
+        s = 2.5
         far = 100
         near = -100
         right = s * aspect
