@@ -49,19 +49,19 @@ uniform vec4 u_borderColor;
 
 uniform float u_borderWidth;
 
-varying vec3 v_barycentrics;
+varying float v_centerFlag;
 
-float edgeFactor(const float thickness, const vec3 bary)
+float edgeFactor(const float thickness, const float centerFlag)
 {
-    vec3 d = fwidth(bary);
-    vec3 a3 = smoothstep(vec3(0.0), d*thickness, bary);
-    return min(min(a3.x, a3.y), a3.z);
-    //return smoothstep(0.0, fwidth(bary)*thickness, bary);
+    //vec3 d = fwidth(bary);
+    //vec3 a3 = smoothstep(vec3(0.0), d*thickness, bary);
+    //return min(min(a3.x, a3.y), a3.z);
+    return smoothstep(0.0, fwidth(centerFlag)*thickness, centerFlag);
 }
 
 void main()
 {
-    float f = edgeFactor(u_borderWidth, v_barycentrics);
+    float f = edgeFactor(u_borderWidth, v_centerFlag);
     gl_FragColor = mix(
         u_borderColor,
         u_color,
@@ -72,18 +72,18 @@ void main()
     <script id="shader-vs" type="x-shader/x-vertex">#ifdef GL_ES
 #extension GL_OES_standard_derivatives : enable
 #endif
-attribute vec3 a_barycentrics;
+attribute float a_centerFlag;
 attribute vec3 a_normal;
 uniform mat4 u_mvpMat;
 
 uniform float u_time;
 
-varying vec3 v_barycentrics;
+varying float v_centerFlag;
 
 void main()
 {
     gl_Position = u_mvpMat * vec4(position, 1.0);
-    v_barycentrics = a_barycentrics;
+    v_centerFlag = a_centerFlag;
 }</script>
     <script type="text/javascript" src="http://cdnjs.cloudflare.com/ajax/libs/seedrandom/2.3.10/seedrandom.min.js"></script>
     <script type="text/javascript" src="http://hammerjs.github.io/dist/hammer.min.js"></script>
