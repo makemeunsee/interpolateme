@@ -754,15 +754,15 @@ main = do
   -- initialize early to have access to time
   GLFW.initialize
 
-  let cuttableModel = PC.fromModel cube
+  let cuttableModel = PC.fromModel tetrahedron
 
   t0 <- get time
   let (rndCuts, _) = generateRndCuts cuts seed
---  let rndCutsModel = fromJust $ applyCuts rndCuts cuttableModel
---  putStrLn $ show $ length $ show rndCutsModel
---  t1 <- get time
---  putStr "Truncation duration: "
---  putStrLn $ show (t1 - t0)
+  let rndCutsModel = fromJust $ applyCuts rndCuts cuttableModel
+  putStrLn $ show $ length $ show rndCutsModel
+  t1 <- get time
+  putStr "Truncation duration: "
+  putStrLn $ show (t1 - t0)
 
   fullscreenMode <- get GLFW.desktopMode
 
@@ -800,7 +800,7 @@ main = do
                            , zoom = 1
                            }
 
-  state <- loadModel state0 cuttableModel
+  state <- loadModel state0 rndCutsModel -- cuttableModel
 
   -- setup stuff
   GLFW.swapInterval       $= 1 -- vsync
@@ -808,7 +808,7 @@ main = do
   GLFW.windowSizeCallback $= resize projMat
   -- main loop
   t <- get time
-  lastState <- loop waitForPress state rndCuts t
+  lastState <- loop waitForPress state [] t
   -- exit
   cleanBuffers $ objectBuffersInfo $ glids lastState
   cleanBuffers $ planeBuffersInfo $ glids lastState
