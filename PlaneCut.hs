@@ -10,12 +10,14 @@ module PlaneCut ( FacedModel(FacedModel)
 
 where
 
-import Data.List (elem, elemIndex, findIndex, findIndices)
+import Data.List (elem, elemIndex, findIndex, findIndices, partition)
 
 import qualified Geometry as G
 import ListUtil
 
-data FacedModel a = FacedModel { vertice :: [ ( G.Point3f a, [Int], Int ) ] -- geometric data + reference to faces a vertex belongs to
+type Vertex a = ( G.Point3f a, [Int], Int )
+
+data FacedModel a = FacedModel { vertice :: [ Vertex a ] -- geometric data + reference to faces a vertex belongs to
                                , faces :: [ ( [ Int ], Int ) ]              -- list of references to vertice
                                , normals :: [ ( G.Point3f a, Int ) ]        -- 1 normal per face
                                }
@@ -39,6 +41,7 @@ toModel FacedModel{..} = G.modelAutoNormals vs fs
   where
     vs = map (\(p,_,_) -> p) vertice
     fs = map (\(f,_) -> map (\i -> head $ findIndices (\(_,_,j) -> j == i) vertice) f) faces
+
 
 -- list unique edges in the model
 edges :: FacedModel a -> [(Int, Int)]
@@ -67,50 +70,21 @@ cutModel tolerance plane@Plane{..} m@FacedModel{..} =
   else
     m
   where
-    -- check where each vertex stands to the cutting plane
-    sortedVertice = split tolerance plane m
-     -- gives us what vertice to keep as is, to remove, to be updated
-    (removed, intact, onPlane) = sortedVertice
-
-    -- first remove the cut vertice
-    cleaned = filter (\(_, _, i) -> not $ elem i removed) vertice
+    -- first pass over the vertice, gathering data relative to the vertice and the truncation
+    ( removedVerticeIds
+     ,intactVerticeIds
+     ,onPlaneVerticeIds
+     ,keptVertice
+     ,maxId) = rawCutData tolerance plane m
 
     -- new vertice are appended, their indice start from an offset
     offset = 1 + foldr (\(_,_,i) m -> if i > m then i else m) (-1) vertice
 
-    -- update the faces: update faces split in half, remove (and list) faces for which all vertice where removed
-    (updatedFaces0, removedFaces, facesToCut) = updateFaces ([], [], []) faces
-
-    -- remove normals of removed faces
-    updatedNormals0 = filter (\(_,i) -> not $ elem i removedFaces) normals
-
     -- new face id = 1 + max old ids
     newFaceId = 1 + foldr (\(_,i) m -> if i > m then i else m) (-1) faces
 
-    -- remove reference to removed faces, add reference to new face
-    updateNeighbours (p, ns, i) =
-     if elem i onPlane
-       then (p, newFaceId : ns, i)
-       else (p, ns, i)
-
-    -- apply vertex indice update, removal of faces, split of faces
-    updateFaces :: ([([Int], Int)],[Int],[Int]) -> [([Int], Int)] -> ([([Int], Int)],[Int],[Int])
-    updateFaces acc [] = acc
-    updateFaces (updated, removedIds, facesToCut) ((face,i):fs) =
-      -- intact
-      if all (\i -> elem i onPlane || elem i intact) face
-        then updateFaces ((face, i) : updated, removedIds, facesToCut) fs -- keep the whole face
-      -- fully removed
-      else if all (\i -> elem i removed) face
-        then updateFaces (updated, i : removedIds, facesToCut) fs
-      -- cut
-      else
-        updateFaces ((face, i) : updated, removedIds, i : facesToCut) fs
-
-    -- create the new face from cut edges and cut the relevant faces
-
     -- extract edges intersecting with the cutting plane
-    toCut = cutEdges True sortedVertice (edges m)
+    toCut = cutEdges True ( removedVerticeIds, intactVerticeIds, onPlaneVerticeIds ) (edges m)
 
     -- iterating over the list of edges to cut:
     -- find vertice created by the cut and assign them proper faces indice
@@ -123,14 +97,17 @@ cutModel tolerance plane@Plane{..} m@FacedModel{..} =
         case intersectPlaneAndSegment tolerance plane (p0,p1) of
           Nothing -> (created, newFace, createdId, dict) -- should not happen
           Just p
-            | elem i0 removed && elem i1 intact -> ((p, fs, createdId) : created, ((p,fs), createdId) : newFace, createdId+1, ((i0,i1),(createdId, i1)) : dict)
-            | elem i0 intact && elem i1 removed -> ((p, fs, createdId) : created, ((p,fs), createdId) : newFace, createdId+1, ((i0,i1),(i0, createdId)) : dict)
-            | elem i0 onPlane -> (created, ((p0,newFaceId : fs0), i0) : newFace, createdId, dict)
-            | elem i1 onPlane -> (created, ((p1,newFaceId : fs1), i1) : newFace, createdId, dict)
+            | elem i0 removedVerticeIds && elem i1 intactVerticeIds -> ((p, fs, createdId) : created, ((p,fs), createdId) : newFace, createdId+1, ((i0,i1),(createdId, i1)) : dict)
+            | elem i0 intactVerticeIds && elem i1 removedVerticeIds -> ((p, fs, createdId) : created, ((p,fs), createdId) : newFace, createdId+1, ((i0,i1),(i0, createdId)) : dict)
+            | elem i0 onPlaneVerticeIds -> (created, ((p0,newFaceId : fs0), i0) : newFace, createdId, dict)
+            | elem i1 onPlaneVerticeIds -> (created, ((p1,newFaceId : fs1), i1) : newFace, createdId, dict)
             | otherwise -> (created, newFace, createdId, dict)
       )
       ([], [], offset, [])
       toCut
+
+    -- a dictionary of cut edges, old values to new values
+    (cutEdgesIndex, cutEdgesValues) = unzip cutEdgesMap
 
     -- duplicates can occur in the extracted vertice of the new face
     newFaceVertice = removeDups rawNewFaceVertice
@@ -141,31 +118,34 @@ cutModel tolerance plane@Plane{..} m@FacedModel{..} =
     -- extract only the indice
     newFace = maybe [] (map (\((_,_),i) -> i)) chained
 
-    -- update neighbour info of vertice, removing references to removed faces
-    updatedVertice0 = map updateNeighbours cleaned
+    -- replace cut segments, remove references to removed vertice
+    updatedFaces0 = map (\(f,i) -> (cutFace f, i)) faces
+
+    -- filter out removed faces
+    (removedFaces0, updatedFaces1) = partition (\(f, _) -> f == []) updatedFaces0
+    removedFaces = map (\(_,i) -> i) removedFaces0
+
+    -- append the new face
+    updatedFaces = (order newFace, newFaceId) : updatedFaces1
+
+    -- update neighbour info of vertice
+    updatedVertice0 = map updateNeighbours keptVertice
 
     -- concat remaining vertice with created vertice
     updatedVertice = updatedVertice0 ++ created
+
+    -- remove normals of removed faces
+    updatedNormals0 = filter (\(_,i) -> not $ elem i removedFaces) normals
+
     -- add as many normals as needed, equal to the cutting plane normal
     planeNormal = G.Point3f kx ky kz
     updatedNormals = updatedNormals0 ++ [(planeNormal, newFaceId)]
 
-    -- a dictionary of cut edges, old values to new values
-    (cutEdgesIndex, cutEdgesValues) = unzip cutEdgesMap
-
-    -- cut relevant faces
-    updatedFaces1 = reverse updatedFaces0 ++ [(order newFace, newFaceId)]
-    updatedFaces = map (\(f, i) ->
-                       if elem i facesToCut then
-                         (cutFace f, i)
-                       else
-                         (f, i)
-                     )
-                     updatedFaces1
-
---    newFaceSegments = cyclicConsecutivePairs newFace
---    updtFacesSegments = map (\(f,_) -> cyclicConsecutivePairs f) $ filter (\(_, i) -> elem i facesToCut) updatedFaces
---    coherent = all (\(i,j) -> any (\f -> elem (i,j) f || elem (j,i) f) updtFacesSegments) newFaceSegments
+    -- add reference to the new face, remove dead references
+    updateNeighbours (p, ns, i) =
+     if elem i onPlaneVerticeIds
+       then (p, newFaceId : filter (\j -> not $ elem j removedFaces) ns, i)
+       else (p, ns, i)
 
     -- make a polygon face the same way as the cutting plane
     order is@(i0:i1:i2:_) =
@@ -179,11 +159,11 @@ cutModel tolerance plane@Plane{..} m@FacedModel{..} =
         else reverse is
     order is = is
 
-    -- tranform into segments, replace cut segments, turnback into an indice list, remove dead references, apply offset due to removed vertice
+    -- tranform into segments, replace cut segments, turnback into an indice list, remove dead references
     cutFace face = filter noDeadRef $ removeDups $ flattenSegments $ replaceSegments $ cyclicConsecutivePairs face
 
     -- filter out removed vertice references
-    noDeadRef = \i -> not $ elem i removed
+    noDeadRef = \i -> not $ elem i removedVerticeIds
 
     -- using the cut edges dictionary, replace segments
     replaceSegments = map (\(i,j) -> case elemIndex (i, j) cutEdgesIndex of
@@ -218,16 +198,19 @@ chain l acc@(((_, fs), _):ys) =
     Nothing -> Nothing -- new face is inconsistent, cancel cut
 
 
--- split vertice into above, below and on plane
-split :: RealFloat a => a -> Plane a -> FacedModel a -> ([Int], [Int], [Int])
-split tolerance Plane{..} FacedModel{..} =
+rawCutData :: RealFloat a => a -> Plane a -> FacedModel a -> ( [Int]
+                                                             , [Int]
+                                                             , [Int]
+                                                             , [Vertex a]
+                                                             , Int)
+rawCutData tolerance Plane{..} FacedModel{..} =
   foldl
-    (\ (above, below, on) (pt, _, i) -> case toPlane pt of
-      x | abs x <= tolerance -> (above, below, i : on)
-        | x < -tolerance     -> (above, i : below, on)
-        | otherwise          -> (i : above, below, on)
+    (\ (above, below, on, kept, maxId) v@(pt, _, i) -> case toPlane pt of
+      x | abs x <= tolerance -> (above, below, i : on, v : kept, max i maxId)
+        | x < -tolerance     -> (above, i : below, on, v : kept, max i maxId)
+        | otherwise          -> (i : above, below, on, kept, max i maxId)
     )
-    ([],[],[])
+    ([],[],[],[],-1)
     vertice
   where
     toPlane p = let (G.Point3f cx cy cz) = G.add p $ G.times (-1) seed in
