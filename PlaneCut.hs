@@ -21,11 +21,6 @@ type Vertex a = ( G.Point3f a, [Int] )
 
 
 data ToPlane = Above | Below | OnPlane deriving (Eq, Show)
-data CutVertex a = CutVertex { pt :: G.Point3f a
-                             , toPlane :: ToPlane
-                             }
-                   | NoVertex
-                   deriving (Show, Eq)
 
 
 data FacedModel a = FacedModel { vertice :: [ (Int, Vertex a ) ] -- geometric data + reference to faces a vertex belongs to
@@ -83,7 +78,7 @@ cutModel tolerance plane@Plane{..} m@FacedModel{..} =
   where
     -- first pass over the vertice, gathering data relative to the vertice and the truncation
     (cutArray, maxId) = rawCutData tolerance plane m
-    cutState = toPlane . (V.!) cutArray
+    cutState = (V.!) cutArray
 
     -- new vertice are appended, their indice start from an offset
     offset = 1 + maxId
@@ -211,31 +206,31 @@ rawCutData
   => a
   -> Plane a
   -> FacedModel a
-  -> (V.Vector (CutVertex a), Int)
+  -> (V.Vector (ToPlane), Int)
 rawCutData tolerance Plane{..} FacedModel{..} =
   (skeleton V.// l, maxId)
   where
-    (l, maxId) = foldl
-      (\ (vs, maxId) v@(i, (pt, _)) -> case toPlane pt of
-        x | abs x <= tolerance -> ( (i, CutVertex pt OnPlane) : vs, max i maxId)
-          | x < -tolerance     -> ( (i, CutVertex pt Below) : vs, max i maxId)
-          | otherwise          -> ( (i, CutVertex pt Above) : vs, max i maxId)
+    (l, maxId) = foldr
+      (\ v@(i, (pt, _)) (vs, maxId) -> case toPlane pt of
+        x | abs x <= tolerance -> ( (i, OnPlane) : vs, max i maxId)
+          | x < -tolerance     -> ( (i, Below) : vs, max i maxId)
+          | otherwise          -> ( (i, Above) : vs, max i maxId)
       )
       ([],-1)
       vertice
-    skeleton = V.replicate (maxId+1) NoVertex
+    skeleton = V.replicate (maxId+1) Above
     toPlane p = let (G.Point3f cx cy cz) = G.add p $ G.times (-1) seed in
                 cx*kx+cy*ky+cz*kz
 
 
 -- edges cut by the plane
-cutEdges :: RealFloat a => Bool -> V.Vector (CutVertex a) -> [(Int, Int)] -> [(Int, Int)]
+cutEdges :: Bool -> V.Vector ToPlane -> [(Int, Int)] -> [(Int, Int)]
 cutEdges includeOn cutArray edges =
   filter (bothSides includeOn) edges
   where
     bothSides False (i,j) = cutPos i == Above && cutPos j == Below || cutPos j == Above && cutPos i == Below
     bothSides True (i,j) = cutPos i == OnPlane || cutPos j == OnPlane || bothSides False (i,j)
-    cutPos = toPlane . (V.!) cutArray
+    cutPos = (V.!) cutArray
 
 
 data Intersection a = OnPoint (G.Point3f a)
