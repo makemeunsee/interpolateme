@@ -10,14 +10,25 @@ module PlaneCut ( FacedModel(FacedModel)
 
 where
 
-import Data.List (elem, elemIndex, findIndex, findIndices, partition)
+import Data.List (elemIndex, findIndex, findIndices, partition)
+import qualified Data.Vector as V
 
 import qualified Geometry as G
 import ListUtil
 
-type Vertex a = ( G.Point3f a, [Int], Int )
 
-data FacedModel a = FacedModel { vertice :: [ Vertex a ] -- geometric data + reference to faces a vertex belongs to
+type Vertex a = ( G.Point3f a, [Int] )
+
+
+data ToPlane = Above | Below | OnPlane deriving (Eq, Show)
+data CutVertex a = CutVertex { pt :: G.Point3f a
+                             , toPlane :: ToPlane
+                             }
+                   | NoVertex
+                   deriving (Show, Eq)
+
+
+data FacedModel a = FacedModel { vertice :: [ (Int, Vertex a ) ] -- geometric data + reference to faces a vertex belongs to
                                , faces :: [ ( [ Int ], Int ) ]              -- list of references to vertice
                                , normals :: [ ( G.Point3f a, Int ) ]        -- 1 normal per face
                                }
@@ -31,7 +42,7 @@ fromModel m@(G.Model vs fs ns) = m'
     center0 = G.faceBarycenter vs $ fs !! 0
     scale = map (G.divBy $ G.norm center0)
     vs' = scale vs
-    m' = FacedModel (map (\(i,(p,f)) -> (p,f,i)) $ zip [0..] $ zip vs' $ G.facesForEachVertex m)
+    m' = FacedModel (zip [0..] $ zip vs' $ G.facesForEachVertex m)
                     (zip fs [0..])
                     (zip (map (\f -> foldr1 G.add $ map (ns !!) f) fs) [0..])
 
@@ -39,8 +50,8 @@ fromModel m@(G.Model vs fs ns) = m'
 toModel :: RealFloat a => FacedModel a -> G.Model a
 toModel FacedModel{..} = G.modelAutoNormals vs fs
   where
-    vs = map (\(p,_,_) -> p) vertice
-    fs = map (\(f,_) -> map (\i -> head $ findIndices (\(_,_,j) -> j == i) vertice) f) faces
+    vs = map (\(_,(p,_)) -> p) vertice
+    fs = map (\(f,_) -> map (\i -> head $ findIndices (\(j,(_,_)) -> j == i) vertice) f) faces
 
 
 -- list unique edges in the model
@@ -63,7 +74,7 @@ data Plane f = Plane { kx :: f
                deriving (Eq, Show)
 
 
-cutModel :: (Show a, RealFloat a) => a -> Plane a -> FacedModel a -> FacedModel a
+cutModel :: RealFloat a => a -> Plane a -> FacedModel a -> FacedModel a
 cutModel tolerance plane@Plane{..} m@FacedModel{..} =
   if length newFace > 0 then
     FacedModel updatedVertice updatedFaces updatedNormals
@@ -71,36 +82,33 @@ cutModel tolerance plane@Plane{..} m@FacedModel{..} =
     m
   where
     -- first pass over the vertice, gathering data relative to the vertice and the truncation
-    ( removedVerticeIds
-     ,intactVerticeIds
-     ,onPlaneVerticeIds
-     ,keptVertice
-     ,maxId) = rawCutData tolerance plane m
+    (cutArray, maxId) = rawCutData tolerance plane m
+    cutState = toPlane . (V.!) cutArray
 
     -- new vertice are appended, their indice start from an offset
-    offset = 1 + foldr (\(_,_,i) m -> if i > m then i else m) (-1) vertice
+    offset = 1 + maxId
 
     -- new face id = 1 + max old ids
     newFaceId = 1 + foldr (\(_,i) m -> if i > m then i else m) (-1) faces
 
     -- extract edges intersecting with the cutting plane
-    toCut = cutEdges True ( removedVerticeIds, intactVerticeIds, onPlaneVerticeIds ) (edges m)
+    toCut = cutEdges True cutArray (edges m)
 
     -- iterating over the list of edges to cut:
     -- find vertice created by the cut and assign them proper faces indice
     -- find vertice belonging to the new face
     -- create a dictionary for replacing cut edges with new edges
     (created, rawNewFaceVertice, _, cutEdgesMap) = foldr (\(i0, i1) (created, newFace, createdId, dict) ->
-        let (p0,fs0,_) = head $ filter (\(_,_,i) -> i == i0) vertice in
-        let (p1,fs1,_) = head $ filter (\(_,_,i) -> i == i1) vertice in
+        let (_,(p0,fs0)) = head $ filter (\(i,(_,_)) -> i == i0) vertice in
+        let (_,(p1,fs1)) = head $ filter (\(i,(_,_)) -> i == i1) vertice in
         let fs = newFaceId : intersection fs0 fs1 in
         case intersectPlaneAndSegment tolerance plane (p0,p1) of
           Nothing -> (created, newFace, createdId, dict) -- should not happen
           Just p
-            | elem i0 removedVerticeIds && elem i1 intactVerticeIds -> ((p, fs, createdId) : created, ((p,fs), createdId) : newFace, createdId+1, ((i0,i1),(createdId, i1)) : dict)
-            | elem i0 intactVerticeIds && elem i1 removedVerticeIds -> ((p, fs, createdId) : created, ((p,fs), createdId) : newFace, createdId+1, ((i0,i1),(i0, createdId)) : dict)
-            | elem i0 onPlaneVerticeIds -> (created, ((p0,newFaceId : fs0), i0) : newFace, createdId, dict)
-            | elem i1 onPlaneVerticeIds -> (created, ((p1,newFaceId : fs1), i1) : newFace, createdId, dict)
+            | cutState i0 == Above && cutState i1 == Below -> ( (createdId, (p, fs)) : created, ((p,fs), createdId) : newFace, createdId+1, ((i0,i1),(createdId, i1)) : dict)
+            | cutState i1 == Above && cutState i0 == Below -> ( (createdId, (p, fs)) : created, ((p,fs), createdId) : newFace, createdId+1, ((i0,i1),(i0, createdId)) : dict)
+            | cutState i0 == OnPlane -> (created, ((p0,newFaceId : fs0), i0) : newFace, createdId, dict)
+            | cutState i1 == OnPlane -> (created, ((p1,newFaceId : fs1), i1) : newFace, createdId, dict)
             | otherwise -> (created, newFace, createdId, dict)
       )
       ([], [], offset, [])
@@ -129,7 +137,7 @@ cutModel tolerance plane@Plane{..} m@FacedModel{..} =
     updatedFaces = (order newFace, newFaceId) : updatedFaces1
 
     -- update neighbour info of vertice
-    updatedVertice0 = map updateNeighbours keptVertice
+    updatedVertice0 = map updateNeighbours $ filter (\(i,(_,_)) -> cutState i /= Above) vertice
 
     -- concat remaining vertice with created vertice
     updatedVertice = updatedVertice0 ++ created
@@ -139,19 +147,19 @@ cutModel tolerance plane@Plane{..} m@FacedModel{..} =
 
     -- add as many normals as needed, equal to the cutting plane normal
     planeNormal = G.Point3f kx ky kz
-    updatedNormals = updatedNormals0 ++ [(planeNormal, newFaceId)]
+    updatedNormals = (planeNormal, newFaceId) : updatedNormals0
 
     -- add reference to the new face, remove dead references
-    updateNeighbours (p, ns, i) =
-     if elem i onPlaneVerticeIds
-       then (p, newFaceId : filter (\j -> not $ elem j removedFaces) ns, i)
-       else (p, ns, i)
+    updateNeighbours (i, (p, ns)) =
+     if cutState i == OnPlane
+       then (i, (p, newFaceId : filter (\j -> not $ elem j removedFaces) ns))
+       else (i, (p, ns))
 
     -- make a polygon face the same way as the cutting plane
     order is@(i0:i1:i2:_) =
-      let (p0,_,_) = head $ filter (\(_,_,i) -> i == i0) updatedVertice in
-      let (p1,_,_) = head $ filter (\(_,_,i) -> i == i1) updatedVertice in
-      let (p2,_,_) = head $ filter (\(_,_,i) -> i == i2) updatedVertice in
+      let (_,(p0,_)) = head $ filter (\(i,(_,_)) -> i == i0) updatedVertice in
+      let (_,(p1,_)) = head $ filter (\(i,(_,_)) -> i == i1) updatedVertice in
+      let (_,(p2,_)) = head $ filter (\(i,(_,_)) -> i == i2) updatedVertice in
       let normal = (G.vec p0 p1) `G.cross` (G.vec p1 p2) in
       let k = normal `G.dot` planeNormal in
       if k > 0
@@ -163,7 +171,7 @@ cutModel tolerance plane@Plane{..} m@FacedModel{..} =
     cutFace face = filter noDeadRef $ removeDups $ flattenSegments $ replaceSegments $ cyclicConsecutivePairs face
 
     -- filter out removed vertice references
-    noDeadRef = \i -> not $ elem i removedVerticeIds
+    noDeadRef = \i -> i >= offset || cutState i /= Above
 
     -- using the cut edges dictionary, replace segments
     replaceSegments = map (\(i,j) -> case elemIndex (i, j) cutEdgesIndex of
@@ -198,32 +206,36 @@ chain l acc@(((_, fs), _):ys) =
     Nothing -> Nothing -- new face is inconsistent, cancel cut
 
 
-rawCutData :: RealFloat a => a -> Plane a -> FacedModel a -> ( [Int]
-                                                             , [Int]
-                                                             , [Int]
-                                                             , [Vertex a]
-                                                             , Int)
+rawCutData
+  :: RealFloat a
+  => a
+  -> Plane a
+  -> FacedModel a
+  -> (V.Vector (CutVertex a), Int)
 rawCutData tolerance Plane{..} FacedModel{..} =
-  foldl
-    (\ (above, below, on, kept, maxId) v@(pt, _, i) -> case toPlane pt of
-      x | abs x <= tolerance -> (above, below, i : on, v : kept, max i maxId)
-        | x < -tolerance     -> (above, i : below, on, v : kept, max i maxId)
-        | otherwise          -> (i : above, below, on, kept, max i maxId)
-    )
-    ([],[],[],[],-1)
-    vertice
+  (skeleton V.// l, maxId)
   where
+    (l, maxId) = foldl
+      (\ (vs, maxId) v@(i, (pt, _)) -> case toPlane pt of
+        x | abs x <= tolerance -> ( (i, CutVertex pt OnPlane) : vs, max i maxId)
+          | x < -tolerance     -> ( (i, CutVertex pt Below) : vs, max i maxId)
+          | otherwise          -> ( (i, CutVertex pt Above) : vs, max i maxId)
+      )
+      ([],-1)
+      vertice
+    skeleton = V.replicate (maxId+1) NoVertex
     toPlane p = let (G.Point3f cx cy cz) = G.add p $ G.times (-1) seed in
                 cx*kx+cy*ky+cz*kz
 
 
 -- edges cut by the plane
-cutEdges :: Bool -> ([Int], [Int], [Int]) -> [(Int, Int)] -> [(Int, Int)]
-cutEdges includeOn (above, below, on) edges =
+cutEdges :: RealFloat a => Bool -> V.Vector (CutVertex a) -> [(Int, Int)] -> [(Int, Int)]
+cutEdges includeOn cutArray edges =
   filter (bothSides includeOn) edges
   where
-    bothSides False (i,j) = elem i above == elem j below
-    bothSides True (i,j) = elem i on || elem j on || bothSides False (i,j)
+    bothSides False (i,j) = cutPos i == Above && cutPos j == Below || cutPos j == Above && cutPos i == Below
+    bothSides True (i,j) = cutPos i == OnPlane || cutPos j == OnPlane || bothSides False (i,j)
+    cutPos = toPlane . (V.!) cutArray
 
 
 data Intersection a = OnPoint (G.Point3f a)
