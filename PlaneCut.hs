@@ -49,15 +49,9 @@ toModel FacedModel{..} = G.modelAutoNormals vs fs
     fs = map (\(f,_) -> map (\i -> head $ findIndices (\(j,(_,_)) -> j == i) vertice) f) faces
 
 
--- list unique edges in the model
+-- list all edges of all faces in the model
 edges :: FacedModel a -> [(Int, Int)]
-edges FacedModel{..} = foldr (\pairs acc ->
-                         (filter (\(i,j) ->
-                           not $ elem (i,j) acc || elem (j,i) acc
-                         ) pairs) ++ acc
-                       )
-                       []
-                       $ map cyclicConsecutivePairs $ fst $ unzip faces
+edges FacedModel{..} = concatMap cyclicConsecutivePairs $ fst $ unzip faces
 
 
 -- 3d plane, with normal (kx, ky, kz)
@@ -93,24 +87,24 @@ cutModel tolerance plane@Plane{..} m@FacedModel{..} =
     -- find vertice created by the cut and assign them proper faces indice
     -- find vertice belonging to the new face
     -- create a dictionary for replacing cut edges with new edges
-    (created, rawNewFaceVertice, _, cutEdgesMap) = foldr (\(i0, i1) (created, newFace, createdId, dict) ->
-        let (_,(p0,fs0)) = head $ filter (\(i,(_,_)) -> i == i0) vertice in
-        let (_,(p1,fs1)) = head $ filter (\(i,(_,_)) -> i == i1) vertice in
-        let fs = newFaceId : intersection fs0 fs1 in
-        case intersectPlaneAndSegment tolerance plane (p0,p1) of
-          Nothing -> (created, newFace, createdId, dict) -- should not happen
-          Just p
-            | cutState i0 == Above && cutState i1 == Below -> ( (createdId, (p, fs)) : created, ((p,fs), createdId) : newFace, createdId+1, ((i0,i1),(createdId, i1)) : dict)
-            | cutState i1 == Above && cutState i0 == Below -> ( (createdId, (p, fs)) : created, ((p,fs), createdId) : newFace, createdId+1, ((i0,i1),(i0, createdId)) : dict)
-            | cutState i0 == OnPlane -> (created, ((p0,newFaceId : fs0), i0) : newFace, createdId, dict)
-            | cutState i1 == OnPlane -> (created, ((p1,newFaceId : fs1), i1) : newFace, createdId, dict)
-            | otherwise -> (created, newFace, createdId, dict)
+    (created, rawNewFaceVertice, _, cutEdgesIndex, cutEdgesValues) = foldr (\(i0, i1) (created, newFace, createdId, dictIds, dictVals) ->
+        if V.elem (i0,i1) dictIds || V.elem (i1,i0) dictIds then -- if cut do not cut again
+          (created, newFace, createdId, dictIds, dictVals)
+        else
+          let (_,(p0,fs0)) = head $ filter (\(i,(_,_)) -> i == i0) vertice in
+          let (_,(p1,fs1)) = head $ filter (\(i,(_,_)) -> i == i1) vertice in
+          let fs = newFaceId : intersection fs0 fs1 in
+          case intersectPlaneAndSegment tolerance plane (p0,p1) of
+            Nothing -> (created, newFace, createdId, dictIds, dictVals) -- should not happen
+            Just p
+              | cutState i0 == Above && cutState i1 == Below -> ( (createdId, (p, fs)) : created, ((p,fs), createdId) : newFace, createdId+1, (i0,i1) `V.cons` dictIds, (createdId, i1) `V.cons` dictVals)
+              | cutState i1 == Above && cutState i0 == Below -> ( (createdId, (p, fs)) : created, ((p,fs), createdId) : newFace, createdId+1, (i0,i1) `V.cons` dictIds, (i0, createdId) `V.cons` dictVals)
+              | cutState i0 == OnPlane -> (created, ((p0,newFaceId : fs0), i0) : newFace, createdId, dictIds, dictVals)
+              | cutState i1 == OnPlane -> (created, ((p1,newFaceId : fs1), i1) : newFace, createdId, dictIds, dictVals)
+              | otherwise -> (created, newFace, createdId, dictIds, dictVals)
       )
-      ([], [], offset, [])
+      ([], [], offset, V.empty, V.empty)
       toCut
-
-    -- a dictionary of cut edges, old values to new values
-    (cutEdgesIndex, cutEdgesValues) = unzip cutEdgesMap
 
     -- duplicates can occur in the extracted vertice of the new face
     newFaceVertice = removeDups rawNewFaceVertice
@@ -169,12 +163,12 @@ cutModel tolerance plane@Plane{..} m@FacedModel{..} =
     noDeadRef = \i -> i >= offset || cutState i /= Above
 
     -- using the cut edges dictionary, replace segments
-    replaceSegments = map (\(i,j) -> case elemIndex (i, j) cutEdgesIndex of
+    replaceSegments = map (\(i,j) -> case V.elemIndex (i,j) cutEdgesIndex of
                            Just k ->
-                             cutEdgesValues !! k
-                           Nothing -> case elemIndex (j, i) cutEdgesIndex of
+                             cutEdgesValues V.! k
+                           Nothing -> case V.elemIndex (j, i) cutEdgesIndex of
                              Just k ->
-                               let (i',j') = cutEdgesValues !! k in
+                               let (i',j') = cutEdgesValues V.! k in
                                (j',i')
                              Nothing ->
                                (i,j)
