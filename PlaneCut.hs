@@ -11,7 +11,7 @@ module PlaneCut ( FacedModel(FacedModel)
 where
 
 import Data.List (elemIndex, findIndex, findIndices, partition)
-import qualified Data.Vector as V
+import Data.Array.IArray (IArray, Array, array, (!))
 
 import qualified Geometry as G
 import ListUtil
@@ -72,7 +72,7 @@ cutModel tolerance plane@Plane{..} m@FacedModel{..} =
   where
     -- first pass over the vertice, gathering data relative to the vertice and the truncation
     (cutArray, maxId) = rawCutData tolerance plane m
-    cutState = (V.!) cutArray
+    cutState = (!) cutArray
 
     -- new vertice are appended, their indice start from an offset
     offset = 1 + maxId
@@ -88,7 +88,7 @@ cutModel tolerance plane@Plane{..} m@FacedModel{..} =
     -- find vertice belonging to the new face
     -- create a dictionary for replacing cut edges with new edges
     (created, rawNewFaceVertice, _, cutEdgesIndex, cutEdgesValues) = foldr (\(i0, i1) (created, newFace, createdId, dictIds, dictVals) ->
-        if V.elem (i0,i1) dictIds || V.elem (i1,i0) dictIds then -- if cut do not cut again
+        if elem (i0,i1) dictIds || elem (i1,i0) dictIds then -- if cut do not cut again
           (created, newFace, createdId, dictIds, dictVals)
         else
           let (_,(p0,fs0)) = head $ filter (\(i,(_,_)) -> i == i0) vertice in
@@ -97,13 +97,13 @@ cutModel tolerance plane@Plane{..} m@FacedModel{..} =
           case intersectPlaneAndSegment tolerance plane (p0,p1) of
             Nothing -> (created, newFace, createdId, dictIds, dictVals) -- should not happen
             Just p
-              | cutState i0 == Above && cutState i1 == Below -> ( (createdId, (p, fs)) : created, ((p,fs), createdId) : newFace, createdId+1, (i0,i1) `V.cons` dictIds, (createdId, i1) `V.cons` dictVals)
-              | cutState i1 == Above && cutState i0 == Below -> ( (createdId, (p, fs)) : created, ((p,fs), createdId) : newFace, createdId+1, (i0,i1) `V.cons` dictIds, (i0, createdId) `V.cons` dictVals)
+              | cutState i0 == Above && cutState i1 == Below -> ( (createdId, (p, fs)) : created, ((p,fs), createdId) : newFace, createdId+1, (i0,i1) : dictIds, (createdId, i1) : dictVals)
+              | cutState i1 == Above && cutState i0 == Below -> ( (createdId, (p, fs)) : created, ((p,fs), createdId) : newFace, createdId+1, (i0,i1) : dictIds, (i0, createdId) : dictVals)
               | cutState i0 == OnPlane -> (created, ((p0,newFaceId : fs0), i0) : newFace, createdId, dictIds, dictVals)
               | cutState i1 == OnPlane -> (created, ((p1,newFaceId : fs1), i1) : newFace, createdId, dictIds, dictVals)
               | otherwise -> (created, newFace, createdId, dictIds, dictVals)
       )
-      ([], [], offset, V.empty, V.empty)
+      ([], [], offset, [], [])
       toCut
 
     -- duplicates can occur in the extracted vertice of the new face
@@ -163,12 +163,12 @@ cutModel tolerance plane@Plane{..} m@FacedModel{..} =
     noDeadRef = \i -> i >= offset || cutState i /= Above
 
     -- using the cut edges dictionary, replace segments
-    replaceSegments = map (\(i,j) -> case V.elemIndex (i,j) cutEdgesIndex of
+    replaceSegments = map (\(i,j) -> case elemIndex (i,j) cutEdgesIndex of
                            Just k ->
-                             cutEdgesValues V.! k
-                           Nothing -> case V.elemIndex (j, i) cutEdgesIndex of
+                             cutEdgesValues !! k
+                           Nothing -> case elemIndex (j, i) cutEdgesIndex of
                              Just k ->
-                               let (i',j') = cutEdgesValues V.! k in
+                               let (i',j') = cutEdgesValues !! k in
                                (j',i')
                              Nothing ->
                                (i,j)
@@ -200,9 +200,9 @@ rawCutData
   => a
   -> Plane a
   -> FacedModel a
-  -> (V.Vector (ToPlane), Int)
+  -> (Array Int ToPlane, Int)
 rawCutData tolerance Plane{..} FacedModel{..} =
-  (skeleton V.// l, maxId)
+  (array (0, maxId) l, maxId)
   where
     (l, maxId) = foldr
       (\ v@(i, (pt, _)) (vs, maxId) -> case toPlane pt of
@@ -212,19 +212,18 @@ rawCutData tolerance Plane{..} FacedModel{..} =
       )
       ([],-1)
       vertice
-    skeleton = V.replicate (maxId+1) Above
     toPlane p = let (G.Point3f cx cy cz) = G.add p $ G.times (-1) seed in
                 cx*kx+cy*ky+cz*kz
 
 
 -- edges cut by the plane
-cutEdges :: Bool -> V.Vector ToPlane -> [(Int, Int)] -> [(Int, Int)]
+cutEdges :: Bool -> Array Int ToPlane -> [(Int, Int)] -> [(Int, Int)]
 cutEdges includeOn cutArray edges =
   filter (bothSides includeOn) edges
   where
     bothSides False (i,j) = cutPos i == Above && cutPos j == Below || cutPos j == Above && cutPos i == Below
     bothSides True (i,j) = cutPos i == OnPlane || cutPos j == OnPlane || bothSides False (i,j)
-    cutPos = (V.!) cutArray
+    cutPos = (!) cutArray
 
 
 data Intersection a = OnPoint (G.Point3f a)

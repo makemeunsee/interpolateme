@@ -171,7 +171,7 @@ function appMain() {
         oldMesh = currentMesh;
         scene.remove( oldMesh );
 
-        for (var index = 0; index < 10; index++) {
+        for (var index = 0; index < 25; index++) {
             var cutSeed = rndSpherePosition();
             baseModel = Haste.truncateAtPoint ( baseModel
                                               , cutSeed.theta

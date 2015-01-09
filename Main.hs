@@ -713,6 +713,21 @@ applyCuts ((theta, phi):t) m =
     applyCuts t m'
   where m' = PC.cutModel 0.00001 (PC.Plane nx ny nz sfPt) m
         sfPt@(G.Point3f nx ny nz) = latLongPosition theta phi 1
+--  unsafePerformIO $ do
+--    putStr $ show (999 - length t)
+--    putStr "\t"
+--    t0 <- get time
+--    let m' = PC.cutModel 0.00001 (PC.Plane nx ny nz sfPt) m
+--    putStr $ show $ length $ PC.faces m'
+--    putStr "\t"
+--    t1 <- get time
+--    putStrLn $ show (t1 - t0)
+--    if m == m'
+--      then
+--        return Nothing
+--      else
+--        return $ applyCuts t m'
+--  where sfPt@(G.Point3f nx ny nz) = latLongPosition theta phi 1
 
 
 generateRndCuts 0 seed = ([], seed)
@@ -741,7 +756,7 @@ main = do
   let seedStr = strArgument "--s" args
   let seed = seedForString $ maybe "elohim" id seedStr
 
-  let defaultCutCount = 150
+  let defaultCutCount = 1000
   -- cuts input
   let cutsStr = strArgument "--c" args
   let cuts = maybe defaultCutCount
