@@ -3,7 +3,6 @@ module GLGenericFunctions
 where
 
 import Data.Vec (Mat44)
-import Data.Vec.LinAlg (NearZero)
 import Geometry
 
 
