@@ -39,7 +39,7 @@ fromModel m@(G.Model vs fs ns) = m'
     vs' = scale vs
     m' = FacedModel (zip [0..] $ zip vs' $ G.facesForEachVertex m)
                     (zip fs [0..])
-                    (zip (map (\f -> foldr1 G.add $ map (ns !!) f) fs) [0..])
+                    (zip (map (\f -> G.normalized $ foldr1 G.add $ map (ns !!) f) fs) [0..])
 
 
 toModel :: RealFloat a => FacedModel a -> G.Model a
