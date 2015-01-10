@@ -181,6 +181,7 @@ data ExtGeomInfo = ExtGeomInfo { normalBufferId :: GLuint
 
 data GLIDs = GLIDs { shaderInfo :: ShaderInfo
                    , objectBuffersInfo :: BuffersInfo
+                   , labyrinthBuffersInfo :: BuffersInfo
                    , planeBuffersInfo :: BuffersInfo
                    , normalsBuffersInfo :: BuffersInfo
                    }
@@ -226,8 +227,10 @@ initGL drawFront drawBack = do
   let back = if drawBack then GL.Fill else GL.Line
   GL.polygonMode $= (front, back)
 
---  GL.cullFace $= Just Back
-  GL.cullFace $= Nothing
+  GL.cullFace $= Just GL.Back
+--  GL.cullFace $= Nothing
+
+  GL.lineWidth $= 2
 
   -- make shaders & data
   shaderInfo <- Main.createShader "border_nolight.vert" "border_nolight.frag"
@@ -253,6 +256,8 @@ initGL drawFront drawBack = do
                                   , 0
                                   , 0
                                   , 0] )
+
+  labyrinthBuffersInfo <- loadBuffers [] Nothing [] Nothing
 
   return GLIDs{..}
 
@@ -358,6 +363,28 @@ render t drawPlane drawNormals mvp planeMvp glids@GLIDs{..} = do
   drawElements GL.Triangles (indiceCount objectBuffersInfo) GL.UnsignedInt offset0
 
   unbindGeometry shaderInfo
+
+  -- draw labyrinth path
+
+  -- bind uniforms
+  uniform colLoc $= GL.Color4 1 0 0 (1 :: GLfloat)
+  uniform bColLoc $= GL.Color4 1 0 0 (1 :: GLfloat)
+  uniform borderWidthLoc $= GL.Index1 (0 :: GLfloat)
+
+  -- bind attributes
+  bindGeometry shaderInfo labyrinthBuffersInfo
+
+  -- bind indice
+  bindBuffer ElementArrayBuffer $= Just (indice labyrinthBuffersInfo)
+
+  drawElements GL.Lines (indiceCount labyrinthBuffersInfo) GL.UnsignedInt offset0
+
+  unbindGeometry shaderInfo
+
+  -- bind uniforms
+  uniform colLoc $= GL.Color4 1 0 0 (1 :: GLfloat)
+  uniform bColLoc $= GL.Color4 1 0 0 (1 :: GLfloat)
+  uniform borderWidthLoc $= GL.Index1 (0 :: GLfloat)
 
   -- draw cut plane
 
@@ -677,7 +704,6 @@ loadModel global@GlobalState{..} fm = do
   -- load next model
   let FlatModel vs' ns' cs ids = fromModel m
 
-
 --  putStrLn "geom"
 --  putStrLn $ "vs:\t" ++ show (length vs) ++ "\t" ++ show vs
 --  putStrLn $ "ns:\t" ++ show (length ns) ++ "\t" ++ show ns
@@ -691,6 +717,7 @@ loadModel global@GlobalState{..} fm = do
   -- clean gl buffers and recreate them with proper data
   cleanBuffers objectBuffersInfo
   cleanBuffers normalsBuffersInfo
+  cleanBuffers labyrinthBuffersInfo
 
   let vertexBufferData = vs
   newBuffersInfo <- loadBuffers vs' (Just ns') (map fromIntegral ids) (Just cs)
@@ -700,34 +727,44 @@ loadModel global@GlobalState{..} fm = do
                                          [cx, cy, cz, cx + 0.1 * nx, cy + 0.1 * ny, cz + 0.1 * nz])
                                          $ zip faceCenters faceNormals
   newNormalsBuffersInfo <- loadBuffers verticeOfNormalsBuffer Nothing (take (length verticeOfNormalsBuffer) [0..]) Nothing
-  let newGlids = glids { objectBuffersInfo = newBuffersInfo, normalsBuffersInfo = newNormalsBuffersInfo }
+  newLabyrinthBuffersInfo <- loadBuffers ((take 18 vs') ++ concatMap (\(i0,i1) -> [ 0.5*(vs'!!(3*i0) + vs'!!(3*i1))
+                                                                                 , 0.5*(vs'!!(3*i0+1) + vs'!!(3*i1+1))
+                                                                                 , 0.5*(vs'!!(3*i0+2) + vs'!!(3*i1+2))])
+                                                                    [(6,9),(11,12),(6,7),(7,8),(8,9)])
+                                         Nothing
+                                         [0,6,6,2,2,7,7,1,0,8,8,4,0,9,9,3,0,10,10,5]
+                                         Nothing
+  let newGlids = glids { objectBuffersInfo = newBuffersInfo
+                       , normalsBuffersInfo = newNormalsBuffersInfo
+                       , labyrinthBuffersInfo = newLabyrinthBuffersInfo
+                       }
 
   return global { glids = newGlids, model = fm }
 
 
 applyCuts [] m = Just m
 applyCuts ((theta, phi):t) m =
-  if m == m' then
-    Nothing
-  else
-    applyCuts t m'
-  where m' = PC.cutModel 0.00001 (PC.Plane nx ny nz sfPt) m
-        sfPt@(G.Point3f nx ny nz) = latLongPosition theta phi 1
---  unsafePerformIO $ do
---    putStr $ show (999 - length t)
---    putStr "\t"
---    t0 <- get time
---    let m' = PC.cutModel 0.00001 (PC.Plane nx ny nz sfPt) m
---    putStr $ show $ length $ PC.faces m'
---    putStr "\t"
---    t1 <- get time
---    putStrLn $ show (t1 - t0)
---    if m == m'
---      then
---        return Nothing
---      else
---        return $ applyCuts t m'
---  where sfPt@(G.Point3f nx ny nz) = latLongPosition theta phi 1
+--  if m == m' then
+--    Nothing
+--  else
+--    applyCuts t m'
+--  where m' = PC.cutModel 0.00001 (PC.Plane nx ny nz sfPt) m
+--        sfPt@(G.Point3f nx ny nz) = latLongPosition theta phi 1
+  unsafePerformIO $ do
+    putStr $ show $ length t
+    putStr "\t"
+    t0 <- get time
+    let m' = PC.cutModel 0.00001 (PC.Plane nx ny nz sfPt) m
+    putStr $ show $ length $ PC.faces m'
+    putStr "\t"
+    t1 <- get time
+    putStrLn $ show (t1 - t0)
+    if m == m'
+      then
+        return Nothing
+      else
+        return $ applyCuts t m'
+  where sfPt@(G.Point3f nx ny nz) = latLongPosition theta phi 1
 
 
 generateRndCuts 0 seed = ([], seed)
@@ -769,8 +806,9 @@ main = do
   -- initialize early to have access to time
   GLFW.initialize
 
-  let cuttableModel = PC.fromModel tetrahedron
+  let cuttableModel = PC.fromModel cube
 
+  putStrLn "cut\tfaces\tduration"
   t0 <- get time
   let (rndCuts, _) = generateRndCuts cuts seed
   let rndCutsModel = fromJust $ applyCuts rndCuts cuttableModel
@@ -804,7 +842,7 @@ main = do
   -- init global state
   projMat <- newIORef identity
   let state0 = GlobalState { viewMat = viewMatOf (pi/2) (pi/2) 1
-                           , showCutPlane = True
+                           , showCutPlane = False
                            , drawNormals = False
                            , mouse = defaultMouseState
                            , glids = glstuff
@@ -828,5 +866,6 @@ main = do
   cleanBuffers $ objectBuffersInfo $ glids lastState
   cleanBuffers $ planeBuffersInfo $ glids lastState
   cleanBuffers $ normalsBuffersInfo $ glids lastState
+  cleanBuffers $ labyrinthBuffersInfo $ glids lastState
   GLFW.closeWindow
   GLFW.terminate
