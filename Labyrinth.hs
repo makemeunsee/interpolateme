@@ -6,9 +6,11 @@ import qualified Geometry as G
 import ListUtil
 
 
--- a simple data structure representating of a labyrinth for a graph of cells indexed by ints
+-- a simple data structure for a graph / labyrinth.
+-- each node/leaf should hold a unique index value
 data Labyrinth = Node Int [Labyrinth]
                | Leaf Int
+               deriving (Eq, Show)
 
 
 -- the cell index held at the head of this labyrinth
@@ -21,6 +23,29 @@ value (Node i _) = i
 size :: Labyrinth -> Int
 size (Leaf _) = 1
 size (Node _ ls) = 1 + foldr (\l s -> s + size l) 0 ls
+
+
+-- topology: a list of connections between nodes of a graph
+-- [[1],[0]] -> 2 nodes, connected to each other
+-- [[1,2],[0],[0]] -> 3 nodes, the first one connected to the 2 others
+-- topology MUST be consistent
+topologyToLabyrinth :: [[Int]] -> Labyrinth
+topologyToLabyrinth [] = Leaf (-1) -- illegal
+topologyToLabyrinth ls = fst $ topologyToLabyrinth0 [] ls 0
+  where
+    topologyToLabyrinth0 visited ls i =
+      let r = filter (\j -> not $ elem j visited) $ ls !! i in
+      if r == [] then
+        (Leaf i, i:visited)
+      else
+        let (subnodes, visited') = foldr (\j (newNodes, oldVisited) ->
+                                           if elem j oldVisited then
+                                             (newNodes, oldVisited)
+                                           else
+                                             let (newNode, newVisited) = topologyToLabyrinth0 (j:oldVisited) ls j in
+                                             (newNode : newNodes, newVisited)
+                                         ) ([], i:visited) r in
+        (Node i subnodes, visited')
 
 
 -- given a solid (vertice and faces) and a labyrinth which values are face indice,

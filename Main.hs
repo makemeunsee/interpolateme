@@ -83,6 +83,9 @@ data Action = Action (IO Action, MouseState -> MouseState)
 data KeyState = KeyState { tab :: KeyButtonState
                          , space :: KeyButtonState
                          , n :: KeyButtonState
+                         , s :: KeyButtonState
+                         , l :: KeyButtonState
+                         , c :: KeyButtonState
                          }
 
 
@@ -95,16 +98,21 @@ data MouseState = MouseState { mouseX :: GLint
 
 
 data GlobalState = GlobalState { viewMat :: Mat44f
-                               , showCutPlane :: Bool
+                               , drawSolid :: Bool
+                               , drawCutPlane :: Bool
                                , drawNormals :: Bool
+                               , drawLabyrinth :: Bool
                                , mouse :: MouseState
                                , zoom :: GLfloat     -- scale for the model
                                , modelMat :: Mat44f
                                , model :: PC.FacedModel GLfloat
                                , glids :: GLIDs
                                , simTime :: GLfloat
+                               , seed :: RND.Seed
                                , keys :: KeyState
                                , projMat :: IORef Mat44f
+                               , pendingCuts :: [(GLfloat, GLfloat)]
+                               , lastCutTime :: Double
                                }
 
 
@@ -116,7 +124,7 @@ scaledModelMat global = G.scale (zoom global) identity `G.multMat` (modelMat glo
 
 
 defaultKeyState :: KeyState
-defaultKeyState = KeyState Release Release Release
+defaultKeyState = KeyState Release Release Release Release Release Release
 
 
 defaultMouseState :: MouseState
@@ -231,7 +239,7 @@ initGL drawFront drawBack = do
   GL.cullFace $= Just GL.Back
 --  GL.cullFace $= Nothing
 
-  GL.lineWidth $= 2
+  GL.lineWidth $= 1
 
   -- make shaders & data
   shaderInfo <- Main.createShader "border_nolight.vert" "border_nolight.frag"
@@ -310,8 +318,8 @@ bindUniformVector prog uName vec = do
   with vec $ glUniform4fv vLoc 1 . castPtr
 
 
-render :: GLfloat -> Bool -> Bool -> Mat44f -> Mat44f -> GLIDs -> IO ()
-render t drawPlane drawNormals mvp planeMvp glids@GLIDs{..} = do
+render :: GLfloat -> Bool -> Bool -> Bool -> Bool -> Mat44f -> Mat44f -> GLIDs -> IO ()
+render t drawSolid drawPlane drawNormals drawLabyrinth mvp planeMvp glids@GLIDs{..} = do
   GL.clear [GL.ColorBuffer, GL.DepthBuffer]
 
   let ShaderInfo{..} = shaderInfo
@@ -345,47 +353,55 @@ render t drawPlane drawNormals mvp planeMvp glids@GLIDs{..} = do
       drawElements GL.Lines (indiceCount normalsBuffersInfo) GL.UnsignedInt offset0
 
       unbindGeometry shaderInfo
-    else return ()
+    else
+      return ()
 
   -- draw object
+  if drawSolid
+    then do
 
-  -- bind uniform colors
-  uniform colLoc $= GL.Color4 1 1 1 (1 :: GLfloat)
-  uniform bColLoc $= GL.Color4 0.4 0.4 0.4 (1 :: GLfloat)
+      -- bind uniform colors
+      uniform colLoc $= GL.Color4 1 1 1 (1 :: GLfloat)
+      uniform bColLoc $= GL.Color4 0.4 0.4 0.4 (1 :: GLfloat)
 
-  uniform borderWidthLoc $= GL.Index1 (1.2 :: GLfloat)
+      uniform borderWidthLoc $= GL.Index1 (1.2 :: GLfloat)
 
-  -- bind attributes
-  bindGeometry shaderInfo objectBuffersInfo
+      -- bind attributes
+      bindGeometry shaderInfo objectBuffersInfo
 
-  -- bind indice
-  bindBuffer ElementArrayBuffer $= Just (indice objectBuffersInfo)
+      -- bind indice
+      bindBuffer ElementArrayBuffer $= Just (indice objectBuffersInfo)
 
-  drawElements GL.Triangles (indiceCount objectBuffersInfo) GL.UnsignedInt offset0
+      drawElements GL.Triangles (indiceCount objectBuffersInfo) GL.UnsignedInt offset0
 
-  unbindGeometry shaderInfo
+      unbindGeometry shaderInfo
+    else
+      return ()
 
   -- draw labyrinth path
+  if drawLabyrinth
+    then do
+      -- bind uniforms
+      uniform colLoc $= GL.Color4 1 0 0 (1 :: GLfloat)
+      uniform bColLoc $= GL.Color4 1 0 0 (1 :: GLfloat)
+      uniform borderWidthLoc $= GL.Index1 (0 :: GLfloat)
 
-  -- bind uniforms
-  uniform colLoc $= GL.Color4 1 0 0 (1 :: GLfloat)
-  uniform bColLoc $= GL.Color4 1 0 0 (1 :: GLfloat)
-  uniform borderWidthLoc $= GL.Index1 (0 :: GLfloat)
+      -- bind attributes
+      bindGeometry shaderInfo labyrinthBuffersInfo
 
-  -- bind attributes
-  bindGeometry shaderInfo labyrinthBuffersInfo
+      -- bind indice
+      bindBuffer ElementArrayBuffer $= Just (indice labyrinthBuffersInfo)
 
-  -- bind indice
-  bindBuffer ElementArrayBuffer $= Just (indice labyrinthBuffersInfo)
+      drawElements GL.Lines (indiceCount labyrinthBuffersInfo) GL.UnsignedInt offset0
 
-  drawElements GL.Lines (indiceCount labyrinthBuffersInfo) GL.UnsignedInt offset0
+      unbindGeometry shaderInfo
 
-  unbindGeometry shaderInfo
-
-  -- bind uniforms
-  uniform colLoc $= GL.Color4 1 0 0 (1 :: GLfloat)
-  uniform bColLoc $= GL.Color4 1 0 0 (1 :: GLfloat)
-  uniform borderWidthLoc $= GL.Index1 (0 :: GLfloat)
+      -- bind uniforms
+      uniform colLoc $= GL.Color4 1 0 0 (1 :: GLfloat)
+      uniform bColLoc $= GL.Color4 1 0 0 (1 :: GLfloat)
+      uniform borderWidthLoc $= GL.Index1 (0 :: GLfloat)
+    else
+      return ()
 
   -- draw cut plane
 
@@ -584,17 +600,23 @@ waitForRelease = do
 handleKeys :: GlobalState -> IO (GlobalState)
 handleKeys state = do
   let modelMatrix = modelMat state
-  let ks@KeyState{..} = keys state
+  let keyState@KeyState{..} = keys state
 
   -- read key inputs
   tb <- GLFW.getKey GLFW.TAB
   sp <- GLFW.getKey ' '
   kn <- GLFW.getKey 'N'
+  ks <- GLFW.getKey 'S'
+  kl <- GLFW.getKey 'L'
+  kc <- GLFW.getKey 'C'
 
-  let (spR, tbR, nR) = ( released sp space
-                       , released tb tab
-                       , released kn n
-                       )
+  let (spR, tbR, nR, lR, sR, cR) = ( released sp space
+                                   , released tb tab
+                                   , released kn n
+                                   , released kl l
+                                   , released ks s
+                                   , released kc c
+                                   )
 
   newState0 <- if spR
     then do
@@ -613,14 +635,27 @@ handleKeys state = do
     else
       return state
 
-  let newKS = ks { tab = tb
-                 , space = sp
-                 , n = kn
-                 }
+  let newKeyState = keyState { tab = tb
+                             , space = sp
+                             , n = kn
+                             , s = ks
+                             , l = kl
+                             , c = kc
+                             }
 
-  return newState0 { keys = newKS
+  let (newCuts, newSeed) = if cR then
+                             let (newC, newS) = generateRndCuts 50 (seed newState0) in
+                             (pendingCuts newState0 ++ newC, newS)
+                           else
+                             (pendingCuts newState0, seed newState0)
+
+  return newState0 { keys = newKeyState
+                   , drawSolid = if sR then not $ drawSolid newState0 else drawSolid newState0
                    , drawNormals = if nR then not $ drawNormals newState0 else drawNormals newState0
-                   , showCutPlane = if tbR then not $ showCutPlane newState0 else showCutPlane newState0
+                   , drawCutPlane = if tbR then not $ drawCutPlane newState0 else drawCutPlane newState0
+                   , drawLabyrinth = if lR then not $ drawLabyrinth newState0 else drawLabyrinth newState0
+                   , pendingCuts = newCuts
+                   , seed = newSeed
                    }
 
   where released newK oldK = newK == Release && newK /= oldK
@@ -642,8 +677,8 @@ updateModelRot newMouseState global =
     newGlobal = updateZoom oldMouse newMouseState global
 
 
-loop :: IO Action -> GlobalState -> [(GLfloat, GLfloat)] -> Double -> IO GlobalState
-loop action global cuts lastCutTime = do
+loop :: IO Action -> GlobalState -> IO GlobalState
+loop action global = do
 
   -- read keyboard actions & update global state
   newGlobal0 <- handleKeys global
@@ -662,14 +697,15 @@ loop action global cuts lastCutTime = do
 
   -- cut model
   t <- get time
-  (newGlobal, rCuts, lastCutTime') <- case cuts of
-                         [] -> return (newGlobal2, [], lastCutTime)
-                         c : cs
-                           | t - lastCutTime > 0.1 -> do
-                             let m' = fromJust $ applyCuts [c] $ model newGlobal2
-                             newState <- loadModel newGlobal2 m'
-                             return (newState, cs, t)
-                           | otherwise -> return (newGlobal2, cuts, lastCutTime)
+  newGlobal <- case pendingCuts newGlobal2 of
+                 [] -> return newGlobal2
+                 c : cs
+                   | t - lastCutTime newGlobal2 > 0.01 -> do
+                     let m' = fromJust $ applyCuts [c] $ model newGlobal2
+                     newState <- loadModel newGlobal2 m'
+                     t' <- get time
+                     return newState { pendingCuts = cs, lastCutTime = t' }
+                   | otherwise -> return newGlobal2
 
   -- prepare matrices for rendering
   p <- get $ projMat newGlobal2
@@ -678,14 +714,21 @@ loop action global cuts lastCutTime = do
 
   let planeMvp = vp
   -- render
-  render (simTime newGlobal) (showCutPlane newGlobal0) (drawNormals newGlobal0) mvp planeMvp (glids newGlobal)
+  render (simTime newGlobal)
+         (drawSolid newGlobal0)
+         (drawCutPlane newGlobal0)
+         (drawNormals newGlobal0)
+         (drawLabyrinth newGlobal0)
+         mvp
+         planeMvp
+         (glids newGlobal)
 
   -- exit if window closed or Esc pressed
   esc <- GLFW.getKey GLFW.ESC
   q <- GLFW.getKey 'Q'
   open <- GLFW.getParam GLFW.Opened
   if open && esc /= GLFW.Press && q /= GLFW.Press
-    then loop action' newGlobal rCuts lastCutTime'
+    then loop action' newGlobal
     else return newGlobal
 
 
@@ -720,7 +763,7 @@ loadModel global@GlobalState{..} fm = do
   cleanBuffers normalsBuffersInfo
   cleanBuffers labyrinthBuffersInfo
 
-  let laby = Node 0 [Node 2 [Leaf 1], Leaf 4, Leaf 3, Leaf 5]
+  let laby = topologyToLabyrinth $ G.edgeNeighbours m
 
   newBuffersInfo <- loadBuffers vs' (Just ns') (map fromIntegral ids) (Just cs)
   let faceCenters = map (G.faceBarycenter vs) fs
@@ -729,7 +772,7 @@ loadModel global@GlobalState{..} fm = do
                                          [cx, cy, cz, cx + 0.1 * nx, cy + 0.1 * ny, cz + 0.1 * nz])
                                          $ zip faceCenters faceNormals
   newNormalsBuffersInfo <- loadBuffers verticeOfNormalsBuffer Nothing (take (length verticeOfNormalsBuffer) [0..]) Nothing
-  newLabyrinthBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [x,y,z]) $ labyrinthToVertice vs fs laby)
+  newLabyrinthBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) $ labyrinthToVertice vs fs laby)
                                          Nothing
                                          (labyrinthToIndice 0 laby)
                                          Nothing
@@ -805,11 +848,11 @@ main = do
   -- initialize early to have access to time
   GLFW.initialize
 
-  let cuttableModel = PC.fromModel cube
+  let cuttableModel = PC.fromModel icosahedron
 
   putStrLn "cut\tfaces\tduration"
   t0 <- get time
-  let (rndCuts, _) = generateRndCuts cuts seed
+  let (rndCuts, seed') = generateRndCuts cuts seed
   let rndCutsModel = fromJust $ applyCuts rndCuts cuttableModel
   putStrLn $ show $ length $ show rndCutsModel
   t1 <- get time
@@ -841,15 +884,20 @@ main = do
   -- init global state
   projMat <- newIORef identity
   let state0 = GlobalState { viewMat = viewMatOf (pi/2) (pi/2) 1
-                           , showCutPlane = False
+                           , drawSolid = True
+                           , drawCutPlane = False
                            , drawNormals = False
+                           , drawLabyrinth = True
                            , mouse = defaultMouseState
                            , glids = glstuff
                            , simTime = 0
+                           , seed = seed'
                            , keys = defaultKeyState
                            , projMat = projMat
                            , modelMat = identity
                            , zoom = 1
+                           , pendingCuts = []
+                           , lastCutTime = 0
                            }
 
   state <- loadModel state0 rndCutsModel -- cuttableModel
@@ -859,8 +907,7 @@ main = do
   GLFW.windowTitle        $= "Voronyi maze"
   GLFW.windowSizeCallback $= resize projMat
   -- main loop
-  t <- get time
-  lastState <- loop waitForPress state [] t
+  lastState <- loop waitForPress state
   -- exit
   cleanBuffers $ objectBuffersInfo $ glids lastState
   cleanBuffers $ planeBuffersInfo $ glids lastState
