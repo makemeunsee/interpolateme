@@ -16,11 +16,16 @@ Executable interpolateme
   Main-is:             Main.hs
   ghc-options:         -O2
   Build-Depends:       base >= 3 && < 5, OpenGL >= 2.3, GLFW, GLUtil, bytestring, OpenGLRaw, Vec, AC-Random, aeson, scientific, split, array
-  Other-Modules:       Geometry, ListUtil, FloretSphere, FlatModel, PlaneCut
+  Other-Modules:       Geometry, ListUtil, FloretSphere, FlatModel, PlaneCut, Labyrinth
 
 Test-Suite geometry-tests
   Type:                exitcode-stdio-1.0
   Main-is:             Test-Geometry.hs
+  Build-Depends:       base, hspec
+
+Test-Suite labyrinth-tests
+  Type:                exitcode-stdio-1.0
+  Main-is:             Test-Labyrinth.hs
   Build-Depends:       base, hspec
 
 Test-Suite planecut-tests

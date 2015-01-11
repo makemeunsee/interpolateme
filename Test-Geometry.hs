@@ -11,7 +11,7 @@ main = hspec $ do
       edgeNeighbours tetrahedron `shouldBe` [[1,2,3],[0,2,3],[0,1,3],[0,1,2]]
 
     it "should compute the edge neighbours of the cube faces" $ do
-      edgeNeighbours cube `shouldBe` [[2,3],[2,3],[0,1],[0,1]]
+      edgeNeighbours cube `shouldBe` [[2,3,4,5],[2,3,4,5],[0,1,4,5],[0,1,4,5],[0,1,2,3],[0,1,2,3]]
 
     it "should compute the edge neighbours of the dodecahedron faces" $ do
       edgeNeighbours dodecahedron `shouldBe` [ [1,2,7,9,11]
@@ -32,7 +32,7 @@ main = hspec $ do
       vertexNeighbours tetrahedron `shouldBe` [[1,2,3],[0,2,3],[0,1,3],[0,1,2]]
 
     it "should compute the vertex neighbours of the cube faces" $ do
-      vertexNeighbours cube `shouldBe` [[2,3],[2,3],[0,1],[0,1]]
+      vertexNeighbours cube `shouldBe` [[2,3,4,5],[2,3,4,5],[0,1,4,5],[0,1,4,5],[0,1,2,3],[0,1,2,3]]
 
     it "should compute the vertex neighbours of the dodecahedron faces" $ do
       vertexNeighbours dodecahedron `shouldBe` [ [1,2,7,9,11]

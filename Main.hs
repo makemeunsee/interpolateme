@@ -62,6 +62,7 @@ import FlatModel ( FlatModel (FlatModel)
                  )
 import ListUtil
 import qualified PlaneCut as PC
+import Labyrinth
 
 -- NearZero instance for GLfloat
 import Data.Vec.LinAlg (NearZero(..))
@@ -719,7 +720,8 @@ loadModel global@GlobalState{..} fm = do
   cleanBuffers normalsBuffersInfo
   cleanBuffers labyrinthBuffersInfo
 
-  let vertexBufferData = vs
+  let laby = Node 0 [Node 2 [Leaf 1], Leaf 4, Leaf 3, Leaf 5]
+
   newBuffersInfo <- loadBuffers vs' (Just ns') (map fromIntegral ids) (Just cs)
   let faceCenters = map (G.faceBarycenter vs) fs
   let faceNormals = fst $ unzip $ PC.normals fm
@@ -727,12 +729,9 @@ loadModel global@GlobalState{..} fm = do
                                          [cx, cy, cz, cx + 0.1 * nx, cy + 0.1 * ny, cz + 0.1 * nz])
                                          $ zip faceCenters faceNormals
   newNormalsBuffersInfo <- loadBuffers verticeOfNormalsBuffer Nothing (take (length verticeOfNormalsBuffer) [0..]) Nothing
-  newLabyrinthBuffersInfo <- loadBuffers ((take 18 vs') ++ concatMap (\(i0,i1) -> [ 0.5*(vs'!!(3*i0) + vs'!!(3*i1))
-                                                                                 , 0.5*(vs'!!(3*i0+1) + vs'!!(3*i1+1))
-                                                                                 , 0.5*(vs'!!(3*i0+2) + vs'!!(3*i1+2))])
-                                                                    [(6,9),(11,12),(6,7),(7,8),(8,9)])
+  newLabyrinthBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [x,y,z]) $ labyrinthToVertice vs fs laby)
                                          Nothing
-                                         [0,6,6,2,2,7,7,1,0,8,8,4,0,9,9,3,0,10,10,5]
+                                         (labyrinthToIndice 0 laby)
                                          Nothing
   let newGlids = glids { objectBuffersInfo = newBuffersInfo
                        , normalsBuffersInfo = newNormalsBuffersInfo
