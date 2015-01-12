@@ -30,6 +30,7 @@ Features
 * C: apply 250 random cuts in a row. Warning: CPU heavy on already high poly objects.
 * N: show/hide face normals (originating from face centers).
 * L: show/hide maze path.
+* W: show/hide maze walls.
 * S: show/hide model.
 * ESC or Q to exit.
 * Web demo (no maze support yet): open web/index.html after compiling to JS with:
