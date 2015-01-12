@@ -5,7 +5,7 @@ where
 data BTree a = BTNode a (Maybe (BTree a)) (Maybe (BTree a))
 
 
-insert :: (Eq a, Ord a) => a -> BTree a -> BTree updated readmea
+insert :: (Eq a, Ord a) => a -> BTree a -> BTree a
 insert x t@(BTNode y l r) =
   if x == y then
     t
