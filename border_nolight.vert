@@ -9,7 +9,6 @@ uniform mat4 u_mvpMat;
 uniform float u_time;
 
 out float v_centerFlag;
-out float v_marked;
 
 void main()
 {

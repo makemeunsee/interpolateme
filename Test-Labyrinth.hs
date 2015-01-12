@@ -3,7 +3,7 @@ module Main where
 import Test.Hspec
 
 import Labyrinth
-import FloretSphere (cube)
+import FloretSphere (cube, tetrahedron)
 import Geometry
 
 main :: IO ()
@@ -31,19 +31,27 @@ main = hspec $ do
       value laby3 `shouldBe` 3
       value cubeLaby `shouldBe` 0
 
-  describe "labyrinth to vertice" $ do
+  describe "labyrinth to path vertice" $ do
     it "should work" $ do
-      labyrinthToVertice (vertice cube) (faces cube) laby0 `shouldBe` [Point3f 0 1 0]
-      labyrinthToVertice (vertice cube) (faces cube) laby1 `shouldBe` [Point3f 0 (-1) 0, Point3f 1 (-1) 0, Point3f 1 0 0]
-      labyrinthToVertice (vertice cube) (faces cube) laby2 `shouldBe` [Point3f 1 0 0,Point3f 1 0 (-1),Point3f 0 0 (-1),Point3f 1 0 1,Point3f 0 0 1]
-      labyrinthToVertice (vertice cube) (faces cube) laby3 `shouldBe` [Point3f (-1) 0 0,Point3f (-1) 0 1,Point3f 0 0 1,Point3f 1 0 1,Point3f 1 0 0]
-      labyrinthToVertice (vertice cube) (faces cube) cubeLaby `shouldBe` [Point3f 0 1 0,Point3f 1 1 0,Point3f 1 0 0,Point3f 1 (-1) 0,Point3f 0 (-1) 0,Point3f 0 1 1,Point3f 0 0 1,Point3f (-1) 1 0,Point3f (-1) 0 0,Point3f 0 1 (-1),Point3f 0 0 (-1)]
+      labyrinthToPathVertice (vertice cube) (faces cube) laby0 `shouldBe` [Point3f 0 1 0]
+      labyrinthToPathVertice (vertice cube) (faces cube) laby1 `shouldBe` [Point3f 0 (-1) 0, Point3f 1 (-1) 0, Point3f 1 0 0]
+      labyrinthToPathVertice (vertice cube) (faces cube) laby2 `shouldBe` [Point3f 1 0 0,Point3f 1 0 (-1),Point3f 0 0 (-1),Point3f 1 0 1,Point3f 0 0 1]
+      labyrinthToPathVertice (vertice cube) (faces cube) laby3 `shouldBe` [Point3f (-1) 0 0,Point3f (-1) 0 1,Point3f 0 0 1,Point3f 1 0 1,Point3f 1 0 0]
+      labyrinthToPathVertice (vertice cube) (faces cube) cubeLaby `shouldBe` [Point3f 0 1 0,Point3f 1 1 0,Point3f 1 0 0,Point3f 1 (-1) 0,Point3f 0 (-1) 0,Point3f 0 1 1,Point3f 0 0 1,Point3f (-1) 1 0,Point3f (-1) 0 0,Point3f 0 1 (-1),Point3f 0 0 (-1)]
 
-  describe "labyrinth to indice" $ do
+  describe "labyrinth to path indice" $ do
     it "should work" $ do
-      labyrinthToIndice 0 laby0 `shouldBe` []
-      labyrinthToIndice 0 laby1 `shouldBe` [0,1,1,2]
-      labyrinthToIndice 0 laby2 `shouldBe` [0,3,3,4,0,1,1,2]
-      labyrinthToIndice 0 laby3 `shouldBe` [0,1,1,2,2,3,3,4]
-      labyrinthToIndice 0 cubeLaby `shouldBe` [0,9,9,10,0,7,7,8,0,5,5,6,0,1,1,2,2,3,3,4]
+      labyrinthToPathIndice 0 laby0 `shouldBe` []
+      labyrinthToPathIndice 0 laby1 `shouldBe` [0,1,1,2]
+      labyrinthToPathIndice 0 laby2 `shouldBe` [0,3,3,4,0,1,1,2]
+      labyrinthToPathIndice 0 laby3 `shouldBe` [0,1,1,2,2,3,3,4]
+      labyrinthToPathIndice 0 cubeLaby `shouldBe` [0,9,9,10,0,7,7,8,0,5,5,6,0,1,1,2,2,3,3,4]
+
+  describe "labyrinth to wall vertice" $ do
+    it "should work" $ do
+      labyrinthToWallVertice (vertice cube) (faces cube) laby0 [] `shouldBe` [Point3f 1.0 1.0 1.0,Point3f 1.0 1.0 (-1.0),Point3f 1.0 1.0 (-1.0),Point3f (-1.0) 1.0 (-1.0),Point3f (-1.0) 1.0 (-1.0),Point3f (-1.0) 1.0 1.0,Point3f (-1.0) 1.0 1.0,Point3f 1.0 1.0 1.0]
+
+  describe "labyrinth to wall indice" $ do
+    it "should work" $ do
+      labyrinthToWallIndice 0 (faces cube) laby0 `shouldBe` ([0,1,2,3,4,5,6,7], 8)
 
