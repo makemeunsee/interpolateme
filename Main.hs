@@ -41,14 +41,18 @@ import Graphics.Rendering.OpenGL.Raw ( glUniformMatrix4fv
 import Graphics.GLUtil
 
 import Control.Exception
-import Foreign
+import Control.Monad (foldM)
+
+import Foreign (with, fromBool, castPtr, alloca, peek, withArrayLen, sizeOf, Ptr, mallocArray, peekArray, free, nullPtr)
 import Foreign.C.Types (CFloat, CInt)
+
 import Data.Maybe (listToMaybe)
 import Data.IORef (IORef, newIORef)
 import Data.Vec (Mat44, Vec4, multmv, identity)
 import Data.List (findIndices)
 import Data.List.Split (splitOn)
 import Data.Maybe (fromJust)
+
 import qualified Random.MWC.Pure as RND
 
 import FloretSphere
@@ -105,7 +109,7 @@ data GlobalState = GlobalState { viewMat :: Mat44f
                                , drawLabyrinth :: Bool
                                , drawWalls :: Bool
                                , mouse :: MouseState
-                               , zoom :: GLfloat     -- scale for the model
+                               , scale :: GLfloat     -- scale for the model
                                , modelMat :: Mat44f
                                , model :: PC.FacedModel GLfloat
                                , glids :: GLIDs
@@ -113,13 +117,14 @@ data GlobalState = GlobalState { viewMat :: Mat44f
                                , seed :: RND.Seed
                                , keys :: KeyState
                                , projMat :: IORef Mat44f
+                               , zoom :: IORef GLfloat
                                , pendingCuts :: [(GLfloat, GLfloat)]
                                , lastCutTime :: Double
                                }
 
 
 scaledModelMat :: GlobalState -> Mat44f
-scaledModelMat global = G.scale (zoom global) identity `G.multMat` (modelMat global)
+scaledModelMat global = G.scale (scale global) identity `G.multMat` (modelMat global)
 
 
 -- state inits
@@ -342,6 +347,7 @@ render t drawSolid drawPlane drawNormals drawLabyrinth drawWalls mvp planeMvp gl
   -- bind matrices
   bindUniformMatrix prog "u_mvpMat" mvp
 
+
   if drawNormals
     then do
       uniform colLoc $= GL.Color4 0 1 0 (1 :: GLfloat)
@@ -360,6 +366,7 @@ render t drawSolid drawPlane drawNormals drawLabyrinth drawWalls mvp planeMvp gl
       unbindGeometry shaderInfo
     else
       return ()
+
 
   -- bug marker
   uniform colLoc $= GL.Color4 0 0 0 (1 :: GLfloat)
@@ -395,6 +402,7 @@ render t drawSolid drawPlane drawNormals drawLabyrinth drawWalls mvp planeMvp gl
 
   unbindGeometry shaderInfo
 
+
   -- draw walls
   if drawWalls
     then do
@@ -415,6 +423,7 @@ render t drawSolid drawPlane drawNormals drawLabyrinth drawWalls mvp planeMvp gl
       unbindGeometry shaderInfo
     else do
       return ()
+
 
   -- draw labyrinth path
   if drawLabyrinth
@@ -441,8 +450,8 @@ render t drawSolid drawPlane drawNormals drawLabyrinth drawWalls mvp planeMvp gl
     else
       return ()
 
-  -- draw cut plane
 
+  -- draw cut plane
   if drawPlane
     then do
       -- bind matrices
@@ -575,18 +584,19 @@ loadProgram vertShader fragShader = do
 
 -- input handling / UI
 
-resize :: IORef Mat44f -> GLFW.WindowSizeCallback
-resize projMatRef size@(GL.Size w h) = do
+resize :: IORef Mat44f -> IORef GLfloat -> GLFW.WindowSizeCallback
+resize projMatRef zoomRef size@(GL.Size w h) = do
+  zoom <- get zoomRef
   GL.viewport $= (GL.Position 0 0, size)
-  projMatRef  $= G.orthoMatrixFromScreen w h
+  projMatRef $= (G.scale zoom $ G.orthoMatrixFromScreen w h 2)
   return ()
 
 
-updateZoom :: MouseState -> MouseState -> GlobalState -> GlobalState
-updateZoom oldMouse newMouse global = global { zoom = newZoom }
-  where newZoom = max (min (zoom0*a) 16) 0.0625
-        zoom0 = zoom global
-        a = 1.01 ** fromIntegral wheelDiff
+updateScale :: GLfloat -> MouseState -> MouseState -> GlobalState -> GlobalState
+updateScale speed oldMouse newMouse global = global { scale = newScale }
+  where newScale = max (min (scale0*a) 16) 0.0625
+        scale0 = scale global
+        a = (1+speed) ** fromIntegral wheelDiff
         wheelDiff = (wheel newMouse) - (wheel oldMouse)
 
 
@@ -624,18 +634,18 @@ waitForRelease :: IO Action
 waitForRelease = do
   -- keep track of mouse movement while waiting for button
   -- release
-  (GL.Position x y) <- GL.get GLFW.mousePos
+  GL.Position x y <- GL.get GLFW.mousePos
   b <- GLFW.getMouseButton GLFW.ButtonLeft
   wheel <- get mouseWheel
   case b of
     -- when button is released, switch back back to
     -- waitForPress action
-    GLFW.Release -> return (Action (waitForPress, applyMouseMove b x y wheel))
-    GLFW.Press   -> return (Action (waitForRelease, applyMouseMove b x y wheel))
+    GLFW.Release -> return  $ Action (waitForPress, applyMouseMove b x y wheel)
+    GLFW.Press   -> return  $ Action (waitForRelease, applyMouseMove b x y wheel)
 
 
 -- rotate model matrix on arrow keys released
-handleKeys :: GlobalState -> IO (GlobalState)
+handleKeys :: GlobalState -> IO GlobalState
 handleKeys state = do
   let modelMatrix = modelMat state
   let keyState@KeyState{..} = keys state
@@ -648,9 +658,10 @@ handleKeys state = do
   kl <- GLFW.getKey 'L'
   kc <- GLFW.getKey 'C'
   kw <- GLFW.getKey 'W'
+  kpl <- GLFW.getKey GLFW.KP_ADD
+  kmi <- GLFW.getKey GLFW.KP_SUBTRACT
 
   let spR = released sp space
-
   let tbR = released tb tab
   let nR = released kn n
   let lR = released kl l
@@ -664,11 +675,11 @@ handleKeys state = do
       -- origin point of the cutting plane:
       -- plane is static, with normal 0 0 1 and seed 0 0 1
       -- apply inverse of model matrix to find its position relative to the model
-      let seed = G.vec4ToPoint3f $ G.multInvMatV (scaledModelMat state) $ G.vec4 0 0 1
+      let seed = G.vec4ToPoint3f $ G.multInvMatV (scaledModelMat state) $ G.vec4 0 0 1 -- G.Point3f (-0.5448828) 0.15336575 0.82436746
       -- normal of the plane
       let G.Point3f kx ky kz = G.normalized seed
       let plane = PC.Plane kx ky kz seed
-      let cut = PC.cutModel 0.00001 plane $ model state
+      let cut = PC.cutModel tolerance plane $ model state
 --      putStrLn ""
 --      putStrLn $ show cut
       loadModel state cut
@@ -690,6 +701,17 @@ handleKeys state = do
                            else
                              (pendingCuts newState0, seed newState0)
 
+  let scaling = if kpl == Press then 1.01 else if kmi == Press then (1/1.01) else 1
+  if scaling /= 1
+    then do
+      m <- get $ projMat newState0
+      z <- get $ zoom newState0
+      zoom newState0 $= scaling * z
+      projMat newState0 $= G.scale scaling m
+    else
+      return ()
+
+
   return newState0 { keys = newKeyState
                    , drawSolid = if sR then not $ drawSolid newState0 else drawSolid newState0
                    , drawNormals = if nR then not $ drawNormals newState0 else drawNormals newState0
@@ -703,20 +725,21 @@ handleKeys state = do
   where released newK oldK = newK == Release && newK /= oldK
 
 
-updateModelRot :: MouseState -> GlobalState -> GlobalState
-updateModelRot newMouseState global =
+updateModelRot :: GLfloat -> MouseState -> GlobalState -> GlobalState
+updateModelRot speed newMouseState global =
   if leftButton newMouseState == Press then
-    newGlobal { modelMat = naiveRotMat (diffX * 0.005) (diffY * 0.005) `G.multMat` modelMat global }
+    newGlobal { modelMat = naiveRotMat (diffX * speed) (diffY * speed) `G.multMat` modelMat global }
   else
     newGlobal
   where
+
     oldMouse = mouse global
 
     diffX = fromIntegral $ (mouseX newMouseState) - (mouseX oldMouse)
     diffY = fromIntegral $ (mouseY newMouseState) - (mouseY oldMouse)
 
-    -- apply zoom
-    newGlobal = updateZoom oldMouse newMouseState global
+    -- apply scale
+    newGlobal = updateScale speed oldMouse newMouseState global
 
 
 loop :: IO Action -> GlobalState -> IO GlobalState
@@ -724,6 +747,8 @@ loop action global = do
 
   -- read keyboard actions & update global state
   newGlobal0 <- handleKeys global
+  z <- get $ zoom newGlobal0
+  let speed = 1 / z / 50
 
   -- read mouse actions
   Action (action', mouseStateUpdater) <- action
@@ -732,7 +757,7 @@ loop action global = do
   let newMouseState = mouseStateUpdater $ mouse newGlobal0
 
   -- update the view related properties in the global state
-  let newGlobal1 = updateModelRot newMouseState newGlobal0
+  let newGlobal1 = updateModelRot speed newMouseState newGlobal0
 
   let newGlobal2 = newGlobal1 { mouse = newMouseState }
 
@@ -741,9 +766,9 @@ loop action global = do
   t <- get time
   newGlobal <- case pendingCuts newGlobal2 of
                  [] -> return newGlobal2
-                 c : cs
+                 (th,ph) : cs
                    | t - lastCutTime newGlobal2 > 0.01 -> do
-                     let m' = fst $ applyCuts [c] $ model newGlobal2
+                     let m' = applyCut th ph $ model newGlobal2
                      newState <- loadModel newGlobal2 m'
                      t' <- get time
                      return newState { pendingCuts = cs, lastCutTime = t' }
@@ -849,28 +874,7 @@ loadModel global@GlobalState{..} fm = do
   return global { glids = newGlids, model = fm }
 
 
-applyCuts [] m = (m, Nothing)
-applyCuts ((theta, phi):t) m =
---  if m == m' then
---    Nothing
---  else
---    applyCuts t m'
---  where m' = PC.cutModel 0.00001 (PC.Plane nx ny nz sfPt) m
---        sfPt@(G.Point3f nx ny nz) = latLongPosition theta phi 1
-  unsafePerformIO $ do
-    putStr $ show $ length t
-    putStr "\t"
-    t0 <- get time
-    let m' = PC.cutModel 0.00001 (PC.Plane nx ny nz sfPt) m
-    putStr $ show $ length $ PC.faces m'
-    putStr "\t"
-    t1 <- get time
-    putStrLn $ show (t1 - t0)
-    if m == m'
-      then
-        return $ (m, Just (theta, phi))
-      else
-        return $ applyCuts t m'
+applyCut theta phi m = PC.cutModel tolerance (PC.Plane nx ny nz sfPt) m
   where sfPt@(G.Point3f nx ny nz) = latLongPosition theta phi 1
 
 
@@ -883,10 +887,10 @@ generateRndCuts n seed
     (theta, phi, seed') = rndSpherePosition seed
 
 
+tolerance = 0
+
 main :: IO ()
 main = do
-
---  putStrLn $ show $
 
   args <- getArgs
 
@@ -918,7 +922,17 @@ main = do
   putStrLn "cut\tfaces\tduration"
   t0 <- get time
   let (rndCuts, seed') = generateRndCuts cuts seed
-  let (rndCutsModel, m_angles) = applyCuts rndCuts cuttableModel
+  (rndCutsModel, _) <- foldM (\(m,i) (t,p) -> do
+                               let m' = applyCut t p m
+                               putStr $ show i
+                               t0 <- get time
+                               putStr $ "\t" ++ (show $ length $ PC.faces m') ++ "\t"
+                               t1 <- get time
+                               putStrLn $ show $ t1-t0
+                               return (m', i+1)
+                             )
+                             (cuttableModel, 0)
+                             rndCuts
   putStrLn $ show $ length $ show rndCutsModel
   t1 <- get time
   putStr "Truncation duration: "
@@ -945,10 +959,11 @@ main = do
   -- init GL state
   glstuff <- initGL (True)
                     (bothFaces)
-                    m_angles
+                    Nothing
 
   -- init global state
   projMat <- newIORef identity
+  zoom <- newIORef 2
   let state0 = GlobalState { viewMat = viewMatOf (pi/2) (pi/2) 1
                            , drawSolid = True
                            , drawCutPlane = False
@@ -962,7 +977,8 @@ main = do
                            , keys = defaultKeyState
                            , projMat = projMat
                            , modelMat = identity
-                           , zoom = 1
+                           , scale = 1
+                           , zoom = zoom
                            , pendingCuts = []
                            , lastCutTime = 0
                            }
@@ -972,7 +988,7 @@ main = do
   -- setup stuff
   GLFW.swapInterval       $= 1 -- vsync
   GLFW.windowTitle        $= "Voronyi maze"
-  GLFW.windowSizeCallback $= resize projMat
+  GLFW.windowSizeCallback $= resize projMat zoom
   -- main loop
   lastState <- loop waitForPress state
   -- exit

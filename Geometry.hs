@@ -191,15 +191,14 @@ lookAtMatrix eye target up = x V.:. y V.:. z V.:. h V.:. ()
 	h = 0 V.:. 0 V.:. 0 V.:. 1 V.:. ()
 
 
-orthoMatrixFromScreen :: (RealFloat a, Integral b) => b -> b -> V.Mat44 a
-orthoMatrixFromScreen w h = orthoMatrix left right bottom top near far
+orthoMatrixFromScreen :: (RealFloat a, Integral b) => b -> b -> a -> V.Mat44 a
+orthoMatrixFromScreen w h k = orthoMatrix left right bottom top near far
   where hh = if h < 0 then 1 else h
         aspect = (fromIntegral w) / (fromIntegral hh)
-        s = 2
         far = 100
         near = -100
-        right = s * aspect
-        top = s
+        right = k * aspect
+        top = k
         left = -right
         bottom = -top
 
