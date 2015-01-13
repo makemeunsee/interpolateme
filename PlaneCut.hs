@@ -10,6 +10,8 @@ module PlaneCut ( FacedModel(FacedModel)
 
 where
 
+--import System.IO.Unsafe (unsafePerformIO)
+
 import Data.List (elemIndex, findIndex, findIndices, partition)
 import Data.Array.IArray (IArray, Array, array, (!))
 
@@ -63,7 +65,7 @@ data Plane f = Plane { kx :: f
                deriving (Eq, Show)
 
 
-cutModel :: RealFloat a => a -> Plane a -> FacedModel a -> FacedModel a
+cutModel :: (RealFloat a, Show a) => a -> Plane a -> FacedModel a -> FacedModel a
 cutModel tolerance plane@Plane{..} m@FacedModel{..} =
   if length newFace > 0 then
     FacedModel updatedVertice updatedFaces updatedNormals

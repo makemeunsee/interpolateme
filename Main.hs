@@ -196,6 +196,7 @@ data GLIDs = GLIDs { shaderInfo :: ShaderInfo
                    , wallsBuffersInfo :: BuffersInfo
                    , planeBuffersInfo :: BuffersInfo
                    , normalsBuffersInfo :: BuffersInfo
+                   , bugMarkerBuffersInfo :: BuffersInfo
                    }
 
 
@@ -228,8 +229,8 @@ loadBuffers verticeData indiceData m_normalData m_centersData = do
   return BuffersInfo{..}
 
 
-initGL :: Bool -> Bool -> IO GLIDs
-initGL drawFront drawBack = do
+initGL :: Bool -> Bool -> Maybe (GLfloat, GLfloat) -> IO GLIDs
+initGL drawFront drawBack m_angles = do
   GL.depthFunc $= Just GL.Less
   GL.blend $= GL.Enabled
   GL.blendFunc $= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
@@ -250,6 +251,11 @@ initGL drawFront drawBack = do
   -- create data buffers
   objectBuffersInfo <- loadBuffers [] [] Nothing Nothing
   normalsBuffersInfo <- loadBuffers [] [] Nothing Nothing
+  bugMarkerBuffersInfo <- case m_angles of
+                            Nothing -> loadBuffers [] [] Nothing Nothing
+                            Just (theta,phi) -> do
+                              let G.Point3f x y z = latLongPosition theta phi 1
+                              loadBuffers [x,y,z,x*2,y*2,z*2] [0,1] Nothing Nothing
   planeBuffersInfo <- loadBuffers [ 0, 0, 1
                                   , 2, -2, 1
                                   , 2, 2, 1
@@ -354,6 +360,18 @@ render t drawSolid drawPlane drawNormals drawLabyrinth drawWalls mvp planeMvp gl
       unbindGeometry shaderInfo
     else
       return ()
+
+  -- bug marker
+  uniform colLoc $= GL.Color4 0 0 0 (1 :: GLfloat)
+  uniform bColLoc $= GL.Color4 0 0 0 (1 :: GLfloat)
+  uniform borderWidthLoc $= GL.Index1 (0 :: GLfloat)
+  -- bind attributes
+  bindGeometry shaderInfo bugMarkerBuffersInfo
+  -- bind indice
+  bindBuffer ElementArrayBuffer $= Just (indice bugMarkerBuffersInfo)
+  drawElements GL.Lines (indiceCount bugMarkerBuffersInfo) GL.UnsignedInt offset0
+  unbindGeometry shaderInfo
+
 
   -- draw object
   -- bind uniform colors
@@ -725,7 +743,7 @@ loop action global = do
                  [] -> return newGlobal2
                  c : cs
                    | t - lastCutTime newGlobal2 > 0.01 -> do
-                     let m' = fromJust $ applyCuts [c] $ model newGlobal2
+                     let m' = fst $ applyCuts [c] $ model newGlobal2
                      newState <- loadModel newGlobal2 m'
                      t' <- get time
                      return newState { pendingCuts = cs, lastCutTime = t' }
@@ -831,7 +849,7 @@ loadModel global@GlobalState{..} fm = do
   return global { glids = newGlids, model = fm }
 
 
-applyCuts [] m = Just m
+applyCuts [] m = (m, Nothing)
 applyCuts ((theta, phi):t) m =
 --  if m == m' then
 --    Nothing
@@ -850,7 +868,7 @@ applyCuts ((theta, phi):t) m =
     putStrLn $ show (t1 - t0)
     if m == m'
       then
-        return Nothing
+        return $ (m, Just (theta, phi))
       else
         return $ applyCuts t m'
   where sfPt@(G.Point3f nx ny nz) = latLongPosition theta phi 1
@@ -900,7 +918,7 @@ main = do
   putStrLn "cut\tfaces\tduration"
   t0 <- get time
   let (rndCuts, seed') = generateRndCuts cuts seed
-  let rndCutsModel = fromJust $ applyCuts rndCuts cuttableModel
+  let (rndCutsModel, m_angles) = applyCuts rndCuts cuttableModel
   putStrLn $ show $ length $ show rndCutsModel
   t1 <- get time
   putStr "Truncation duration: "
@@ -927,6 +945,7 @@ main = do
   -- init GL state
   glstuff <- initGL (True)
                     (bothFaces)
+                    m_angles
 
   -- init global state
   projMat <- newIORef identity
@@ -948,7 +967,7 @@ main = do
                            , lastCutTime = 0
                            }
 
-  state <- loadModel state0 rndCutsModel -- cuttableModel
+  state <- loadModel state0 rndCutsModel
 
   -- setup stuff
   GLFW.swapInterval       $= 1 -- vsync
@@ -960,6 +979,7 @@ main = do
   cleanBuffers $ objectBuffersInfo $ glids lastState
   cleanBuffers $ planeBuffersInfo $ glids lastState
   cleanBuffers $ normalsBuffersInfo $ glids lastState
+  cleanBuffers $ bugMarkerBuffersInfo $ glids lastState
   cleanBuffers $ labyrinthBuffersInfo $ glids lastState
   cleanBuffers $ wallsBuffersInfo $ glids lastState
   GLFW.closeWindow
