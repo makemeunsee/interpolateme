@@ -2,6 +2,8 @@ module Labyrinth
 
 where
 
+import qualified Data.List as L
+
 import qualified Geometry as G
 import qualified BinaryTree as BT
 import ListUtil
@@ -26,13 +28,48 @@ size (Leaf _) = 1
 size (Node _ ls) = 1 + foldr (\l s -> s + size l) 0 ls
 
 
+elem :: Int -> Labyrinth -> Bool
+elem k (Leaf i) = k == i
+elem k (Node j ls) = k == j || any (Labyrinth.elem k) ls
+
+
+-- blindly insert a leaf of value 'k' into the labyrinth, at node of value 'at', if any
+-- does NOT check for duplicates
+insertAt :: Int -> Int -> Labyrinth -> Labyrinth
+insertAt k at laby = case laby of
+  Leaf i | i == at   -> Node i [Leaf k]                      -- turn leaf into a parent node
+         | otherwise -> Leaf i                               -- return unconcerned leaf intact
+  Node i ls | i == at   -> Node i $ (Leaf k) : ls            -- insert k as new leaf to found parent
+            | otherwise -> Node i $ map (insertAt k at) ls   -- explore the labyrinth to find the right parent
+
+
+labyrinth2 :: [[Int]] -> Labyrinth
+labyrinth2 [] = Leaf (-1) -- illegal
+labyrinth2 topo = laby2Rec [0] (Leaf 0)
+  where
+    laby2Rec [] laby = laby
+    laby2Rec stack laby = let currentId = head stack in
+                          let currentNeighbours = topo !! currentId in
+                          case findExplorable currentId currentNeighbours laby of
+                            Just i        -> laby2Rec (i : stack) (insertAt i currentId laby)
+                            Nothing       -> laby2Rec (tail stack) laby
+    findExplorable i ids laby = L.find (explorable i laby) ids
+    -- a node (face) is explorable...
+    explorable parentId laby i  =
+      -- if it's not part of the maze already
+      not (Labyrinth.elem i laby) &&
+      -- and the faces it touches are either the parent face or not in the maze
+      all (\j -> j == parentId || not (Labyrinth.elem j laby))
+          (topo !! i)
+
+
 -- topology: a list of connections between nodes of a graph
 -- [[1],[0]] -> 2 nodes, connected to each other
 -- [[1,2],[0],[0]] -> 3 nodes, the first one connected to the 2 others
 -- topology MUST be consistent
-topologyToLabyrinth :: [[Int]] -> Labyrinth
-topologyToLabyrinth [] = Leaf (-1) -- illegal
-topologyToLabyrinth ls = fst $ topologyToLabyrinth0 (BT.BTNode 0 Nothing Nothing) ls 0
+labyrinth1 :: [[Int]] -> Labyrinth
+labyrinth1 [] = Leaf (-1) -- illegal
+labyrinth1 ls = fst $ topologyToLabyrinth0 (BT.BTNode 0 Nothing Nothing) ls 0
   where
     topologyToLabyrinth0 visited ls i =
       let r = filter (\j -> not $ BT.elem j visited) $ ls !! i in
@@ -83,7 +120,7 @@ labyrinthToWallVertice vertice faces (Node i ls) parentEdges = ownWalls ++ conca
     edges = cyclicConsecutivePairs $ faces !! i
     childEdges = concatMap (\l -> cyclicConsecutivePairs $ faces !! value l) ls
     toAvoid = parentEdges ++ childEdges
-    ownWalls = concatMap (edgeToWall vertice) $ filter (\(j,k) -> not $ elem (k,j) toAvoid) edges
+    ownWalls = concatMap (edgeToWall vertice) $ filter (\(j,k) -> not $ L.elem (k,j) toAvoid) edges
 
 
 edgeToWall vertice (i,j) = [vertice !! i, vertice !! j]

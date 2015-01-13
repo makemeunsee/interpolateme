@@ -385,7 +385,7 @@ render t drawSolid drawPlane drawNormals drawLabyrinth drawWalls mvp planeMvp gl
   if drawSolid
     then do
       uniform colLoc $= GL.Color4 1 1 1 (1 :: GLfloat)
-      uniform bColLoc $= GL.Color4 0.2 0.2 0.2 (1 :: GLfloat)
+      uniform bColLoc $= GL.Color4 0.05 0.05 0.05 (1 :: GLfloat)
    else do
       uniform colLoc $= GL.Color4 0 0 0 (1 :: GLfloat)
       uniform bColLoc $= GL.Color4 0 0 0 (1 :: GLfloat)
@@ -848,23 +848,27 @@ loadModel global@GlobalState{..} fm = do
                                        Nothing
 
   t0 <- get time
-  let laby = topologyToLabyrinth $ G.edgeNeighbours m
+  let laby = labyrinth2 $ G.edgeNeighbours m
+  -- let laby = labyrinth1 $ G.edgeNeighbours m
   putStrLn $ "laby size:\t" ++ show (size laby)
   t1 <- get time
   putStrLn $ "laby gen duration:\t" ++ show (t1 - t0)
+
   let pathVertice = labyrinthToPathVertice vs fs laby
   let pathIndice = labyrinthToPathIndice 0 laby
+  let wallVertice = labyrinthToWallVertice vs fs laby []
+  let (wallIndice, _) = labyrinthToWallIndice 0 fs laby
+
   newLabyrinthBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) pathVertice)
                                          pathIndice
                                          Nothing
                                          Nothing
 
-  let wallVertice = labyrinthToWallVertice vs fs laby []
-  let (wallIndice, _) = labyrinthToWallIndice 0 fs laby
   newWallsBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) wallVertice)
                                      wallIndice
                                      Nothing
                                      Nothing
+
   let newGlids = glids { objectBuffersInfo = newBuffersInfo
                        , normalsBuffersInfo = newNormalsBuffersInfo
                        , labyrinthBuffersInfo = newLabyrinthBuffersInfo
