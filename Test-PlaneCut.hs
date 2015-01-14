@@ -19,7 +19,7 @@ main = hspec $ do
                                    ]
       chain unchainedBugSimplified [] `shouldBe` Nothing
 
-  -- TODO no formal solution yet. work around is to lower tolerance
+  -- TODO no formal solution yet. work around is to lower tolerance. Or reject the cut, as coplanar to an existing face.
   describe "numeric approximation bug" $ do
     it "should cut" $ do
       let p0 = (0,(Point3f 0 0.1 0.1,[0,1,4]))

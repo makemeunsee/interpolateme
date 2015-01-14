@@ -11,31 +11,48 @@ import ListUtil
 
 -- a simple data structure for a graph / labyrinth.
 -- each node/leaf should hold a unique index value
-data Labyrinth = Node Int [Labyrinth]
-               | Leaf Int
-               deriving (Eq, Show)
+data Labyrinth a = Node a [Labyrinth a]
+                 | Leaf a
+                 deriving (Eq, Show)
 
 
 -- the cell index held at the head of this labyrinth
-value :: Labyrinth -> Int
+value :: Labyrinth a -> a
 value (Leaf i) = i
 value (Node i _) = i
 
 
+values :: Labyrinth a -> [a]
+values (Leaf i) = [i]
+values (Node i ls) = i : concatMap values ls
+
+
 -- the number of elements in this labyrinth
-size :: Labyrinth -> Int
+size :: Labyrinth a -> Int
 size (Leaf _) = 1
 size (Node _ ls) = 1 + foldr (\l s -> s + size l) 0 ls
 
 
-elem :: Int -> Labyrinth -> Bool
+longestBranch :: Labyrinth a -> Int
+longestBranch (Leaf _) = 1
+longestBranch (Node _ ls) = 1 + foldr (\l m -> max m $ longestBranch l) 0 ls
+
+
+depthMap :: Labyrinth a -> [(a, Int)]
+depthMap = depthMap0 0
+  where depthMap0 :: Int -> Labyrinth a -> [(a, Int)]
+        depthMap0 offset (Leaf i) = [(i, offset)]
+        depthMap0 offset (Node i ls) = (i, offset) : concatMap (depthMap0 (offset+1)) ls
+
+
+elem :: Eq a => a -> Labyrinth a -> Bool
 elem k (Leaf i) = k == i
 elem k (Node j ls) = k == j || any (Labyrinth.elem k) ls
 
 
 -- blindly insert a leaf of value 'k' into the labyrinth, at node of value 'at', if any
 -- does NOT check for duplicates
-insertAt :: Int -> Int -> Labyrinth -> Labyrinth
+insertAt :: Eq a => a -> a -> Labyrinth a -> Labyrinth a
 insertAt k at laby = case laby of
   Leaf i | i == at   -> Node i [Leaf k]                      -- turn leaf into a parent node
          | otherwise -> Leaf i                               -- return unconcerned leaf intact
@@ -43,7 +60,7 @@ insertAt k at laby = case laby of
             | otherwise -> Node i $ map (insertAt k at) ls   -- explore the labyrinth to find the right parent
 
 
-labyrinth2 :: [[Int]] -> Labyrinth
+labyrinth2 :: [[Int]] -> Labyrinth Int
 labyrinth2 [] = Leaf (-1) -- illegal
 labyrinth2 topo = laby2Rec [0] (Leaf 0)
   where
@@ -67,7 +84,7 @@ labyrinth2 topo = laby2Rec [0] (Leaf 0)
 -- [[1],[0]] -> 2 nodes, connected to each other
 -- [[1,2],[0],[0]] -> 3 nodes, the first one connected to the 2 others
 -- topology MUST be consistent
-labyrinth1 :: [[Int]] -> Labyrinth
+labyrinth1 :: [[Int]] -> Labyrinth Int
 labyrinth1 [] = Leaf (-1) -- illegal
 labyrinth1 ls = fst $ topologyToLabyrinth0 (BT.BTNode 0 Nothing Nothing) ls 0
   where
@@ -89,7 +106,7 @@ labyrinth1 ls = fst $ topologyToLabyrinth0 (BT.BTNode 0 Nothing Nothing) ls 0
 -- given a solid (vertice and faces) and a labyrinth which values are face indice,
 -- build the 3D vertex data representing this labyrinth
 -- labyrinth MUST be consistent with solid topology
-labyrinthToPathVertice :: RealFloat a => [G.Point3f a] -> [[Int]] -> Labyrinth -> [G.Point3f a]
+labyrinthToPathVertice :: RealFloat a => [G.Point3f a] -> [[Int]] -> Labyrinth Int -> [G.Point3f a]
 labyrinthToPathVertice vertice faces (Leaf i) = [bary]
   where
     face = faces !! i
@@ -106,14 +123,14 @@ labyrinthToPathVertice vertice faces (Node i ls) = bary : concatMap (uncurry pre
 
 
 -- build a list of indice defining segments, to be used along labyrinthToVertice
-labyrinthToPathIndice :: Integral a => a -> Labyrinth -> [a]
+labyrinthToPathIndice :: Integral a => a -> Labyrinth b -> [a]
 labyrinthToPathIndice offset (Leaf _) = []
 labyrinthToPathIndice offset (Node _ ls) = indice
   where
     (_, indice) = foldl (\(o,ids) l -> (o+(fromIntegral $ 2*size l), offset : o+1 : o+1 : o+2 : labyrinthToPathIndice (o+2) l ++ ids)) (offset, []) ls
 
 
-labyrinthToWallVertice :: RealFloat a => [G.Point3f a] -> [[Int]] -> Labyrinth -> [(Int,Int)] -> [G.Point3f a]
+labyrinthToWallVertice :: RealFloat a => [G.Point3f a] -> [[Int]] -> Labyrinth Int -> [(Int,Int)] -> [G.Point3f a]
 labyrinthToWallVertice vertice faces (Leaf i) parentEdges = labyrinthToWallVertice vertice faces (Node i []) parentEdges
 labyrinthToWallVertice vertice faces (Node i ls) parentEdges = ownWalls ++ concatMap (\n -> labyrinthToWallVertice vertice faces n edges) ls
   where
@@ -126,7 +143,7 @@ labyrinthToWallVertice vertice faces (Node i ls) parentEdges = ownWalls ++ conca
 edgeToWall vertice (i,j) = [vertice !! i, vertice !! j]
 
 
-labyrinthToWallIndice :: Integral a => a -> [[Int]] -> Labyrinth -> ([a], a)
+labyrinthToWallIndice :: Integral a => a -> [[Int]] -> Labyrinth Int -> ([a], a)
 labyrinthToWallIndice offset faces (Leaf x) = labyrinthToWallIndice offset faces (Node x [])
 labyrinthToWallIndice offset faces (Node i ls) = (indice, newOffset)
   where

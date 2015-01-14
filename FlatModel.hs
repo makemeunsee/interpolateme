@@ -6,34 +6,40 @@ module FlatModel ( facesToFlatIndice
 import Geometry ( Model (Model)
                 , pointToArr
                 , faceBarycenter
+                , times
                 )
 import ListUtil
 
 
-data FlatModel a = FlatModel { vertice :: [a]
-                             , normals :: [a]
-                             , centers :: [a]
-                             , indice :: [Int]
-                             }
+data FlatModel a b = FlatModel { vertice :: [a]
+                               , normals :: [a]
+                               , centers :: [a]
+                               , indice :: [b]
+                               }
 
 
-fromModel :: RealFloat a => Model a -> FlatModel a
+fromModel :: (RealFloat a, Integral b) => Model a -> FlatModel a b
 fromModel (Model vs fs ns) = FlatModel flatVs
                                        flatNormals
                                        centerFlags
                                        (facesToFlatIndice fs offset)
-  where l = length vs
-        offset = length fs
+  where offset = length fs
+
         barycenters = map (faceBarycenter vs) fs
-        flatVs = concatMap pointToArr (barycenters ++ vs)
+        edgeVs = concatMap (concatMap (\i -> [vs !! i, times 0.5 $ vs !! i])) fs
+        flatVs = concatMap pointToArr (barycenters ++ edgeVs)
+
         baryNormals = map (\f -> ns !! head f) fs
+        edgeNormals = concatMap (concatMap (\i -> [ns !! i, ns !! i])) fs
         flatNormals = concatMap pointToArr (baryNormals ++ ns)
+
+        l = length edgeVs
         centerFlags = (take (length fs) $ repeat 1) ++ (take l $ repeat 0)
 
 
-facesToFlatIndice :: [[Int]] -> Int -> [Int]
-facesToFlatIndice faces offset = facesToFlatIndice0 faces 0
+facesToFlatIndice :: Integral a => [[Int]] -> Int -> [a]
+facesToFlatIndice faces baseOffset = facesToFlatIndice0 faces 0 baseOffset
   where
-    facesToFlatIndice0 [] _ = []
-    facesToFlatIndice0 (f:fs) count = (toTriangles count f) ++ facesToFlatIndice0 fs (count+1)
-    toTriangles baryId f = concatMap (\ (i,j) -> [baryId,i+offset,j+offset]) $ cyclicConsecutivePairs f
+    facesToFlatIndice0 [] _ _ = []
+    facesToFlatIndice0 (f:fs) baryId offset = (toTriangles baryId f offset) ++ facesToFlatIndice0 fs (baryId+1) (offset+2*length f)
+    toTriangles baryId f offset = concatMap (\(i,j) ->  baryId : map (fromIntegral . (+) offset) [2*i,2*j,2*j,2*i,2*i+1,2*j,2*i+1,2*j+1]) $ cyclicConsecutivePairs $ take (length f) [0..]

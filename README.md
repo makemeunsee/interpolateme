@@ -20,6 +20,7 @@ Run with:
 * "--b" to draw both faces, back and front
 * "--c xxx" to specify the number of cuts to apply on the model. Warning: very memory heavy for values >= 2000.
 * "--s someString" to specify the seed to use to randomize the cuts
+* "--a" to use an alternative maze generator
 
 Features
 --------
@@ -27,11 +28,12 @@ Features
 * View control: drag the mouse to rotate the view, use the mouse wheel to zoom.
 * SPACE: truncate the model, keeping what's beyond the cutting plane.
 * TAB: show/hide the cutting plane.
-* C: apply 250 random cuts in a row. Warning: CPU heavy on already high poly objects.
+* C: apply 50 random cuts in a row. Warning: CPU heavy on already high poly objects.
 * N: show/hide face normals (originating from face centers).
 * L: show/hide maze path.
 * W: show/hide maze walls.
 * S: show/hide model.
+* D: toggle maze depth.
 * ESC or Q to exit.
 * Web demo (no maze support yet): open web/index.html after compiling to JS with:
 
