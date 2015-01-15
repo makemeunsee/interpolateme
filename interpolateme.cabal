@@ -15,7 +15,13 @@ Data-Files:          border_nolight.frag, border_nolight.vert
 Executable interpolateme
   Main-is:             Main.hs
   ghc-options:         -O2
-  Build-Depends:       base >= 3 && < 5, OpenGL >= 2.3, GLFW, GLUtil, OpenGLRaw, Vec, AC-Random, scientific, split, array
+  Build-Depends:       base >= 3 && < 5, OpenGL >= 2.3, GLFW, GLUtil, OpenGLRaw, Vec, AC-Random, scientific, split, array, containers
+  Other-Modules:       Geometry, ListUtil, FloretSphere, FlatModel, VoronoiCut, Labyrinth
+
+Executable voronoi_tessellator
+  Main-is:             Main-Voro.hs
+  ghc-options:         -O2
+  Build-Depends:       base >= 3 && < 5, OpenGL >= 2.3, GLFW, GLUtil, OpenGLRaw, Vec, AC-Random, scientific, split, array, containers
   Other-Modules:       Geometry, ListUtil, FloretSphere, FlatModel, PlaneCut, Labyrinth
 
 Test-Suite geometry-tests
@@ -36,4 +42,9 @@ Test-Suite planecut-tests
 Test-Suite listutil-tests
   Type:                exitcode-stdio-1.0
   Main-is:             Test-ListUtil.hs
+  Build-Depends:       base, hspec, QuickCheck
+
+Test-Suite voronoicut-tests
+  Type:                exitcode-stdio-1.0
+  Main-is:             Test-VoronoiCut.hs
   Build-Depends:       base, hspec, QuickCheck

@@ -36,6 +36,7 @@ origin :: RealFloat a => Point3f a
 origin = Point3f 0 0 0
 
 data Model a = Model { vertice :: [Point3f a], faces :: [[Int]], normals :: [Normal a] }
+               deriving (Eq, Show)
 
 -- neighbour functions look at indice, not vertice
 
