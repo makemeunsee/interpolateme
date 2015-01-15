@@ -29,7 +29,10 @@ main = hspec $ do
     it "should remove consecutive duplicates, looping around the ends" $ do
       cyclicRemoveConsecutiveDuplicates [] `shouldBe` ([] :: [Int])
       cyclicRemoveConsecutiveDuplicates [0] `shouldBe` [0]
+      cyclicRemoveConsecutiveDuplicates [1,1] `shouldBe` [1]
+      cyclicRemoveConsecutiveDuplicates [0,1] `shouldBe` [0,1]
       cyclicRemoveConsecutiveDuplicates [0,1,2] `shouldBe` [0,1,2]
       cyclicRemoveConsecutiveDuplicates [0,0,1,2] `shouldBe` [0,1,2]
-      cyclicRemoveConsecutiveDuplicates [0,1,2,0] `shouldBe` [1,2,0]
-      cyclicRemoveConsecutiveDuplicates [0,0,0,0,0,1,1,1,1,2,2,2,2,3,4,5,1,1,0,0,0] `shouldBe` [1,2,3,4,5,1,0]
+      cyclicRemoveConsecutiveDuplicates [0,0,1,2,2] `shouldBe` [0,1,2]
+      cyclicRemoveConsecutiveDuplicates [0,1,2,0] `shouldBe` [0,1,2]
+      cyclicRemoveConsecutiveDuplicates [0,0,0,0,0,1,1,1,1,2,2,2,2,3,4,5,1,1,0,0,0] `shouldBe` [0,1,2,3,4,5,1]

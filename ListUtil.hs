@@ -20,16 +20,16 @@ cyclicConsecutivePairs xs = cyclicPairs0 (head xs) xs
 cyclicRemoveConsecutiveDuplicates :: Eq a => [a] -> [a]
 cyclicRemoveConsecutiveDuplicates [] = []
 cyclicRemoveConsecutiveDuplicates [x] = [x]
-cyclicRemoveConsecutiveDuplicates l =
-  if head bodyFiltered == last bodyFiltered then
-    tail bodyFiltered
+cyclicRemoveConsecutiveDuplicates xs =
+  if l > 1 && head cleaned == last cleaned then
+    take (l - 1) cleaned
   else
-    bodyFiltered
+    cleaned
   where
-    bodyFiltered = rec l
+    l = length cleaned
+    cleaned = rec xs
     rec [] = []
-    rec [x] = [x]
-    rec (x0:x1:xs) = if x0 == x1 then rec $ x1:xs else x0 : (rec $ x1:xs)
+    rec (x:xs) = x : (rec $ dropWhile (x==) xs)
 
 
 -- flatten a list of lists, only keeping distinct elements.
