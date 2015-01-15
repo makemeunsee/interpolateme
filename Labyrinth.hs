@@ -3,9 +3,9 @@ module Labyrinth
 where
 
 import qualified Data.List as L
+import Data.Set (singleton, notMember, insert)
 
 import qualified Geometry as G
-import qualified BinaryTree as BT
 import ListUtil
 
 
@@ -86,20 +86,21 @@ labyrinth2 topo = laby2Rec [0] (Leaf 0)
 -- topology MUST be consistent
 labyrinth1 :: [[Int]] -> Labyrinth Int
 labyrinth1 [] = Leaf (-1) -- illegal
-labyrinth1 ls = fst $ topologyToLabyrinth0 (BT.BTNode 0 Nothing Nothing) ls 0
+labyrinth1 topo = fst $ topologyToLabyrinth0 (singleton 0) 0
   where
-    topologyToLabyrinth0 visited ls i =
-      let r = filter (\j -> not $ BT.elem j visited) $ ls !! i in
-      if r == [] then
-        (Leaf i, visited)
+    topologyToLabyrinth0 visited i =
+      let (subnodes, visited') = foldr (\j (newNodes, oldVisited) ->
+                                         if notMember j oldVisited then
+                                           let (newNode, newVisited) = topologyToLabyrinth0 (insert j oldVisited) j in
+                                           (newNode : newNodes, newVisited)
+                                         else
+                                           (newNodes, oldVisited)
+                                       )
+                                       ([], visited)
+                                       $ topo !! i in
+      if subnodes == [] then
+        (Leaf i, visited')
       else
-        let (subnodes, visited') = foldr (\j (newNodes, oldVisited) ->
-                                           if BT.elem j oldVisited then
-                                             (newNodes, oldVisited)
-                                           else
-                                             let (newNode, newVisited) = topologyToLabyrinth0 (BT.insert j oldVisited) ls j in
-                                             (newNode : newNodes, newVisited)
-                                         ) ([], visited) r in
         (Node i subnodes, visited')
 
 
