@@ -115,7 +115,7 @@ cutModel tolerance plane@Plane{..} m@FacedModel{..} =
     chained = chain newFaceVertice []
 
     -- extract only the indice
-    newFace = maybe [] (map (\((_,_),i) -> i)) chained
+    newFace = maybe [] (map (\((_,_),i) -> i) . order) chained
 
     -- replace cut segments, remove references to removed vertice
     updatedFaces0 = map (\(f,i) -> (cutFace f, i)) faces
@@ -125,7 +125,7 @@ cutModel tolerance plane@Plane{..} m@FacedModel{..} =
     removedFaces = map (\(_,i) -> i) removedFaces0
 
     -- append the new face
-    updatedFaces = (order newFace, newFaceId) : updatedFaces1
+    updatedFaces = (newFace, newFaceId) : updatedFaces1
 
     -- update neighbour info of vertice
     updatedVertice0 = map updateNeighbours $ filter (\(i,(_,_)) -> cutState i /= Above) vertice
@@ -147,10 +147,7 @@ cutModel tolerance plane@Plane{..} m@FacedModel{..} =
        else (i, (p, ns))
 
     -- make a polygon face the same way as the cutting plane
-    order is@(i0:i1:i2:_) =
-      let (_,(p0,_)) = head $ filter (\(i,(_,_)) -> i == i0) updatedVertice in
-      let (_,(p1,_)) = head $ filter (\(i,(_,_)) -> i == i1) updatedVertice in
-      let (_,(p2,_)) = head $ filter (\(i,(_,_)) -> i == i2) updatedVertice in
+    order is@(((p0,_),i0):((p1,_),i1):((p2,_),i2):_) =
       let normal = (G.vec p0 p1) `G.cross` (G.vec p1 p2) in
       let k = normal `G.dot` planeNormal in
       if k > 0
