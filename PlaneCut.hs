@@ -227,13 +227,31 @@ cutEdges includeOn cutArray edges =
     cutPos = (!) cutArray
 
 
+orderPoints p0@(G.Point3f x0 y0 z0) p1@(G.Point3f x1 y1 z1) =
+  if x0 < x1 then
+    (p0, p1)
+  else if x1 < x0 then
+    (p1, p0)
+  else if y0 < y1 then
+    (p0, p1)
+  else if y1 < y0 then
+    (p1, p0)
+  else if z0 < z1 then
+    (p0, p1)
+  else if z1 < z0 then
+    (p1, p0)
+  else
+    (p0, p1)
+
+
 intersectPlaneAndSegment :: RealFloat a => a -> Plane a -> (G.Point3f a, G.Point3f a) -> Maybe (G.Point3f a)
-intersectPlaneAndSegment tolerance Plane{..} (p0@(G.Point3f x0 y0 z0), p1@(G.Point3f x1 y1 z1)) =
+intersectPlaneAndSegment tolerance Plane{..} (p0, p1) =
   if tolerance >= abs k then
     Nothing -- segment and plane parallel (or segment on plane)
   else
-    Just $ G.add p0 $ G.times at v
-  where v@(G.Point3f dx dy dz) = G.add p1 $ G.times (-1) p0 -- p0p1 vector
+    Just $ G.add p0' $ G.times at v
+  where (p0'@(G.Point3f x0 y0 z0), p1'@(G.Point3f x1 y1 z1)) = orderPoints p0 p1
+        v@(G.Point3f dx dy dz) = G.add p1' $ G.times (-1) p0' -- p0p1 vector
         G.Point3f sx sy sz = seed
         k = kx*dx + ky*dy + kz*dz
         at = (kx*(sx-x0) + ky*(sy-y0) + kz*(sz-z0)) / k
