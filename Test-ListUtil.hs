@@ -24,3 +24,12 @@ main = hspec $ do
     it "should be empty when there are no common elements" $ do
       intersection [0,1,2] [3,4,5] `shouldBe` []
       intersection [0,1,2,3,4,5,6,7,8,9] [13] `shouldBe` []
+
+  describe "cyclicRemoveConsecutiveDuplicates" $ do
+    it "should remove consecutive duplicates, looping around the ends" $ do
+      cyclicRemoveConsecutiveDuplicates [] `shouldBe` ([] :: [Int])
+      cyclicRemoveConsecutiveDuplicates [0] `shouldBe` [0]
+      cyclicRemoveConsecutiveDuplicates [0,1,2] `shouldBe` [0,1,2]
+      cyclicRemoveConsecutiveDuplicates [0,0,1,2] `shouldBe` [0,1,2]
+      cyclicRemoveConsecutiveDuplicates [0,1,2,0] `shouldBe` [1,2,0]
+      cyclicRemoveConsecutiveDuplicates [0,0,0,0,0,1,1,1,1,2,2,2,2,3,4,5,1,1,0,0,0] `shouldBe` [1,2,3,4,5,1,0]
