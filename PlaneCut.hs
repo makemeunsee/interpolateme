@@ -3,9 +3,11 @@
 module PlaneCut ( FacedModel(FacedModel)
                 , vertice, faces, normals
                 , fromModel, toModel
-                , Plane(Plane)
                 , cutModel
                 , chain
+                , Plane (..)
+                , ToPlane (..)
+                , intersectPlaneAndSegment
                 )
 
 where
@@ -91,7 +93,7 @@ cutModel tolerance plane@Plane{..} m@FacedModel{..} =
     -- create a dictionary for replacing cut edges with new edges
     (created, rawNewFaceVertice, _, cutEdgesIndex, cutEdgesValues) = foldr (\(i0, i1) (created, newFace, createdId, dictIds, dictVals) ->
         if elem (i0,i1) dictIds || elem (i1,i0) dictIds then -- if cut do not cut again
-          (created, newFace, createdId, dictIds, dictVals)
+              (created, newFace, createdId, dictIds, dictVals)
         else
           let (_,(p0,fs0)) = head $ filter (\(i,(_,_)) -> i == i0) vertice in
           let (_,(p1,fs1)) = head $ filter (\(i,(_,_)) -> i == i1) vertice in
@@ -223,12 +225,6 @@ cutEdges includeOn cutArray edges =
     bothSides False (i,j) = cutPos i == Above && cutPos j == Below || cutPos j == Above && cutPos i == Below
     bothSides True (i,j) = cutPos i == OnPlane || cutPos j == OnPlane || bothSides False (i,j)
     cutPos = (!) cutArray
-
-
-data Intersection a = OnPoint (G.Point3f a)
-                    | OnSegment (G.Point3f a)
-                    | None
-                    deriving (Show, Eq)
 
 
 intersectPlaneAndSegment :: RealFloat a => a -> Plane a -> (G.Point3f a, G.Point3f a) -> Maybe (G.Point3f a)
