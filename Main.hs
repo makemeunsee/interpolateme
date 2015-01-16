@@ -747,7 +747,7 @@ faceIndice offset f =
   let centerIndex = offset + fromIntegral l in
   let verticeIndice = map (\i -> offset+i) $ take l [0..] in
   let idPairs = cyclicConsecutivePairs verticeIndice in
-  concatMap (\(i,j) -> [centerIndex, i, j]) idPairs
+  concatMap (\(i,j) -> [centerIndex, j, i]) idPairs
 
 
 loadModel :: GlobalState -> VC.VoronoiModel GLfloat -> IO GlobalState
@@ -771,7 +771,7 @@ loadModel global@GlobalState{..} vm = do
 
   -- voronoi model to intermediate buffers
   let (  reversedVs
-       , reversedIds
+       , ids
        , reversedCenters
        , reversedNormals
        , mazeData
@@ -782,8 +782,8 @@ loadModel global@GlobalState{..} vm = do
                                  Just (_, pos) -> take ((+) 1 $ length $ VC.vertice f) $ repeat $ (1 + fromIntegral pos) / maxL
                                  Nothing       -> take ((+) 1 $ length $ VC.vertice f) $ repeat 0
                                in
-                      ( VC.center f : (reverse newVs) ++ vs
-                      , (reverse $ faceIndice (fromIntegral offset) f) ++ is -- TODO no reverse here
+                      ( VC.center f : newVs ++ vs
+                      , (faceIndice (fromIntegral offset) f) ++ is
                       , 1 : (take l $ repeat 0) ++ cs
                       , (take (l+1) $ repeat $ VC.center f) ++ ns
                       , ms ++ md
@@ -799,7 +799,7 @@ loadModel global@GlobalState{..} vm = do
   cleanBuffers wallsBuffersInfo
 
   newBuffersInfo <- loadBuffers (concatMap G.pointToArr $ reverse reversedVs)
-                                (reverse reversedIds)
+                                ids
                                 (Just $ concatMap G.pointToArr $ reverse reversedNormals)
                                 (Just $ reverse reversedCenters)
                                 (Just $ reverse mazeData)
