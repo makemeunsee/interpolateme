@@ -4,14 +4,15 @@ where
 
 import qualified Data.List as L
 import Data.Set (singleton, notMember, insert)
+import qualified Data.Sequence as S
 
 import qualified Geometry as G
 import ListUtil
-
+import VoronoiCut
 
 -- a simple data structure for a graph / labyrinth.
 -- each node/leaf should hold a unique index value
-data Labyrinth a = Node a [Labyrinth a]
+data Labyrinth a = Node a ![Labyrinth a]
                  | Leaf a
                  deriving (Eq, Show)
 
@@ -60,33 +61,35 @@ insertAt k at laby = case laby of
             | otherwise -> Node i $ map (insertAt k at) ls   -- explore the labyrinth to find the right parent
 
 
-labyrinth2 :: [[Int]] -> Labyrinth Int
-labyrinth2 [] = Leaf (-1) -- illegal
-labyrinth2 topo = laby2Rec [0] (Leaf 0)
+labyrinth2 :: S.Seq (Face a) -> Labyrinth Int
+labyrinth2 topo
+  | S.null topo = Leaf (-1) -- illegal
+  | otherwise   = laby2Rec [0] (Leaf 0) (singleton 0)
   where
-    laby2Rec [] laby = laby
-    laby2Rec stack laby = let currentId = head stack in
-                          let currentNeighbours = topo !! currentId in
-                          case findExplorable currentId currentNeighbours laby of
-                            Just i        -> laby2Rec (i : stack) (insertAt i currentId laby)
-                            Nothing       -> laby2Rec (tail stack) laby
-    findExplorable i ids laby = L.find (explorable i laby) ids
+    laby2Rec [] laby visited = laby
+    laby2Rec stack laby visited = let currentId = head stack in
+                          let currentNeighbours = neighbours $ S.index topo currentId in
+                          case findExplorable currentId currentNeighbours visited of
+                            Just i        -> laby2Rec (i : stack) (insertAt i currentId laby) (insert i visited)
+                            Nothing       -> laby2Rec (tail stack) laby visited
+    findExplorable i ids visited = L.find (explorable i visited) ids
     -- a node (face) is explorable...
-    explorable parentId laby i  =
+    explorable parentId visited i  =
       -- if it's not part of the maze already
-      not (Labyrinth.elem i laby) &&
+      notMember i visited &&
       -- and the faces it touches are either the parent face or not in the maze
-      all (\j -> j == parentId || not (Labyrinth.elem j laby))
-          (topo !! i)
+      (all (\j -> j == parentId || notMember j visited)
+           $ neighbours $ S.index topo i)
 
 
 -- topology: a list of connections between nodes of a graph
 -- [[1],[0]] -> 2 nodes, connected to each other
 -- [[1,2],[0],[0]] -> 3 nodes, the first one connected to the 2 others
 -- topology MUST be consistent
-labyrinth1 :: [[Int]] -> Labyrinth Int
-labyrinth1 [] = Leaf (-1) -- illegal
-labyrinth1 topo = fst $ topologyToLabyrinth0 (singleton 0) 0
+labyrinth1 :: S.Seq (Face a) -> Labyrinth Int
+labyrinth1 topo
+  | S.null topo = Leaf (-1) -- illegal
+  | otherwise   = fst $ topologyToLabyrinth0 (singleton 0) 0
   where
     topologyToLabyrinth0 visited i =
       let (subnodes, visited') = foldr (\j (newNodes, oldVisited) ->
@@ -97,7 +100,7 @@ labyrinth1 topo = fst $ topologyToLabyrinth0 (singleton 0) 0
                                            (newNodes, oldVisited)
                                        )
                                        ([], visited)
-                                       $ topo !! i in
+                                       $ neighbours $ S.index topo i in
       if subnodes == [] then
         (Leaf i, visited')
       else
