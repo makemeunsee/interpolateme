@@ -65,6 +65,7 @@ import FlatModel ( FlatModel (FlatModel)
                  , fromModel
                  )
 import ListUtil
+import qualified VoronoiCut as VC
 import qualified PlaneCut as PC
 import Labyrinth
 
@@ -110,7 +111,7 @@ data GlobalState = GlobalState { viewMat :: Mat44f
                                , depthRender :: Bool
                                , mouse :: MouseState
                                , modelMat :: Mat44f
-                               , model :: PC.FacedModel GLfloat
+                               , model :: VC.VoronoiModel GLfloat
                                , glids :: GLIDs
                                , simTime :: GLfloat
                                , seed :: RND.Seed
@@ -740,38 +741,56 @@ strArgument :: String -> [String] -> Maybe String
 strArgument arg args = listToMaybe $ drop 1 $ dropWhile (/= arg) args
 
 
-loadModel :: GlobalState -> PC.FacedModel GLfloat -> IO GlobalState
-loadModel global@GlobalState{..} fm = do
+faceIndice :: Integral a => a -> VC.Face b -> [a]
+faceIndice offset f =
+  let l = length $ VC.vertice f in
+  let centerIndex = offset + fromIntegral l in
+  let verticeIndice = map (\i -> offset+i) $ take l [0..] in
+  let idPairs = cyclicConsecutivePairs verticeIndice in
+  concatMap (\(i,j) -> [centerIndex, i, j]) idPairs
+
+
+loadModel :: GlobalState -> VC.VoronoiModel GLfloat -> IO GlobalState
+loadModel global@GlobalState{..} vm = do
   let GLIDs{..} = glids
 
-  let m@(G.Model vs fs ns) = PC.toModel fm
+  let fc = VC.faceCount vm
+  let faces = VC.faceList vm
+  let neighbours = map VC.neighbours faces
 
   t0 <- get time
-  let laby2 = labyrinth2 $ G.edgeNeighbours m
-  let laby1 = labyrinth1 $ G.edgeNeighbours m
+  let laby2 = labyrinth2 neighbours
+  let laby1 = labyrinth1 neighbours
   putStrLn $ "mazes sizes:\t" ++ show (size laby1) ++ "\t" ++ show (size laby2)
   t1 <- get time
   putStrLn $ "laby gen duration:\t" ++ show (t1 - t0)
 
 
-  -- load next model
-  let FlatModel vs' ns' cs ids = fromModel m
-
   let laby = if altLaby then laby2 else laby1
   let maxL = fromIntegral $ longestBranch laby
 
-  -- associate maze data to center vertice
-  let mazeData = (map (\i -> case find (\(j,_) -> i == j) $ depthMap laby of
-                        Just (_, pos) -> (1 + fromIntegral pos) / maxL
-                        Nothing      -> 0
-                      )
-                      $ take (length fs) [0..])
-                 ++
-                 (concatMap (\(i,f) -> case find (\(j,_) -> i == j) $ depthMap laby of
-                              Just (_, pos) -> take (2*length f) $ repeat $ (1 + fromIntegral pos) / maxL
-                              Nothing      -> take (2*length f) $ repeat 0
-                            )
-                            $ zip [0..] fs)
+  -- voronoi model to intermediate buffers
+  let (  reversedVs
+       , reversedIds
+       , reversedCenters
+       , reversedNormals
+       , mazeData
+       , _) = foldr (\(i, f) (vs, is, cs, ns, md, offset) ->
+                      let newVs = VC.vertice f in
+                      let l = length newVs in
+                      let ms = case find (\(j,_) -> i == j) $ depthMap laby of
+                                 Just (_, pos) -> take ((+) 1 $ length $ VC.vertice f) $ repeat $ (1 + fromIntegral pos) / maxL
+                                 Nothing       -> take ((+) 1 $ length $ VC.vertice f) $ repeat 0
+                               in
+                      ( VC.center f : (reverse newVs) ++ vs
+                      , (reverse $ faceIndice (fromIntegral offset) f) ++ is
+                      , 1 : (take l $ repeat 0) ++ cs
+                      , (take (l+1) $ repeat $ VC.center f) ++ ns
+                      , ms ++ md
+                      , offset + l + 1)
+                    )
+                    ([], [], [], [], [], 0)
+                    $ zip [0..] faces
 
   -- clean gl buffers and recreate them with proper data
   cleanBuffers objectBuffersInfo
@@ -779,50 +798,49 @@ loadModel global@GlobalState{..} fm = do
   cleanBuffers labyrinthBuffersInfo
   cleanBuffers wallsBuffersInfo
 
-  newBuffersInfo <- loadBuffers vs'
-                                ids
-                                (Just ns')
-                                (Just cs)
-                                (Just mazeData)
+  newBuffersInfo <- loadBuffers (concatMap G.pointToArr $ reverse reversedVs)
+                                (reverse reversedIds)
+                                (Just $ concatMap G.pointToArr $ reverse reversedNormals)
+                                (Just $ reverse reversedCenters)
+                                (Just $ reverse mazeData)
 
-  let faceCenters = map (G.faceBarycenter vs) fs
-  let faceNormals = fst $ unzip $ PC.normals fm
-  let verticeOfNormalsBuffer = concatMap (\(G.Point3f cx cy cz, G.Point3f nx ny nz) ->
-                                         [cx, cy, cz, cx + 0.1 * nx, cy + 0.1 * ny, cz + 0.1 * nz])
-                                         $ zip faceCenters faceNormals
+  let faceCenters = VC.normals vm -- on the unit sphere so they're normalized too
+  let verticeOfNormalsBuffer = concatMap (\(G.Point3f cx cy cz) ->
+                                         [cx, cy, cz, cx + 0.1 * cx, cy + 0.1 * cy, cz + 0.1 * cz])
+                                         faceCenters
   newNormalsBuffersInfo <- loadBuffers verticeOfNormalsBuffer
                                        (take (length verticeOfNormalsBuffer) [0..])
                                        Nothing
                                        Nothing
                                        Nothing
 
-  let pathVertice = labyrinthToPathVertice vs fs laby
-  let pathIndice = labyrinthToPathIndice 0 laby
-  let wallVertice = labyrinthToWallVertice vs fs laby []
-  let (wallIndice, _) = labyrinthToWallIndice 0 fs laby
-
-  newLabyrinthBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) pathVertice)
-                                         pathIndice
-                                         Nothing
-                                         Nothing
-                                         Nothing
-
-  newWallsBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) wallVertice)
-                                     wallIndice
-                                     Nothing
-                                     Nothing
-                                     Nothing
+--  let pathVertice = labyrinthToPathVertice vs fs laby
+--  let pathIndice = labyrinthToPathIndice 0 laby
+--  let wallVertice = labyrinthToWallVertice vs fs laby []
+--  let (wallIndice, _) = labyrinthToWallIndice 0 fs laby
+--
+--  newLabyrinthBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) pathVertice)
+--                                         pathIndice
+--                                         Nothing
+--                                         Nothing
+--                                         Nothing
+--
+--  newWallsBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) wallVertice)
+--                                     wallIndice
+--                                     Nothing
+--                                     Nothing
+--                                     Nothing
 
   let newGlids = glids { objectBuffersInfo = newBuffersInfo
                        , normalsBuffersInfo = newNormalsBuffersInfo
-                       , labyrinthBuffersInfo = newLabyrinthBuffersInfo
-                       , wallsBuffersInfo = newWallsBuffersInfo
+--                       , labyrinthBuffersInfo = newLabyrinthBuffersInfo
+--                       , wallsBuffersInfo = newWallsBuffersInfo
                        }
 
-  return global { glids = newGlids, model = fm }
+  return global { glids = newGlids, model = vm }
 
 
-applyCut theta phi m = PC.cutModel tolerance (PC.Plane nx ny nz sfPt) m
+applyCut theta phi m = VC.cutModel m (PC.Plane nx ny nz sfPt)
   where sfPt@(G.Point3f nx ny nz) = latLongPosition theta phi 1
 
 
@@ -868,7 +886,7 @@ main = do
   -- initialize early to have access to time
   GLFW.initialize
 
-  let cuttableModel = PC.fromModel icosahedron
+  let cuttableModel = VC.fromModel icosahedron
 
   putStrLn "cut\tfaces\tduration"
   t0 <- get time
@@ -877,7 +895,7 @@ main = do
                                let m' = applyCut t p m
                                putStr $ show i
                                t0 <- get time
-                               putStr $ "\t" ++ (show $ length $ PC.faces m') ++ "\t"
+                               putStr $ "\t" ++ (show $ VC.center $ VC.lastFace m') ++ "\t"
                                t1 <- get time
                                putStrLn $ show $ t1-t0
                                return (m', i+1)

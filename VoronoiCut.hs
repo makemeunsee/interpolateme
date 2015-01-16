@@ -5,6 +5,8 @@ module VoronoiCut ( fromModel
                   , VoronoiModel (..)
                   , normals
                   , faceList
+                  , lastFace
+                  , faceCount
                   , Face (..)
                   , closestFaceCenter
                   , cutFace
@@ -39,6 +41,14 @@ data Face a = Face { center :: G.Point3f a
 
 data VoronoiModel a = VoronoiModel { faces :: Seq (Face a) }
                       deriving (Eq, Show)
+
+
+faceCount :: VoronoiModel a -> Int
+faceCount = S.length . faces
+
+
+lastFace :: RealFloat a => VoronoiModel a -> Face a
+lastFace vm = S.index (faces vm) $ (+) (-1) $ S.length $ faces vm
 
 
 faceList :: RealFloat a => VoronoiModel a -> [Face a]
