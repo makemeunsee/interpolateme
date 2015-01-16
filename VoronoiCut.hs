@@ -1,7 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module VoronoiCut ( fromModel
-                  , toModel
                   , VoronoiModel (..)
                   , normals
                   , faceList
@@ -32,14 +31,14 @@ import PlaneCut ( ToPlane (..)
                 )
 
 
-data Face a = Face { center :: G.Point3f a
-                   , vertice :: [G.Point3f a]
-                   , neighbours :: [Int]
+data Face a = Face { center :: !(G.Point3f a)
+                   , vertice :: ![G.Point3f a]
+                   , neighbours :: ![Int]
                    }
               deriving (Eq, Show)
 
 
-data VoronoiModel a = VoronoiModel { faces :: Seq (Face a) }
+data VoronoiModel a = VoronoiModel { faces :: !(Seq (Face a)) }
                       deriving (Eq, Show)
 
 
