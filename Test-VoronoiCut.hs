@@ -23,41 +23,48 @@ main = hspec $ do
   describe "cutFace" $ do
     let center = Point3f 0 0 0
     let f = Face center [Point3f 1 0 0, Point3f 0 1 0, Point3f (-1) 0 0, Point3f 0 (-1) 0] []
+    let f' = Face center [Point3f 1 1 0, Point3f (-1) 1 0, Point3f (-1) (-1) 0, Point3f 1 (-1) 0] []
+
     it "should not cut a face entirely below the cutting plane" $ do
       let p = Plane 1 0 0 $ Point3f 2 0 0
       let p' = Plane 1 0 0 $ Point3f 1 0 0
-      cutFace f p `shouldBe` (f, [])
-      cutFace f p' `shouldBe` (f, [])
+      cutFace 0 f p `shouldBe` (f, [])
+      cutFace 0 f p' `shouldBe` (Face center (VoronoiCut.vertice f) [0], [Point3f 1 0 0])
+      cutFace 0 f' p `shouldBe` (f', [])
+      cutFace 0 f' p' `shouldBe` (Face center (VoronoiCut.vertice f') [0], [Point3f 1 (-1) 0, Point3f 1 1 0])
 
     it "should empty a face entirely above the cutting plane" $ do
       let p = Plane 1 0 0 $ Point3f (-2) 0 0
       let p' = Plane 1 0 0 $ Point3f (-1) 0 0
-      cutFace f p `shouldBe` (Face center [] [], [])
-      cutFace f p' `shouldBe` (Face center [Point3f (-1) 0 0] [], [])
+      cutFace 0 f p `shouldBe` (Face center [] [], [])
+      cutFace 0 f p' `shouldBe` (Face center [Point3f (-1) 0 0] [0], [Point3f (-1) 0 0])
+      cutFace 0 f' p `shouldBe` (Face center [] [], [])
+      cutFace 0 f' p' `shouldBe` (Face center [Point3f (-1) 1 0, Point3f (-1) (-1) 0] [0], [Point3f (-1) 1 0, Point3f (-1) (-1) 0])
 
     it "should cut a face intersecting the plane" $ do
       let p = Plane 1 0 0 $ Point3f (-0.5) 0 0
       let p' = Plane 1 0 0 $ Point3f 0 0 0
       let p'' = Plane 1 0 0 $ Point3f 0.5 0 0
-      cutFace f p `shouldBe` ( Face center
-                                    [ Point3f (-0.5) 0.5 0
-                                    , Point3f (-1) 0 0
-                                    , Point3f (-0.5) (-0.5) 0]
-                                    []
-                             , [ Point3f (-0.5) 0.5 0
-                               , Point3f (-0.5) (-0.5) 0])
-      cutFace f p' `shouldBe` ( Face center
-                                     [ Point3f 0 1 0
-                                     , Point3f (-1) 0 0
-                                     , Point3f 0 (-1) 0]
-                                     []
-                              , [])
-      cutFace f p'' `shouldBe` ( Face center
-                                      [ Point3f 0.5 0.5 0
-                                      , Point3f 0 1.0 0
-                                      , Point3f (-1.0) 0 0
-                                      , Point3f 0 (-1.0) 0
-                                      , Point3f 0.5 (-0.5) 0]
-                                      []
-                                , [ Point3f 0.5 0.5 0
-                                  , Point3f 0.5 (-0.5) 0])
+      cutFace 0 f p `shouldBe` ( Face center
+                                      [ Point3f (-0.5) 0.5 0
+                                      , Point3f (-1) 0 0
+                                      , Point3f (-0.5) (-0.5) 0]
+                                      [0]
+                               , [ Point3f (-0.5) 0.5 0
+                                 , Point3f (-0.5) (-0.5) 0])
+      cutFace 0 f p' `shouldBe` ( Face center
+                                       [ Point3f 0 1 0
+                                       , Point3f (-1) 0 0
+                                       , Point3f 0 (-1) 0]
+                                       [0]
+                                , [ Point3f 0 1 0
+                                  , Point3f 0 (-1) 0])
+      cutFace 0 f p'' `shouldBe` ( Face center
+                                        [ Point3f 0.5 0.5 0
+                                        , Point3f 0 1.0 0
+                                        , Point3f (-1.0) 0 0
+                                        , Point3f 0 (-1.0) 0
+                                        , Point3f 0.5 (-0.5) 0]
+                                        [0]
+                                  , [ Point3f 0.5 0.5 0
+                                    , Point3f 0.5 (-0.5) 0])
