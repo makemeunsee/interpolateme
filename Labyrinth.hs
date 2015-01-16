@@ -110,20 +110,20 @@ labyrinth1 topo
 -- given a solid (vertice and faces) and a labyrinth which values are face indice,
 -- build the 3D vertex data representing this labyrinth
 -- labyrinth MUST be consistent with solid topology
-labyrinthToPathVertice :: RealFloat a => [G.Point3f a] -> [[Int]] -> Labyrinth Int -> [G.Point3f a]
-labyrinthToPathVertice vertice faces (Leaf i) = [bary]
+labyrinthToPathVertice :: RealFloat a => S.Seq (Face a) -> Labyrinth Int -> [G.Point3f a]
+labyrinthToPathVertice faces (Leaf i) = [bary]
   where
-    face = faces !! i
-    bary = G.faceBarycenter vertice face
-labyrinthToPathVertice vertice faces (Node i ls) = bary : concatMap (uncurry prependBaryCenter) subnodesVerts
+    face = S.index faces i
+    bary = barycenter face
+labyrinthToPathVertice faces (Node i ls) = bary : concatMap (uncurry prependBaryCenter) subnodesVerts
   where
-    face = faces !! i
-    bary = G.faceBarycenter vertice face
-    subnodesVerts = map (\l -> (labyrinthToPathVertice vertice faces l, value l)) ls
+    face = S.index faces i
+    bary = barycenter face
+    subnodesVerts = map (\l -> (labyrinthToPathVertice faces l, value l)) ls
     prependBaryCenter vs j = (junctionPoint j) : vs
     junctionPoint j =
-      let [i0, i1] = intersection (faces !! i) (faces !! j) in
-      G.times 0.5 $ G.add (vertice !! i0) (vertice !! i1)
+      let [v0, v1] = intersection (vertice face) (vertice $ S.index faces j) in
+      G.times 0.5 $ G.add v0 v1
 
 
 -- build a list of indice defining segments, to be used along labyrinthToVertice
@@ -134,17 +134,14 @@ labyrinthToPathIndice offset (Node _ ls) = indice
     (_, indice) = foldl (\(o,ids) l -> (o+(fromIntegral $ 2*size l), offset : o+1 : o+1 : o+2 : labyrinthToPathIndice (o+2) l ++ ids)) (offset, []) ls
 
 
-labyrinthToWallVertice :: RealFloat a => [G.Point3f a] -> [[Int]] -> Labyrinth Int -> [(Int,Int)] -> [G.Point3f a]
-labyrinthToWallVertice vertice faces (Leaf i) parentEdges = labyrinthToWallVertice vertice faces (Node i []) parentEdges
-labyrinthToWallVertice vertice faces (Node i ls) parentEdges = ownWalls ++ concatMap (\n -> labyrinthToWallVertice vertice faces n edges) ls
+labyrinthToWallVertice :: RealFloat a => S.Seq (Face a) -> Labyrinth Int -> [(G.Point3f a, G.Point3f a)] -> [G.Point3f a]
+labyrinthToWallVertice faces (Leaf i) parentEdges = labyrinthToWallVertice faces (Node i []) parentEdges
+labyrinthToWallVertice faces (Node i ls) parentEdges = ownWalls ++ concatMap (\n -> labyrinthToWallVertice faces n edges) ls
   where
-    edges = cyclicConsecutivePairs $ faces !! i
-    childEdges = concatMap (\l -> cyclicConsecutivePairs $ faces !! value l) ls
+    edges = cyclicConsecutivePairs $ vertice $ S.index faces i
+    childEdges = concatMap (\l -> cyclicConsecutivePairs $ vertice $ S.index faces $ value l) ls
     toAvoid = parentEdges ++ childEdges
-    ownWalls = concatMap (edgeToWall vertice) $ filter (\(j,k) -> not $ L.elem (k,j) toAvoid) edges
-
-
-edgeToWall vertice (i,j) = [vertice !! i, vertice !! j]
+    ownWalls = concatMap (\(i,j) -> [i,j]) $ filter (\(j,k) -> not $ L.elem (k,j) toAvoid) edges
 
 
 labyrinthToWallIndice :: Integral a => a -> [[Int]] -> Labyrinth Int -> ([a], a)

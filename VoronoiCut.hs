@@ -7,7 +7,8 @@ module VoronoiCut ( fromModel
                   , lastFace
                   , faceCount
                   , Face (..)
-                  , closestFaceCenter
+                  , barycenter
+                  , closestSeed
                   , cutFace
                   , cutModel
                   )
@@ -31,11 +32,15 @@ import PlaneCut ( ToPlane (..)
                 )
 
 
-data Face a = Face { center :: !(G.Point3f a)
+data Face a = Face { seed :: !(G.Point3f a)
                    , vertice :: ![G.Point3f a]
                    , neighbours :: ![Int]
                    }
               deriving (Eq, Show)
+
+
+barycenter :: RealFloat a => Face a -> G.Point3f a
+barycenter Face{..} = G.barycenter vertice
 
 
 data VoronoiModel a = VoronoiModel { faces :: !(Seq (Face a)) }
@@ -55,7 +60,7 @@ faceList vm = F.toList $ faces vm
 
 
 normals :: RealFloat a => VoronoiModel a -> [G.Point3f a]
-normals = (map center) . faceList
+normals = (map seed) . faceList
 
 
 fromModel :: RealFloat a => G.Model a -> VoronoiModel a
@@ -82,14 +87,14 @@ toModel VoronoiModel{..} = G.modelAutoNormals (reverse vs) fs
                         $ F.toList faces
 
 
-closestFaceCenter :: RealFloat a => VoronoiModel a -> G.Point3f a -> (Int, G.Point3f a)
-closestFaceCenter vm@VoronoiModel{..} unitSpherePoint = closestRec 0 where
-  faceCenter = center . S.index faces
+closestSeed :: RealFloat a => VoronoiModel a -> G.Point3f a -> (Int, G.Point3f a)
+closestSeed vm@VoronoiModel{..} unitSpherePoint = closestRec 0 where
+  faceSeed = seed . S.index faces
   faceNeighbours = neighbours . S.index faces
   closestRec i =
-    let c = faceCenter i in
+    let c = faceSeed i in
     let (closerId, _) = foldr (\j' (j, d) ->
-                                let d' = G.dist unitSpherePoint $ faceCenter j' in
+                                let d' = G.dist unitSpherePoint $ faceSeed j' in
                                 if d' < d then
                                   (j', d')
                                 else
@@ -109,7 +114,7 @@ tolerance = 1e-8
 
 cutFace :: RealFloat a => Int -> Face a -> Plane a -> (Face a, [G.Point3f a])
 cutFace newFaceId f@Face{..} pl@Plane{..} =
-  ( Face center (cyclicRemoveConsecutiveDuplicates $ fst afterCut) newNeighbours
+  ( Face seed (cyclicRemoveConsecutiveDuplicates $ fst afterCut) newNeighbours
   , edgePoints)
   where
     edgePoints = removeDups $ snd afterCut
@@ -132,7 +137,7 @@ cutFace newFaceId f@Face{..} pl@Plane{..} =
                      )
                      ([], [])
                      $ cyclicConsecutivePairs cutInfo
-    toPlane p = let (G.Point3f cx cy cz) = G.add p $ G.times (-1) seed in
+    toPlane p = let (G.Point3f cx cy cz) = G.add p $ G.times (-1) ptOfPl in
                 case cx*kx+cy*ky+cz*kz of x | abs x <= tolerance -> OnPlane
                                             | x < -tolerance     -> Below
                                             | otherwise          -> Above
@@ -144,7 +149,7 @@ cutModel vm@VoronoiModel{..} p@Plane{..} = VoronoiModel $ updatedFaces |> newFac
     planeNormal = G.Point3f kx ky kz
     newFaceId = S.length faces
     -- find the closest face to cut
-    (firstCutFaceId, _) = closestFaceCenter vm seed
+    (firstCutFaceId, _) = closestSeed vm ptOfPl
     -- cut a face and try to cuts its neighbours
     cuts = doCuts [firstCutFaceId] (singleton firstCutFaceId) []
 
@@ -159,7 +164,7 @@ cutModel vm@VoronoiModel{..} p@Plane{..} = VoronoiModel $ updatedFaces |> newFac
     -- extract the face neighbours
     newFaceNeighbours = removeDups $ concatMap snd newPointsWithLoc
 
-    newFace = Face seed orderedPoints newFaceNeighbours
+    newFace = Face ptOfPl orderedPoints newFaceNeighbours
 
     doCuts [] _ acc = acc
     doCuts (i:ids) visited acc =

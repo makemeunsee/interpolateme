@@ -757,11 +757,12 @@ loadModel global@GlobalState{..} vm = do
   t0 <- get time
   let GLIDs{..} = glids
 
+  let faces = VC.faces vm
   let fc = VC.faceCount vm
 
   t1 <- get time
-  let laby2 = labyrinth2 $ VC.faces vm
-  let laby1 = labyrinth1 $ VC.faces vm
+  let laby2 = labyrinth2 faces
+  let laby1 = labyrinth1 faces
   putStrLn $ "mazes sizes:\t" ++ show (size laby1) ++ "\t" ++ show (size laby2)
   t2 <- get time
   putStrLn $ "laby gen duration:\t" ++ show (t2 - t1)
@@ -784,10 +785,10 @@ loadModel global@GlobalState{..} vm = do
                                  Just (_, pos) -> take ((+) 1 $ (*) 2 $ length $ VC.vertice f) $ repeat $ (1 + fromIntegral pos) / maxL
                                  Nothing       -> take ((+) 1 $ (*) 2 $ length $ VC.vertice f) $ repeat 0
                                in
-                      ( VC.center f : (concatMap (\v -> [G.times 0.5 v, v]) newVs) ++ vs
+                      ( VC.seed f : (concatMap (\v -> [G.times 0.5 v, v]) newVs) ++ vs
                       , (faceIndice (fromIntegral offset) f) ++ is
                       , 1 : (take (2*l) $ repeat 0) ++ cs
-                      , (take (2*l+1) $ repeat $ VC.center f) ++ ns
+                      , (take (2*l+1) $ repeat $ VC.seed f) ++ ns
                       , ms ++ md
                       , offset + 2*l + 1)
                     )
@@ -816,30 +817,30 @@ loadModel global@GlobalState{..} vm = do
                                        Nothing
                                        Nothing
 
---  let pathVertice = labyrinthToPathVertice vs fs laby
---  let pathIndice = labyrinthToPathIndice 0 laby
---  let wallVertice = labyrinthToWallVertice vs fs laby []
---  let (wallIndice, _) = labyrinthToWallIndice 0 fs laby
---
---  newLabyrinthBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) pathVertice)
---                                         pathIndice
---                                         Nothing
---                                         Nothing
---                                         Nothing
---
---  newWallsBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) wallVertice)
---                                     wallIndice
---                                     Nothing
---                                     Nothing
---                                     Nothing
+  let pathVertice = labyrinthToPathVertice faces laby
+  let pathIndice = labyrinthToPathIndice 0 laby
+  let wallVertice = labyrinthToWallVertice faces laby []
+  let (wallIndice, _) = labyrinthToWallIndice 0 (map VC.neighbours $ VC.faceList vm) laby
+
+  newLabyrinthBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) pathVertice)
+                                         pathIndice
+                                         Nothing
+                                         Nothing
+                                         Nothing
+
+  newWallsBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) wallVertice)
+                                     wallIndice
+                                     Nothing
+                                     Nothing
+                                     Nothing
 
   t3 <- get time
   putStrLn $ "load model duration:\t" ++ show (t3 - t0)
 
   let newGlids = glids { objectBuffersInfo = newBuffersInfo
                        , normalsBuffersInfo = newNormalsBuffersInfo
---                       , labyrinthBuffersInfo = newLabyrinthBuffersInfo
---                       , wallsBuffersInfo = newWallsBuffersInfo
+                       , labyrinthBuffersInfo = newLabyrinthBuffersInfo
+                       , wallsBuffersInfo = newWallsBuffersInfo
                        }
 
   return global { glids = newGlids, model = vm }
@@ -858,8 +859,6 @@ generateRndCuts n seed
     (theta, phi, seed') = rndSpherePosition seed
 
 
-tolerance = 0
-
 main :: IO ()
 main = do
 
@@ -875,8 +874,10 @@ main = do
   let altMaze = boolArgument "--a" args
 
   -- seed input
-  let seedStr = strArgument "--s" args
-  let seed = seedForString $ maybe "imullinati" id seedStr
+  let seedStr = maybe "imullinati" id $ strArgument "--s" args
+  let seed = seedForString seedStr
+
+  putStrLn $ "seed:\t" ++ seedStr
 
   let defaultCutCount = 1000
   -- cuts input
@@ -896,7 +897,7 @@ main = do
   t0 <- get time
   let (rndCuts, seed') = generateRndCuts cuts seed
   let rndCutsModel = foldr (\(t,p) m -> applyCut t p m) cuttableModel rndCuts
-  putStrLn $ "Last face center: " ++ (show $ VC.center $ VC.lastFace rndCutsModel)
+  putStrLn $ "Last face seed: " ++ (show $ VC.seed $ VC.lastFace rndCutsModel)
 --  putStrLn "cut\tfaces\tduration"
 --  (rndCutsModel, _) <- foldM (\(m,i) (t,p) -> do
 --                               let m' = applyCut t p m

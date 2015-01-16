@@ -63,7 +63,7 @@ edges FacedModel{..} = concatMap cyclicConsecutivePairs $ fst $ unzip faces
 data Plane f = Plane { kx :: f
                      , ky :: f
                      , kz :: f
-                     , seed :: G.Point3f f }
+                     , ptOfPl :: G.Point3f f }
                deriving (Eq, Show)
 
 
@@ -213,7 +213,7 @@ rawCutData tolerance Plane{..} FacedModel{..} =
       )
       ([],-1)
       vertice
-    toPlane p = let (G.Point3f cx cy cz) = G.add p $ G.times (-1) seed in
+    toPlane p = let (G.Point3f cx cy cz) = G.add p $ G.times (-1) ptOfPl in
                 cx*kx+cy*ky+cz*kz
 
 
@@ -252,7 +252,7 @@ intersectPlaneAndSegment tolerance Plane{..} (p0, p1) =
     Just $ G.add p0' $ G.times at v
   where (p0'@(G.Point3f x0 y0 z0), p1'@(G.Point3f x1 y1 z1)) = orderPoints p0 p1
         v@(G.Point3f dx dy dz) = G.add p1' $ G.times (-1) p0' -- p0p1 vector
-        G.Point3f sx sy sz = seed
+        G.Point3f sx sy sz = ptOfPl
         k = kx*dx + ky*dy + kz*dz
         at = (kx*(sx-x0) + ky*(sy-y0) + kz*(sz-z0)) / k
         l = G.norm v
