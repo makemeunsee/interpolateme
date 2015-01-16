@@ -149,7 +149,8 @@ cutModel vm@VoronoiModel{..} p@Plane{..} = VoronoiModel $ updatedFaces |> newFac
     -- cut a face and try to cuts its neighbours
     cuts = doCuts [firstCutFaceId] (singleton firstCutFaceId) []
 
-    updatedFaces = foldr (\(i, f, _) fs -> S.adjust (\_ -> f) i fs) faces cuts
+    uFaces = map (\(i,f,_) -> (i,f)) cuts
+    updatedFaces = foldr (\(i, f) fs -> S.adjust (\_ -> f) i fs) faces (cleanNeighbours uFaces)
 
     -- extract points of the new face, order them properly
     newPoints = foldr (\(i,_,pts) allPts -> map (\p -> (p,i)) pts ++ allPts) [] cuts
@@ -193,3 +194,23 @@ chain ((p,ids):r) = (p, ids) : (chain newR)
            else
              left ++ right
     (left, right) = partition (\(_,ids') -> (==) 1 $ length $ intersection ids ids') r
+
+
+cleanNeighbours [] = []
+cleanNeighbours ((i,f):fs) = cleanedF : cleanNeighbours cleanedFs
+  where
+    (cleanedF, cleanedFs) = foldr (\(i'',f'') ((i',f'), fs') ->
+                                    let ns' = neighbours f' in
+                                    let vs' = vertice f' in
+                                    let ns'' = neighbours f'' in
+                                    let vs'' = vertice f'' in
+                                    if elem i'' ns' then
+                                      if any (\v -> elem v vs'') vs' then
+                                        ((i',f'), (i'',f'') : fs' )
+                                      else
+                                        ( (i', f' { neighbours = filter (/=i'') ns' })
+                                        , (i'', f'' { neighbours = filter (/=i') ns'' }) : fs'
+                                        )
+                                    else
+                                      ((i',f'), (i'',f'') : fs' )
+                                  ) ((i,f), []) fs

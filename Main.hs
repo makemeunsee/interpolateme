@@ -783,7 +783,7 @@ loadModel global@GlobalState{..} vm = do
                                  Nothing       -> take ((+) 1 $ length $ VC.vertice f) $ repeat 0
                                in
                       ( VC.center f : (reverse newVs) ++ vs
-                      , (reverse $ faceIndice (fromIntegral offset) f) ++ is
+                      , (reverse $ faceIndice (fromIntegral offset) f) ++ is -- TODO no reverse here
                       , 1 : (take l $ repeat 0) ++ cs
                       , (take (l+1) $ repeat $ VC.center f) ++ ns
                       , ms ++ md
