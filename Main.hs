@@ -52,6 +52,7 @@ import Data.Vec (Mat44, Vec4, multmv, identity)
 import Data.List (findIndices, elem, find)
 import Data.List.Split (splitOn)
 import Data.Maybe (fromJust)
+import qualified Data.Sequence as S
 
 import qualified Random.MWC.Pure as RND
 
@@ -382,7 +383,7 @@ render t drawSolid drawNormals drawLabyrinth drawWalls depthRender mvp glids@GLI
       uniform colLoc $= GL.Color4 0 0 0 (1 :: GLfloat)
       uniform bColLoc $= GL.Color4 0 0 0 (1 :: GLfloat)
 
-  uniform borderWidthLoc $= GL.Index1 (1.2 :: GLfloat)
+  uniform borderWidthLoc $= GL.Index1 (0.8 :: GLfloat)
 
   -- bind attributes
   bindGeometry shaderInfo objectBuffersInfo
@@ -744,26 +745,26 @@ strArgument arg args = listToMaybe $ drop 1 $ dropWhile (/= arg) args
 faceIndice :: Integral a => a -> VC.Face b -> [a]
 faceIndice offset f =
   let l = length $ VC.vertice f in
-  let centerIndex = offset + fromIntegral l in
-  let verticeIndice = map (\i -> offset+i) $ take l [0..] in
+  let centerIndex = 2 * fromIntegral l in
+  let verticeIndice = take l [0..] in
   let idPairs = cyclicConsecutivePairs verticeIndice in
-  concatMap (\(i,j) -> [centerIndex, j, i]) idPairs
+  concatMap (\(i,j) -> map (offset+) [centerIndex, 2*j, 2*i, 2*i, 2*j, 2*j+1, 2*i, 2*j+1, 2*i+1]) idPairs
 
 
 loadModel :: GlobalState -> VC.VoronoiModel GLfloat -> IO GlobalState
 loadModel global@GlobalState{..} vm = do
+
+  t0 <- get time
   let GLIDs{..} = glids
 
   let fc = VC.faceCount vm
-  let faces = VC.faceList vm
-  let neighbours = map VC.neighbours faces
 
-  t0 <- get time
-  let laby2 = labyrinth2 neighbours
-  let laby1 = labyrinth1 neighbours
-  putStrLn $ "mazes sizes:\t" ++ show (size laby1) ++ "\t" ++ show (size laby2)
   t1 <- get time
-  putStrLn $ "laby gen duration:\t" ++ show (t1 - t0)
+  let laby2 = labyrinth2 $ VC.faces vm
+  let laby1 = labyrinth1 $ VC.faces vm
+  putStrLn $ "mazes sizes:\t" ++ show (size laby1) ++ "\t" ++ show (size laby2)
+  t2 <- get time
+  putStrLn $ "laby gen duration:\t" ++ show (t2 - t1)
 
 
   let laby = if altLaby then laby2 else laby1
@@ -775,22 +776,23 @@ loadModel global@GlobalState{..} vm = do
        , reversedCenters
        , reversedNormals
        , mazeData
-       , _) = foldr (\(i, f) (vs, is, cs, ns, md, offset) ->
+       , _) = foldr (\i (vs, is, cs, ns, md, offset) ->
+                      let f = S.index (VC.faces vm) i in
                       let newVs = VC.vertice f in
                       let l = length newVs in
                       let ms = case find (\(j,_) -> i == j) $ depthMap laby of
-                                 Just (_, pos) -> take ((+) 1 $ length $ VC.vertice f) $ repeat $ (1 + fromIntegral pos) / maxL
-                                 Nothing       -> take ((+) 1 $ length $ VC.vertice f) $ repeat 0
+                                 Just (_, pos) -> take ((+) 1 $ (*) 2 $ length $ VC.vertice f) $ repeat $ (1 + fromIntegral pos) / maxL
+                                 Nothing       -> take ((+) 1 $ (*) 2 $ length $ VC.vertice f) $ repeat 0
                                in
-                      ( VC.center f : newVs ++ vs
+                      ( VC.center f : (concatMap (\v -> [G.times 0.5 v, v]) newVs) ++ vs
                       , (faceIndice (fromIntegral offset) f) ++ is
-                      , 1 : (take l $ repeat 0) ++ cs
-                      , (take (l+1) $ repeat $ VC.center f) ++ ns
+                      , 1 : (take (2*l) $ repeat 0) ++ cs
+                      , (take (2*l+1) $ repeat $ VC.center f) ++ ns
                       , ms ++ md
-                      , offset + l + 1)
+                      , offset + 2*l + 1)
                     )
                     ([], [], [], [], [], 0)
-                    $ zip [0..] faces
+                    $ take fc [0..]
 
   -- clean gl buffers and recreate them with proper data
   cleanBuffers objectBuffersInfo
@@ -830,6 +832,9 @@ loadModel global@GlobalState{..} vm = do
 --                                     Nothing
 --                                     Nothing
 --                                     Nothing
+
+  t3 <- get time
+  putStrLn $ "load model duration:\t" ++ show (t3 - t0)
 
   let newGlids = glids { objectBuffersInfo = newBuffersInfo
                        , normalsBuffersInfo = newNormalsBuffersInfo
@@ -888,23 +893,24 @@ main = do
 
   let cuttableModel = VC.fromModel icosahedron
 
-  putStrLn "cut\tfaces\tduration"
   t0 <- get time
   let (rndCuts, seed') = generateRndCuts cuts seed
-  (rndCutsModel, _) <- foldM (\(m,i) (t,p) -> do
-                               let m' = applyCut t p m
-                               putStr $ show i
-                               t0 <- get time
-                               putStr $ "\t" ++ (show $ VC.center $ VC.lastFace m') ++ "\t"
-                               t1 <- get time
-                               putStrLn $ show $ t1-t0
-                               return (m', i+1)
-                             )
-                             (cuttableModel, 0)
-                             rndCuts
+  let rndCutsModel = foldr (\(t,p) m -> applyCut t p m) cuttableModel rndCuts
+  putStrLn $ "Last face center: " ++ (show $ VC.center $ VC.lastFace rndCutsModel)
+--  putStrLn "cut\tfaces\tduration"
+--  (rndCutsModel, _) <- foldM (\(m,i) (t,p) -> do
+--                               let m' = applyCut t p m
+--                               putStr $ show i
+--                               t0 <- get time
+--                               putStr $ "\t" ++ (show $ VC.center $ VC.lastFace m') ++ "\t"
+--                               t1 <- get time
+--                               putStrLn $ show $ t1-t0
+--                               return (m', i+1)
+--                             )
+--                             (cuttableModel, 0)
+--                             rndCuts
   t1 <- get time
-  putStr "Truncation duration: "
-  putStrLn $ show (t1 - t0)
+  putStrLn $ "Truncation duration: " ++ show (t1 - t0)
 
   fullscreenMode <- get GLFW.desktopMode
 
