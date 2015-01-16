@@ -36,3 +36,10 @@ main = hspec $ do
       cyclicRemoveConsecutiveDuplicates [0,0,1,2,2] `shouldBe` [0,1,2]
       cyclicRemoveConsecutiveDuplicates [0,1,2,0] `shouldBe` [0,1,2]
       cyclicRemoveConsecutiveDuplicates [0,0,0,0,0,1,1,1,1,2,2,2,2,3,4,5,1,1,0,0,0] `shouldBe` [0,1,2,3,4,5,1]
+
+  describe "associate" $ do
+    it "should associate b's to a's" $ do
+      associate [] `shouldBe` ([] :: [(Int, [Int])])
+      associate [(0,1)] `shouldBe` [(0, [1])]
+      associate [(0,1), (0,2)] `shouldBe` [(0, [1,2])]
+      associate [(0,1), (2,3)] `shouldBe` [(0, [1]), (2, [3])]

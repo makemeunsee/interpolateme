@@ -1,6 +1,9 @@
 module ListUtil where
 
 
+import Data.List (partition)
+
+
 -- chop down a list into sublists of size n
 chop :: Int -> [a] -> [[a]]
 chop _ [] = []
@@ -30,6 +33,14 @@ cyclicRemoveConsecutiveDuplicates xs =
     cleaned = rec xs
     rec [] = []
     rec (x:xs) = x : (rec $ dropWhile (x==) xs)
+
+
+-- group all b's by a's
+associate :: Eq a => [(a, b)] -> [(a, [b])]
+associate [] = []
+associate ((x, i):r) = (x, i : map (\(_, j) -> j) xs) : associate nonXs
+  where
+    (xs, nonXs) = partition (\(y, _) -> x == y) r
 
 
 -- flatten a list of lists, only keeping distinct elements.
