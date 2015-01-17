@@ -143,7 +143,7 @@ cutFace newFaceId f@Face{..} pl@Plane{..} =
                                             | otherwise          -> Above
 
 
-cutModel :: (RealFloat a, Show a) => VoronoiModel a -> Plane a -> VoronoiModel a
+cutModel :: RealFloat a => VoronoiModel a -> Plane a -> VoronoiModel a
 cutModel vm@VoronoiModel{..} p@Plane{..} = VoronoiModel $ updatedFaces |> newFace
   where
     planeNormal = G.Point3f kx ky kz
@@ -209,7 +209,7 @@ cleanNeighbours ((i,f):fs) = cleanedF : cleanNeighbours cleanedFs
                                     let ns'' = neighbours f'' in
                                     let vs'' = vertice f'' in
                                     if elem i'' ns' then
-                                      if any (\v -> elem v vs'') vs' then
+                                      if (<=) 2 $ length $ filter (\v -> elem v vs'') vs' then
                                         ((i',f'), (i'',f'') : fs' )
                                       else
                                         ( (i', f' { neighbours = filter (/=i'') ns' })
