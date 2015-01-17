@@ -53,6 +53,7 @@ import Data.List (findIndices, elem, find)
 import Data.List.Split (splitOn)
 import Data.Maybe (fromJust)
 import qualified Data.Sequence as S
+import qualified Data.Foldable as F
 
 import qualified Random.MWC.Pure as RND
 
@@ -896,21 +897,23 @@ main = do
 
   t0 <- get time
   let (rndCuts, seed') = generateRndCuts cuts seed
-  let rndCutsModel = foldr (\(t,p) m -> applyCut t p m) cuttableModel rndCuts
-  putStrLn $ "Last face seed: " ++ (show $ VC.seed $ VC.lastFace rndCutsModel)
+  putStrLn $ "cuts:\t" ++ show cuts
+  let rndCutsModel = foldr (\(t,p) m  -> applyCut t p m) cuttableModel $ reverse rndCuts
+  putStrLn $ "last face seed:\t" ++ (show $ VC.seed $ VC.lastFace rndCutsModel)
 --  putStrLn "cut\tfaces\tduration"
---  (rndCutsModel, _) <- foldM (\(m,i) (t,p) -> do
---                               let m' = applyCut t p m
---                               putStr $ show i
---                               t0 <- get time
---                               putStr $ "\t" ++ (show $ VC.center $ VC.lastFace m') ++ "\t"
---                               t1 <- get time
---                               putStrLn $ show $ t1-t0
---                               return (m', i+1)
---                             )
---                             (cuttableModel, 0)
---                             rndCuts
+--  (rndCutsModel, _) <- F.foldrM (\(t,p) (m,i)  -> do
+--                                  putStr $ show i
+--                                  t0 <- get time
+--                                  let m' = applyCut t p m
+--                                  putStr $ "\t" ++ (show $ VC.faceCount m') ++ "\t"
+--                                  t1 <- get time
+--                                  putStrLn $ show $ t1-t0
+--                                  return (m', i+1)
+--                                )
+--                                (cuttableModel, 0)
+--                                $ reverse rndCuts
   t1 <- get time
+  putStrLn $ "topology:\t" ++ (show $ map VC.neighbours $ VC.faceList rndCutsModel)
   putStrLn $ "Truncation duration: " ++ show (t1 - t0)
 
   fullscreenMode <- get GLFW.desktopMode
