@@ -5,6 +5,7 @@ import Test.Hspec
 import Labyrinth
 import FloretSphere (cube, tetrahedron)
 import Geometry
+import VoronoiCut
 
 main :: IO ()
 main = hspec $ do
@@ -14,6 +15,9 @@ main = hspec $ do
   let laby3 = Node 3 [Node 4 [Leaf 2]]
 
   let cubeLaby = Node 0 [Node 2 [Leaf 1], Leaf 4, Leaf 3, Leaf 5]
+
+  let cubeVM = fromModel cube
+  let cubeFaces = VoronoiCut.faces cubeVM
 
   describe "labyrinth size" $ do
     it "should work" $ do
@@ -33,11 +37,11 @@ main = hspec $ do
 
   describe "labyrinth to path vertice" $ do
     it "should work" $ do
-      labyrinthToPathVertice (vertice cube) (faces cube) laby0 `shouldBe` [Point3f 0 1 0]
-      labyrinthToPathVertice (vertice cube) (faces cube) laby1 `shouldBe` [Point3f 0 (-1) 0, Point3f 1 (-1) 0, Point3f 1 0 0]
-      labyrinthToPathVertice (vertice cube) (faces cube) laby2 `shouldBe` [Point3f 1 0 0,Point3f 1 0 (-1),Point3f 0 0 (-1),Point3f 1 0 1,Point3f 0 0 1]
-      labyrinthToPathVertice (vertice cube) (faces cube) laby3 `shouldBe` [Point3f (-1) 0 0,Point3f (-1) 0 1,Point3f 0 0 1,Point3f 1 0 1,Point3f 1 0 0]
-      labyrinthToPathVertice (vertice cube) (faces cube) cubeLaby `shouldBe` [Point3f 0 1 0,Point3f 1 1 0,Point3f 1 0 0,Point3f 1 (-1) 0,Point3f 0 (-1) 0,Point3f 0 1 1,Point3f 0 0 1,Point3f (-1) 1 0,Point3f (-1) 0 0,Point3f 0 1 (-1),Point3f 0 0 (-1)]
+      labyrinthToPathVertice cubeFaces laby0 `shouldBe` [Point3f 0 1 0]
+      labyrinthToPathVertice cubeFaces laby1 `shouldBe` [Point3f 0 (-1) 0, Point3f 1 (-1) 0, Point3f 1 0 0]
+      labyrinthToPathVertice cubeFaces laby2 `shouldBe` [Point3f 1 0 0,Point3f 1 0 (-1),Point3f 0 0 (-1),Point3f 1 0 1,Point3f 0 0 1]
+      labyrinthToPathVertice cubeFaces laby3 `shouldBe` [Point3f (-1) 0 0,Point3f (-1) 0 1,Point3f 0 0 1,Point3f 1 0 1,Point3f 1 0 0]
+      labyrinthToPathVertice cubeFaces cubeLaby `shouldBe` [Point3f 0 1 0,Point3f 1 1 0,Point3f 1 0 0,Point3f 1 (-1) 0,Point3f 0 (-1) 0,Point3f 0 1 1,Point3f 0 0 1,Point3f (-1) 1 0,Point3f (-1) 0 0,Point3f 0 1 (-1),Point3f 0 0 (-1)]
 
   describe "labyrinth to path indice" $ do
     it "should work" $ do
@@ -49,9 +53,9 @@ main = hspec $ do
 
   describe "labyrinth to wall vertice" $ do
     it "should work" $ do
-      labyrinthToWallVertice (vertice cube) (faces cube) laby0 [] `shouldBe` [Point3f 1.0 1.0 1.0,Point3f 1.0 1.0 (-1.0),Point3f 1.0 1.0 (-1.0),Point3f (-1.0) 1.0 (-1.0),Point3f (-1.0) 1.0 (-1.0),Point3f (-1.0) 1.0 1.0,Point3f (-1.0) 1.0 1.0,Point3f 1.0 1.0 1.0]
+      labyrinthToWallVertice cubeFaces laby0 [] `shouldBe` [Point3f 1.0 1.0 1.0,Point3f 1.0 1.0 (-1.0),Point3f 1.0 1.0 (-1.0),Point3f (-1.0) 1.0 (-1.0),Point3f (-1.0) 1.0 (-1.0),Point3f (-1.0) 1.0 1.0,Point3f (-1.0) 1.0 1.0,Point3f 1.0 1.0 1.0]
 
   describe "labyrinth to wall indice" $ do
     it "should work" $ do
-      labyrinthToWallIndice 0 (faces cube) laby0 `shouldBe` ([0,1,2,3,4,5,6,7], 8)
+      labyrinthToWallIndice 0 (map neighbours $ faceList cubeVM) laby0 `shouldBe` ([0,1,2,3,4,5,6,7], 8)
 
