@@ -762,14 +762,14 @@ loadModel global@GlobalState{..} vm = do
   let fc = VC.faceCount vm
 
   t1 <- get time
-  let laby2 = labyrinth2 faces
+--  let laby2 = labyrinth2 faces
   let laby1 = labyrinth1 faces
-  putStrLn $ "mazes sizes:\t" ++ show (size laby1) ++ "\t" ++ show (size laby2)
+  putStrLn $ "mazes sizes:\t" ++ show (size laby1) -- ++ "\t" ++ show (size laby2)
   t2 <- get time
   putStrLn $ "laby gen duration:\t" ++ show (t2 - t1)
 
 
-  let laby = if altLaby then laby2 else laby1
+  let laby = laby1 -- if altLaby then laby2 else laby1
   let maxL = fromIntegral $ longestBranch laby
 
   -- voronoi model to intermediate buffers
@@ -786,7 +786,7 @@ loadModel global@GlobalState{..} vm = do
                                  Just (_, pos) -> take ((+) 1 $ (*) 2 $ length $ VC.vertice f) $ repeat $ (1 + fromIntegral pos) / maxL
                                  Nothing       -> take ((+) 1 $ (*) 2 $ length $ VC.vertice f) $ repeat 0
                                in
-                      ( VC.seed f : (concatMap (\v -> [G.times 0.5 v, v]) newVs) ++ vs
+                      ( VC.barycenter f : (concatMap (\v -> [G.times 0.5 v, v]) newVs) ++ vs
                       , (faceIndice (fromIntegral offset) f) ++ is
                       , 1 : (take (2*l) $ repeat 0) ++ cs
                       , (take (2*l+1) $ repeat $ VC.seed f) ++ ns
