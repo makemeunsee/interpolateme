@@ -158,6 +158,27 @@ function appMain() {
     $("#depthMaze").click(depthMazeFct);
     $('#depthMaze').attr('checked', false);
 
+    var showMazePath = false;
+    function showMazePathFct() {
+        showMazePath = !showMazePath;
+    }
+    $("#showMazePath").unbind("click");
+    $("#showMazePath").click(showMazePathFct);
+    $('#showMazePath').attr('checked', false);
+
+    var showSolid = true;
+    function showSolidFct() {
+        showSolid = !showSolid;
+        if (!showSolid) {
+            $('#depthMaze').attr('disabled', true);
+        } else {
+            $('#depthMaze').attr('disabled', false);
+        }
+    }
+    $("#showSolid").unbind("click");
+    $("#showSolid").click(showSolidFct);
+    $('#showSolid').attr('checked', true);
+
     function showHelp() {
         if ( $( "#dialog" ).dialog( "isOpen" ) )
             $( "#dialog" ).dialog( "close" );
@@ -186,8 +207,9 @@ function appMain() {
         var now = Date.now();
 
         var oldMesh = currentMesh;
-//        var oldPathMesh = currentPathMesh;
+        var oldPathMesh = currentPathMesh;
         scene.remove( oldMesh );
+        scene.remove( oldPathMesh );
 
         console.log("Killing old mesh:", Date.now() - now);
 
@@ -216,19 +238,19 @@ function appMain() {
 
         mazeData = Haste.toMazeData ( baseModel, maze );
         flatModel = modelFromRaw ( Haste.toFlatModel ( baseModel ), mazeData );
-//        mazeModel = modelFromRaw ( Haste.mazeVerticeAndIds ( baseModel, maze ) );
+        mazeModel = modelFromRaw ( Haste.mazeVerticeAndIds ( baseModel, maze ) );
         currentMesh = makeMesh ( flatModel );
-//        currentPathMesh = makeMesh( mazeModel );
+        currentPathMesh = makeMesh( mazeModel );
         console.log("To mesh:", Date.now() - now2);
 
         oldMesh.geometry.dispose();
-//        oldPathMesh.geometry.dispose();
+        oldPathMesh.geometry.dispose();
         oldMesh.material.dispose();
-//        oldPathMesh.material.dispose();
+        oldPathMesh.material.dispose();
 
         var now3 = Date.now();
         scene.add( currentMesh );
-//        scene.add( currentPathMesh );
+        scene.add( currentPathMesh );
         console.log("To scene:", Date.now() - now3);
 
         console.log("64 cuts:", Date.now() - now);
@@ -241,7 +263,7 @@ function appMain() {
     var maze = Haste.toMaze ( baseModel );
     var mazeData = Haste.toMazeData ( baseModel, maze );
     var flatModel = modelFromRaw ( Haste.toFlatModel ( baseModel ), mazeData );
-//    var mazeModel = modelFromRaw ( Haste.mazeVerticeAndIds ( baseModel, maze ) );
+    var mazeModel = modelFromRaw ( Haste.mazeVerticeAndIds ( baseModel, maze ) );
 
     var zoomMax = 16;
     var zoomMin = 0.0625;
@@ -281,7 +303,7 @@ function appMain() {
     updateProjection(window.innerWidth, window.innerHeight);
 
     var currentMesh =  makeMesh( flatModel );
-//    var currentPathMesh = makeMesh( mazeModel );
+    var currentPathMesh = makeMesh( mazeModel );
 
     var mainContainer = document.getElementById( 'main' );
 
@@ -300,7 +322,7 @@ function appMain() {
     mainContainer.appendChild( canvas );
 
     scene.add( currentMesh );
-//    scene.add( currentPathMesh );
+    scene.add( currentPathMesh );
 
     function leftButton(evt) {
         var button = evt.which || evt.button;
@@ -456,7 +478,7 @@ function appMain() {
 //        var now = Date.now();
 //        var dt = now - then;
 
-        if ( depthMaze ) {
+        if ( showSolid && depthMaze ) {
             currentMesh.material.uniforms.u_allowDepth.value = 1.0;
         } else {
             currentMesh.material.uniforms.u_allowDepth.value = 0.0;
@@ -464,12 +486,23 @@ function appMain() {
         currentMesh.material.uniforms.u_time.value = simTime;
         currentMesh.material.uniforms.u_borderWidth.value = 1.0;
         currentMesh.material.uniforms.u_mvpMat.value = mvp;
-        currentMesh.material.uniforms.u_color.value = new THREE.Vector4(1,1,1,1);
-        currentMesh.material.uniforms.u_borderColor.value = new THREE.Vector4(0.05,0.05,0.05,1);
+        if ( showSolid ) {
+            currentMesh.material.uniforms.u_color.value = new THREE.Vector4(1,1,1,1);
+            currentMesh.material.uniforms.u_borderColor.value = new THREE.Vector4(0.05,0.05,0.05,1);
+        } else {
+            currentMesh.material.uniforms.u_color.value = new THREE.Vector4(0,0,0,1);
+            currentMesh.material.uniforms.u_borderColor.value = new THREE.Vector4(0,0,0,1);
+        }
 
-//        currentPathMesh.material.uniforms.u_mvpMat.value = mvp;
-//        currentPathMesh.material.uniforms.u_color.value = new THREE.Vector4(1,0,0,1);
-//        currentPathMesh.material.uniforms.u_borderColor.value = new THREE.Vector4(1,0,0,1);
+        if ( showMazePath ) {
+            scene.add( currentPathMesh );
+            currentPathMesh.material.uniforms.u_borderWidth.value = 0.0;
+            currentPathMesh.material.uniforms.u_mvpMat.value = mvp;
+            currentPathMesh.material.uniforms.u_color.value = new THREE.Vector4(1,0,0,1);
+            currentPathMesh.material.uniforms.u_borderColor.value = new THREE.Vector4(1,0,0,1);
+        } else {
+            scene.remove( currentPathMesh );
+        }
 
         renderer.render(scene, dummyCam);
 

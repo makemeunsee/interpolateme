@@ -38,7 +38,7 @@ toMazeData :: Opaque (VC.VoronoiModel Float) -> Opaque (Labyrinth Int) -> IO [Fl
 toMazeData o_model o_laby = return $ mazeData (fromOpaque o_laby) (fromOpaque o_model)
 
 mazeVerticeAndIds :: Opaque (VC.VoronoiModel Float) -> Opaque (Labyrinth Int) -> IO ([Float], [Int])
-mazeVerticeAndIds o_model o_laby = return ( concatMap G.pointToArr $ labyrinthToPathVertice (VC.faces $ fromOpaque o_model) (fromOpaque o_laby)
+mazeVerticeAndIds o_model o_laby = return ( map (1.005 *) $ concatMap G.pointToArr $ labyrinthToPathVertice (VC.faces $ fromOpaque o_model) (fromOpaque o_laby)
                                           , labyrinthToPathIndice 0 $ fromOpaque o_laby)
 
 updateViewMat :: Float -> Float -> Float -> IO [Float]
