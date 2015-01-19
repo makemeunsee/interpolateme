@@ -3,7 +3,7 @@ interpolateme
 
 Voronoi tessellation of a sphere <=> truncating regular polyhedras with planes tangent to inscribed sphere.
 
-[Web demo](http://www.jollycyb.org/haskell_truncate/)
+[Web demo](http://www.jollycyb.org/haskell_maze/)
 
 [Video demo 1](https://www.youtube.com/watch?v=SFVgltKpxSA)
 
@@ -28,14 +28,14 @@ Features
 * View control: drag the mouse to rotate the view, use the mouse wheel to zoom.
 * SPACE: truncate the model, keeping what's beyond the cutting plane.
 * TAB: show/hide the cutting plane.
-* C: apply 50 random cuts in a row. Warning: CPU heavy on already high poly objects.
+* C: apply 50 random cuts in a row.
 * N: show/hide face normals (originating from face centers).
 * L: show/hide maze path.
 * W: show/hide maze walls.
 * S: show/hide model.
 * D: toggle maze depth.
 * ESC or Q to exit.
-* Web demo (no maze support yet): open web/index.html after compiling to JS with:
+* Web demo (slow, unstable at least on Firefox): open web/index.html after compiling to JS with:
 
 ``hastec '--start=$HASTE_MAIN(); appMain();' --with-js=web/js/app.js MainJs.hs -o web/js/appHaste.js``
 
