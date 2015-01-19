@@ -743,15 +743,6 @@ strArgument :: String -> [String] -> Maybe String
 strArgument arg args = listToMaybe $ drop 1 $ dropWhile (/= arg) args
 
 
-faceIndice :: Integral a => a -> VC.Face b -> [a]
-faceIndice offset f =
-  let l = length $ VC.vertice f in
-  let centerIndex = 2 * fromIntegral l in
-  let verticeIndice = take l [0..] in
-  let idPairs = cyclicConsecutivePairs verticeIndice in
-  concatMap (\(i,j) -> map (offset+) [centerIndex, 2*j, 2*i, 2*i, 2*j, 2*j+1, 2*i, 2*j+1, 2*i+1]) idPairs
-
-
 loadModel :: GlobalState -> VC.VoronoiModel GLfloat -> IO GlobalState
 loadModel global@GlobalState{..} vm = do
 
@@ -762,39 +753,15 @@ loadModel global@GlobalState{..} vm = do
   let fc = VC.faceCount vm
 
   t1 <- get time
---  let laby2 = labyrinth2 faces
+  let laby2 = labyrinth2 faces
   let laby1 = labyrinth1 faces
-  putStrLn $ "mazes sizes:\t" ++ show (size laby1) -- ++ "\t" ++ show (size laby2)
+  let laby = if altLaby then laby2 else laby1
+  putStrLn $ "mazes sizes:\t" ++ show (size laby)
   t2 <- get time
   putStrLn $ "laby gen duration:\t" ++ show (t2 - t1)
 
-
-  let laby = laby1 -- if altLaby then laby2 else laby1
-  let maxL = fromIntegral $ longestBranch laby
-
-  -- voronoi model to intermediate buffers
-  let (  reversedVs
-       , ids
-       , reversedCenters
-       , reversedNormals
-       , mazeData
-       , _) = foldr (\i (vs, is, cs, ns, md, offset) ->
-                      let f = S.index (VC.faces vm) i in
-                      let newVs = VC.vertice f in
-                      let l = length newVs in
-                      let ms = case find (\(j,_) -> i == j) $ depthMap laby of
-                                 Just (_, pos) -> take ((+) 1 $ (*) 2 $ length $ VC.vertice f) $ repeat $ (1 + fromIntegral pos) / maxL
-                                 Nothing       -> take ((+) 1 $ (*) 2 $ length $ VC.vertice f) $ repeat 0
-                               in
-                      ( VC.barycenter f : (concatMap (\v -> [G.times 0.5 v, v]) newVs) ++ vs
-                      , (faceIndice (fromIntegral offset) f) ++ is
-                      , 1 : (take (2*l) $ repeat 0) ++ cs
-                      , (take (2*l+1) $ repeat $ VC.seed f) ++ ns
-                      , ms ++ md
-                      , offset + 2*l + 1)
-                    )
-                    ([], [], [], [], [], 0)
-                    $ take fc [0..]
+  let mazeBuffer = mazeData laby vm
+  let (vertexBuffer, ids, centerBuffer, normalBuffer) = VC.toBufferData vm
 
   -- clean gl buffers and recreate them with proper data
   cleanBuffers objectBuffersInfo
@@ -802,11 +769,11 @@ loadModel global@GlobalState{..} vm = do
   cleanBuffers labyrinthBuffersInfo
   cleanBuffers wallsBuffersInfo
 
-  newBuffersInfo <- loadBuffers (concatMap G.pointToArr $ reverse reversedVs)
+  newBuffersInfo <- loadBuffers (concatMap G.pointToArr vertexBuffer)
                                 ids
-                                (Just $ concatMap G.pointToArr $ reverse reversedNormals)
-                                (Just $ reverse reversedCenters)
-                                (Just $ reverse mazeData)
+                                (Just $ concatMap G.pointToArr normalBuffer)
+                                (Just centerBuffer)
+                                (Just mazeBuffer)
 
   let faceCenters = VC.normals vm -- on the unit sphere so they're normalized too
   let verticeOfNormalsBuffer = concatMap (\(G.Point3f cx cy cz) ->

@@ -17,14 +17,11 @@
   <body>
     <div id="dialog" title="Keeping the mask on">
       <p>Click and drag to interact.</p>
-      <p>'Cut' truncates the object using the cutting plane.</p>
-      <p>'Random cuts' truncates randomly 10 times.</p>
+      <p>'Random cuts' truncates randomly 256 times.</p>
       <p>Scroll / pinch to adjust object position to the cutting plane.</p>
-      <p>Double click / tap to cut.</p>
     </div>
     <div id="gui" class="gui-container">
         <div>
-            <button id="cut">cut</button>
             <button id="rndCuts">random cuts</button>
             <button id="screenshot">screenshot</button>
             <button id="fullscreen">fullscreen</button>
@@ -32,12 +29,12 @@
         </div>
         <div>
             <br/>
-            <input type="checkbox" id="showPlane"><label id="showPlaneLabel" for="showPlane">Hide cut plane</label>
+            <input type="checkbox" id="depthMaze"><label id="depthMazeLabel" for="depthMaze">Depth maze</label>
         </div>
     </div>
     <div id="main"></div>
     
-    <script type="text/javascript" src="http://cdnjs.cloudflare.com/ajax/libs/three.js/r69/three.js"></script>
+    <script type="text/javascript" src="http://cdnjs.cloudflare.com/ajax/libs/three.js/r70/three.js"></script>
     <script type="text/javascript" src="js/lib/threex.windowresize.js"></script>
     <script type="text/javascript" src="js/lib/THREEx.FullScreen.js"></script>
     <script id="shader-fs" type="x-shader/x-fragment">#ifdef GL_ES
@@ -46,10 +43,11 @@
 
 uniform vec4 u_color;
 uniform vec4 u_borderColor;
-
 uniform float u_borderWidth;
+uniform float u_allowDepth;
 
 varying float v_centerFlag;
+varying float v_mazeDepth;
 
 float edgeFactor(const float thickness, const float centerFlag)
 {
@@ -62,28 +60,42 @@ float edgeFactor(const float thickness, const float centerFlag)
 void main()
 {
     float f = edgeFactor(u_borderWidth, v_centerFlag);
-    gl_FragColor = mix(
-        u_borderColor,
-        u_color,
-        f
+    float g = 1.0;
+    if (u_allowDepth > 0.0) {
+        g = 0.1 + 0.9 * (1.0 - v_mazeDepth);
+    }
+    gl_FragColor = vec4 (
+        g * mix(
+            u_borderColor,
+            u_color,
+            f).rgb,
+        1.0
     );
-    // gl_FragColor = vec4(v_barycentrics, 1.0); // barycentrics debug render
 }</script>
     <script id="shader-vs" type="x-shader/x-vertex">#ifdef GL_ES
 #extension GL_OES_standard_derivatives : enable
 #endif
+
 attribute float a_centerFlag;
 attribute vec3 a_normal;
-uniform mat4 u_mvpMat;
+attribute float a_mazeDepth;
 
+uniform mat4 u_mvpMat;
+uniform float u_allowDepth;
 uniform float u_time;
 
 varying float v_centerFlag;
+varying float v_mazeDepth;
 
 void main()
 {
-    gl_Position = u_mvpMat * vec4(position, 1.0);
+    float d = 0.0;
+    if (u_allowDepth > 0.0) {
+        d = - a_mazeDepth / 10.0;
+    }
+    gl_Position = u_mvpMat * vec4((1.0+d) * position, 1.0);
     v_centerFlag = a_centerFlag;
+    v_mazeDepth = a_mazeDepth;
 }</script>
     <script type="text/javascript" src="http://cdnjs.cloudflare.com/ajax/libs/seedrandom/2.3.10/seedrandom.min.js"></script>
     <script type="text/javascript" src="http://hammerjs.github.io/dist/hammer.min.js"></script>

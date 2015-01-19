@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 module Labyrinth
 
 where
@@ -105,6 +106,25 @@ labyrinth1 topo
         (Leaf i, visited')
       else
         (Node i subnodes, visited')
+
+
+mazeData :: RealFloat a => Labyrinth Int -> VoronoiModel a -> [a]
+mazeData laby vm@VoronoiModel{..} = reverse $ foldr (\i md ->
+                                     let f = S.index faces i in
+                                     let ms = case L.find (\(j,_) -> i == j) dm of
+                                                Just (_, pos) -> take ((+) 1 $ (*) 2 $ length $ vertice f) $ repeat $ (1 + maxL - fromIntegral pos) / maxL -- dToHalf pos
+                                                Nothing       -> take ((+) 1 $ (*) 2 $ length $ vertice f) $ repeat 0
+                                                in
+                                     ms ++ md
+                                     )
+                                     []
+                                     $ take fc [0..]
+  where
+    dm = depthMap laby
+    fc = faceCount vm
+    maxL = fromIntegral $ longestBranch laby
+    halfL = maxL / 2
+    dToHalf x = abs $ ((fromIntegral x) - halfL) / halfL
 
 
 -- given a solid (vertice and faces) and a labyrinth which values are face indice,

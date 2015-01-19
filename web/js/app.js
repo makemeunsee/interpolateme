@@ -10,13 +10,14 @@ function arrToMat( arr ) {
 function makeMesh( model ) {
     var customUniforms = {
        u_time: { type: "1f", value: 0 },
+       u_allowDepth: { type: "1f", value: 0 },
        u_borderWidth: { type: "1f", value: 0 },
        u_mvpMat: { type: "m4", value: new THREE.Matrix4() },
        u_color: { type: "v4", value: new THREE.Vector4( 1, 1, 1, 1 ) },
        u_borderColor: { type: "v4", value: new THREE.Vector4( 0, 0, 0, 1 ) }
     };
     
-    var geometry = new THREE.Geometry();
+    var geometry = new THREE.BufferGeometry();
     
     // create attributes for each vertex
     // currently 2 colors are given as vertex attributes
@@ -28,9 +29,13 @@ function makeMesh( model ) {
         a_centerFlag: {
             type: 'f',
             value: []
+        },
+        a_mazeDepth: {
+            type: 'f',
+            value: []
         }
     };
-    
+//    var shaderMaterial = new THREE.RawShaderMaterial({
     var shaderMaterial = new THREE.ShaderMaterial({
         attributes:     attributes,
         uniforms:       customUniforms,
@@ -39,27 +44,59 @@ function makeMesh( model ) {
         side: THREE.DoubleSide
     });
 
-    for (var i = 0; i < model.vertice.length / 3; i++) {
-        geometry.vertices.push( new THREE.Vector3( model.vertice[3*i], model.vertice[3*i+1], model.vertice[3*i+2] ) );
+    var positions = new Float32Array( model.vertice.length );
+    var normals = new Float32Array( model.vertice.length );
+    var centerFlag = new Float32Array( model.vertice.length / 3 );
+    var mazeDepth = new Float32Array( model.vertice.length / 3 );
+    if ( model.centers !== undefined ) {
+        for (var i = 0; i < model.vertice.length / 3; i++) {
+            positions [ 3*i ] = model.vertice[ 3*i ];
+            normals [ 3*i ] = model.normals[ 3*i ];
+            positions [ 3*i+1 ] = model.vertice[ 3*i+1 ];
+            normals [ 3*i+1 ] = model.normals[ 3*i+1 ];
+            positions [ 3*i+2 ] = model.vertice[ 3*i+2 ];
+            normals [ 3*i+2 ] = model.normals[ 3*i+2 ];
+//            geometry.vertices.push( new THREE.Vector3( model.vertice[ 3*i ], model.vertice[ 3*i+1 ], model.vertice[ 3*i+2 ] ) ) ;
+//            attributes.a_normal.value.push( new THREE.Vector3( model.normals[ 3*i ], model.normals[ 3*i+1 ], model.normals[ 3*i+2 ] ) );
+            centerFlag[ i ] = model.centers[ i ];
+//            attributes.a_centerFlag.value.push( model.centers[ i ] );
+            mazeDepth[ i ] = model.mazeData[ i ];
+//            attributes.a_mazeDepth.value.push( model.mazeData[ i ] );
+        }
+    } else {
+        for (var i = 0; i < model.vertice.length / 3; i++) {
+            positions [ 3*i ] = model.vertice[ 3*i ];
+            positions [ 3*i+1 ] = model.vertice[ 3*i+1 ];
+            positions [ 3*i+2 ] = model.vertice[ 3*i+2 ];
+//            geometry.vertices.push( new THREE.Vector3( model.vertice[ 3*i ], model.vertice[ 3*i+1 ], model.vertice[ 3*i+2 ] ) ) ;
+        }
     }
-    for (var i = 0; i < model.normals.length / 3; i++) {
-        attributes.a_normal.value.push( new THREE.Vector3( model.normals[3*i], model.normals[3*i+1], model.normals[3*i+2] ) );
+    var indices = new Uint16Array( model.indice.length );
+    for (var i = 0; i < model.indice.length ; i++) {
+        indices[ i ] = model.indice[ i ];
+//        geometry.faces.push( new THREE.Face3( model.indice[3*i], model.indice[3*i+1], model.indice[3*i+2] ) );
     }
-    for (var i = 0; i < model.centers.length; i++) {
-        attributes.a_centerFlag.value.push( model.centers[i] );
+
+    geometry.addAttribute( 'index', new THREE.BufferAttribute( indices, 1 ) );
+    geometry.addAttribute( 'a_mazeDepth', new THREE.BufferAttribute( mazeDepth, 1 ) );
+    geometry.addAttribute( 'a_centerFlag', new THREE.BufferAttribute( centerFlag, 1 ) );
+    geometry.addAttribute( 'a_normal', new THREE.BufferAttribute( normals, 3 ) );
+    geometry.addAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
+
+    if ( model.centers !== undefined ) {
+        return new THREE.Mesh( geometry, shaderMaterial );
+    } else {
+        return new THREE.Line( geometry, shaderMaterial, THREE.LinePieces );
     }
-    for (var i = 0; i < model.indice.length / 3; i++) {
-        geometry.faces.push( new THREE.Face3( model.indice[3*i], model.indice[3*i+1], model.indice[3*i+2] ) );
-    }
-    return new THREE.Mesh( geometry, shaderMaterial );
 }
 
-function modelFromRaw(model) {
+function modelFromRaw( model, mazeData ) {
     return {
         "vertice": model[0],
-        "normals": model[1],
-        "centers": model[2],
-        "indice": model[3],
+        "indice": model[1],
+        "normals": model[2],
+        "centers": model[3],
+        "mazeData": mazeData
     };
 }
 
@@ -95,7 +132,7 @@ function appMain() {
     $(function() {
         $( "#dialog" ).dialog({
             width: 600,
-            height: 240
+            height: 200
         });
     });
     $( "#dialog" ).dialog( "close" );
@@ -113,18 +150,13 @@ function appMain() {
       $( "button" ).button();
     });
 
-    var showPlane = true;
-    function showPlaneFct() {
-        showPlane = !showPlane;
-        if ( showPlane ) {
-            scene.add( planeMesh );
-        } else {
-            scene.remove( planeMesh );
-        }
+    var depthMaze = false;
+    function depthMazeFct() {
+        depthMaze = !depthMaze;
     }
-    $("#showPlane").unbind("click");
-    $("#showPlane").click(showPlaneFct);
-    $('#showPlane').attr('checked', false);
+    $("#depthMaze").unbind("click");
+    $("#depthMaze").click(depthMazeFct);
+    $('#depthMaze').attr('checked', false);
 
     function showHelp() {
         if ( $( "#dialog" ).dialog( "isOpen" ) )
@@ -150,47 +182,66 @@ function appMain() {
     $("#fullscreen").unbind("click");
     $("#fullscreen").click(toggleFullscreen);
 
-    function cut() {
-        oldMesh = currentMesh;
-        scene.remove( oldMesh );
-
-        baseModel = Haste.truncate ( baseModel
-                                   , scaledModelMat.clone().transpose().elements);
-        flatModel = modelFromRaw ( Haste.toFlatModel ( baseModel ) );
-        currentMesh = makeMesh ( flatModel );
-
-        oldMesh.geometry.dispose();
-        oldMesh.material.dispose();
-
-        scene.add( currentMesh );
-    }
-    $("#cut").unbind("click");
-    $("#cut").click(cut);
-
     function rndCutsFct() {
-        oldMesh = currentMesh;
+        var now = Date.now();
+
+        var oldMesh = currentMesh;
+//        var oldPathMesh = currentPathMesh;
         scene.remove( oldMesh );
 
-        for (var index = 0; index < 25; index++) {
+        console.log("Killing old mesh:", Date.now() - now);
+
+        var max = 0;
+        var acc = 0;
+        for (var index = 0; index < 64; index++) {
+            var now1 = Date.now();
             var cutSeed = rndSpherePosition();
             baseModel = Haste.truncateAtPoint ( baseModel
                                               , cutSeed.theta
                                               , cutSeed.phi);
+
+            var duration = Date.now() - now1;
+            if (duration > max) {
+                max = duration;
+            }
+            acc = acc + duration;
         }
-        flatModel = modelFromRaw ( Haste.toFlatModel ( baseModel ) );
+        console.log("Max cut duration:", max);
+        console.log("Mean cut duration:", acc / 2000);
+
+        var now1 = Date.now();
+        maze = Haste.toMaze ( baseModel );
+        var now2 = Date.now();
+        console.log("To maze:", now2 - now1);
+
+        mazeData = Haste.toMazeData ( baseModel, maze );
+        flatModel = modelFromRaw ( Haste.toFlatModel ( baseModel ), mazeData );
+//        mazeModel = modelFromRaw ( Haste.mazeVerticeAndIds ( baseModel, maze ) );
         currentMesh = makeMesh ( flatModel );
+//        currentPathMesh = makeMesh( mazeModel );
+        console.log("To mesh:", Date.now() - now2);
 
         oldMesh.geometry.dispose();
+//        oldPathMesh.geometry.dispose();
         oldMesh.material.dispose();
+//        oldPathMesh.material.dispose();
 
+        var now3 = Date.now();
         scene.add( currentMesh );
+//        scene.add( currentPathMesh );
+        console.log("To scene:", Date.now() - now3);
+
+        console.log("64 cuts:", Date.now() - now);
     }
     $("#rndCuts").unbind("click");
     $("#rndCuts").click(rndCutsFct);
 
     var modelId = 2;
     var baseModel = Haste.loadModel ( modelId );
-    var flatModel = modelFromRaw ( Haste.toFlatModel ( baseModel ) );
+    var maze = Haste.toMaze ( baseModel );
+    var mazeData = Haste.toMazeData ( baseModel, maze );
+    var flatModel = modelFromRaw ( Haste.toFlatModel ( baseModel ), mazeData );
+//    var mazeModel = modelFromRaw ( Haste.mazeVerticeAndIds ( baseModel, maze ) );
 
     var zoomMax = 16;
     var zoomMin = 0.0625;
@@ -213,11 +264,9 @@ function appMain() {
     var scaledModelMat = modelMat.clone();
 
     var mvp = new THREE.Matrix4();
-    var planeMvp = new THREE.Matrix4();
     function updateMVPs() {
         var p = projMat.clone();
         var vp = p.multiply( viewMat );
-        planeMvp = vp.clone();
         scaledModelMat = new THREE.Matrix4();
         scaledModelMat.multiplyScalar( zoom ).multiply( modelMat );
         scaledModelMat.elements[15] = 1;
@@ -231,32 +280,8 @@ function appMain() {
     
     updateProjection(window.innerWidth, window.innerHeight);
 
-    var planeMesh = makeMesh ( {
-        "vertice": [ 0, 0, 1.00001
-                   , 2, -2, 1.00001
-                   , 2, 2, 1.00001
-                   , -2, 2, 1.00001
-                   , -2, -2, 1.00001
-                   ],
-        "normals": [ 1, 0, 0
-                   , 1, 0, 0
-                   , 1, 0, 0
-                   , 1, 0, 0
-                   , 1, 0, 0
-                   ],
-        "indice": [ 0, 1, 2
-                  , 0, 2, 3
-                  , 0, 3, 4
-                  , 0, 4, 1
-                  ],
-        "centers": [ 1, 1, 1
-                   , 1, 0, 0
-                   , 0, 1, 0
-                   , 1, 0, 0
-                   , 0, 1, 0]
-    } );
-    planeMesh.material.transparent = true;
     var currentMesh =  makeMesh( flatModel );
+//    var currentPathMesh = makeMesh( mazeModel );
 
     var mainContainer = document.getElementById( 'main' );
 
@@ -275,8 +300,8 @@ function appMain() {
     mainContainer.appendChild( canvas );
 
     scene.add( currentMesh );
-    scene.add( planeMesh );
-    
+//    scene.add( currentPathMesh );
+
     function leftButton(evt) {
         var button = evt.which || evt.button;
         return button == 1;
@@ -312,7 +337,7 @@ function appMain() {
             } else {    //tapped within 300ms of last tap. double tap
               clearTimeout(tapped); //stop single tap callback
               tapped = null;
-              cut();
+              // nothing bound to double tap
             }
         }
     }
@@ -369,7 +394,8 @@ function appMain() {
       // Firefox
     canvas.addEventListener( "DOMMouseScroll", onMouseWheel, false );
 
-    canvas.addEventListener( "dblclick", cut, false );
+//    nothing bound to double click
+//    canvas.addEventListener( "dblclick", cut, false );
     
     THREEx.WindowResize(renderer, updateProjection);
     THREEx.FullScreen.bindKey({ charCode : 'f'.charCodeAt(0) });
@@ -430,19 +456,20 @@ function appMain() {
 //        var now = Date.now();
 //        var dt = now - then;
 
+        if ( depthMaze ) {
+            currentMesh.material.uniforms.u_allowDepth.value = 1.0;
+        } else {
+            currentMesh.material.uniforms.u_allowDepth.value = 0.0;
+        }
         currentMesh.material.uniforms.u_time.value = simTime;
-        currentMesh.material.uniforms.u_borderWidth.value = 1.2;
+        currentMesh.material.uniforms.u_borderWidth.value = 1.0;
         currentMesh.material.uniforms.u_mvpMat.value = mvp;
         currentMesh.material.uniforms.u_color.value = new THREE.Vector4(1,1,1,1);
-        currentMesh.material.uniforms.u_borderColor.value = new THREE.Vector4(0.4,0.4,0.4,1);
+        currentMesh.material.uniforms.u_borderColor.value = new THREE.Vector4(0.05,0.05,0.05,1);
 
-        if (showPlane) {
-            planeMesh.material.uniforms.u_time.value = simTime;
-            planeMesh.material.uniforms.u_borderWidth.value = 5;
-            planeMesh.material.uniforms.u_mvpMat.value = planeMvp;
-            planeMesh.material.uniforms.u_color.value = new THREE.Vector4(0.8, 0.3, 0.3, 0.5);
-            planeMesh.material.uniforms.u_borderColor.value = new THREE.Vector4(1,0,0,1);
-        }
+//        currentPathMesh.material.uniforms.u_mvpMat.value = mvp;
+//        currentPathMesh.material.uniforms.u_color.value = new THREE.Vector4(1,0,0,1);
+//        currentPathMesh.material.uniforms.u_borderColor.value = new THREE.Vector4(1,0,0,1);
 
         renderer.render(scene, dummyCam);
 
