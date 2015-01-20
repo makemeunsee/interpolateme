@@ -1,7 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module VoronoiCut ( fromModel
-                  , toBufferData
                   , VoronoiModel (..)
                   , normals
                   , faceList
@@ -87,54 +86,6 @@ toModel VoronoiModel{..} = G.modelAutoNormals (reverse vs) fs
                         )
                         ([], [], 0)
                         $ F.toList faces
-
-
-faceIndice :: Integral a => a -> Face b -> [a]
-faceIndice offset Face{..} =
-  let l = length vertice in
-  let centerIndex = 2 * fromIntegral l in
-  let verticeIndice = take l [0..] in
-  let idPairs = cyclicConsecutivePairs verticeIndice in
-  concatMap (\(i,j) -> map (offset+) [centerIndex, 2*j, 2*i, 2*i, 2*j, 2*j+1, 2*i, 2*j+1, 2*i+1]) idPairs
-
-
-toBufferData :: (RealFloat a, Integral b) => S.Seq (Face a) -> [(Int, [Int])] -> Int -> ([G.Point3f a], [b], [a], [a], [G.Point3f a])
-toBufferData faces depthMap maxDepth = (reverse vs, ids, reverse centers, reverse mazeData, reverse normals)
-  where
-    maxDepthF = fromIntegral maxDepth
-    fc = fromIntegral $ S.length faces
-    (  vs
-     , ids
-     , centers
-     , normals
-     , mazeData
-     , _) = foldr (\(i, depths) (vs, is, cs, ns, md, offset) ->
-                      let f = S.index faces i in
-                      let newVs = vertice f in
-                      let l = length newVs in
-                      case depths of
-                        [] ->
-                          let ms = take ((+) 1 $ (*) 2 $ length $ vertice f) $ repeat 0 in
-                          ( barycenter f : (concatMap (\v -> [G.times 0.98 v, v]) newVs) ++ vs
-                          , (faceIndice (fromIntegral offset) f) ++ is
-                          , 1 : (take (2*l) $ repeat 0) ++ cs
-                          , (take (2*l+1) $ repeat $ seed f) ++ ns
-                          , ms ++ md
-                          , offset + 2*l + 1)
-                        _ -> foldr (\d (vs', is', cs', ns', md', offset') ->
-                                     let ms = take ((+) 1 $ (*) 2 $ length $ vertice f) $ repeat $ (1 + maxDepthF - fromIntegral d) / maxDepthF in -- dToHalf pos
-                                     ( barycenter f : (concatMap (\v -> [G.times 0.98 v, v]) newVs) ++ vs'
-                                     , (faceIndice (fromIntegral offset') f) ++ is'
-                                     , 1 : (take (2*l) $ repeat 0) ++ cs'
-                                     , (take (2*l+1) $ repeat $ seed f) ++ ns'
-                                     , ms ++ md'
-                                     , offset' + 2*l + 1)
-                                   )
-                                   (vs, is, cs, ns, md, offset)
-                                   depths
-                  )
-                  ([], [], [], [], [], 0)
-                  depthMap
 
 
 closestSeed :: RealFloat a => VoronoiModel a -> G.Point3f a -> (Int, G.Point3f a)

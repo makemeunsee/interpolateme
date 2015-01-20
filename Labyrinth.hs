@@ -154,25 +154,21 @@ labyrinth1 seed topo
 -- given a solid (vertice and faces) and a labyrinth which values are face indice,
 -- build the 3D vertex data representing this labyrinth
 -- labyrinth MUST be consistent with solid topology
-labyrinthToPathVertice :: RealFloat a => S.Seq (Face a) -> Labyrinth Int -> [G.Point3f a]
-labyrinthToPathVertice faces laby = labyrinthToPathVertice0 faces laby $ fromIntegral $ longestBranch laby
-
-
--- TODO: depth shift in shader
-labyrinthToPathVertice0 :: RealFloat a => S.Seq (Face a) -> Labyrinth Int -> a -> [G.Point3f a]
-labyrinthToPathVertice0 faces (Leaf i d) maxL = [bary]
+labyrinthToPathVertice :: RealFloat a => S.Seq (Face a) -> Labyrinth Int -> Int -> ([G.Point3f a], [a])
+labyrinthToPathVertice faces (Leaf i d) maxDepth = labyrinthToPathVertice faces (Node i d []) maxDepth
+labyrinthToPathVertice faces (Node i d ls) maxDepth = ( bary : (concatMap (uncurry prependBaryCenter) subnodesVerts')
+                                                      , (depth d) : concatMap ((depth d) :) subnodesDepths
+                                                      )
   where
+    depth = depthValue maxDepth
     face = S.index faces i
-    bary = G.times (1.001 - ((1 + maxL - fromIntegral d) / maxL) / 2) $ barycenter face
-labyrinthToPathVertice0 faces (Node i d ls) maxL = bary : concatMap (uncurry prependBaryCenter) subnodesVerts
-  where
-    face = S.index faces i
-    bary = G.times (1.001 - ((1 + maxL - fromIntegral d) / maxL) / 2) $ barycenter face
-    subnodesVerts = map (\l -> (labyrinthToPathVertice0 faces l maxL, value l)) ls
+    bary = barycenter face
+    (subnodesVerts, subnodesDepths) = unzip $ map (\l -> labyrinthToPathVertice faces l maxDepth) ls
+    subnodesVerts' = zip subnodesVerts $ map value ls
     prependBaryCenter vs j = (junctionPoint j) : vs
     junctionPoint j =
       let [v0, v1] = intersection (vertice face) (vertice $ S.index faces j) in
-      G.times (1.001 - ((1 + maxL - fromIntegral d) / maxL) / 2) $ G.times 0.5 $ G.add v0 v1
+      G.times 0.5 $ G.add v0 v1
 
 
 -- build a list of indice defining segments, to be used along labyrinthToVertice
@@ -206,3 +202,56 @@ labyrinthToWallIndice offset faces (Node i _ ls) = (indice, newOffset)
                                 )
                                 (ownIndice, newOffset0)
                                 ls
+
+
+faceIndice :: Integral a => a -> Face b -> [a]
+faceIndice offset Face{..} =
+  let l = length vertice in
+  let centerIndex = 2 * fromIntegral l in
+  let verticeIndice = take l [0..] in
+  let idPairs = cyclicConsecutivePairs verticeIndice in
+  concatMap (\(i,j) -> map (offset+) [centerIndex, 2*j, 2*i, 2*i, 2*j, 2*j+1, 2*i, 2*j+1, 2*i+1]) idPairs
+
+
+depthValue :: RealFloat a => Int -> Int -> a
+depthValue maxDepth depth = (1 + maxDepthF - fromIntegral depth) / maxDepthF
+  where maxDepthF = fromIntegral maxDepth
+
+
+toBufferData :: (RealFloat a, Integral b) => S.Seq (Face a) -> [(Int, [Int])] -> Int -> ([G.Point3f a], [b], [a], [a], [G.Point3f a])
+toBufferData faces depthMap maxDepth = (reverse vs, ids, reverse centers, reverse mazeData, reverse normals)
+  where
+    depth = depthValue maxDepth
+    fc = fromIntegral $ S.length faces
+    (  vs
+     , ids
+     , centers
+     , normals
+     , mazeData
+     , _) = foldr (\(i, depths) (vs, is, cs, ns, md, offset) ->
+                      let f = S.index faces i in
+                      let newVs = vertice f in
+                      let l = length newVs in
+                      case depths of
+                        [] ->
+                          let ms = take ((+) 1 $ (*) 2 $ length $ vertice f) $ repeat 0 in
+                          ( barycenter f : (concatMap (\v -> [G.times 0.98 v, v]) newVs) ++ vs
+                          , (faceIndice (fromIntegral offset) f) ++ is
+                          , 1 : (take (2*l) $ repeat 0) ++ cs
+                          , (take (2*l+1) $ repeat $ seed f) ++ ns
+                          , ms ++ md
+                          , offset + 2*l + 1)
+                        _ -> foldr (\d (vs', is', cs', ns', md', offset') ->
+                                     let ms = take ((+) 1 $ (*) 2 $ length $ vertice f) $ repeat $ depth d in -- dToHalf pos
+                                     ( barycenter f : (concatMap (\v -> [G.times 0.98 v, v]) newVs) ++ vs'
+                                     , (faceIndice (fromIntegral offset') f) ++ is'
+                                     , 1 : (take (2*l) $ repeat 0) ++ cs'
+                                     , (take (2*l+1) $ repeat $ seed f) ++ ns'
+                                     , ms ++ md'
+                                     , offset' + 2*l + 1)
+                                   )
+                                   (vs, is, cs, ns, md, offset)
+                                   depths
+                  )
+                  ([], [], [], [], [], 0)
+                  depthMap

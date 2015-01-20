@@ -93,6 +93,7 @@ data KeyState = KeyState { n :: KeyButtonState
                          , l :: KeyButtonState
                          , c :: KeyButtonState
                          , d :: KeyButtonState
+                         , i :: KeyButtonState
                          }
 
 
@@ -109,8 +110,9 @@ data GlobalState = GlobalState { viewMat :: Mat44f
                                , drawNormals :: Bool
                                , altLaby :: Bool
                                , drawLabyrinth :: Bool
---                               , drawWalls :: Bool
                                , depthRender :: Bool
+                               , depthInvert :: Bool
+                               , depthScale :: GLfloat
                                , mouse :: MouseState
                                , modelMat :: Mat44f
                                , model :: VC.VoronoiModel GLfloat
@@ -129,7 +131,7 @@ data GlobalState = GlobalState { viewMat :: Mat44f
 
 
 defaultKeyState :: KeyState
-defaultKeyState = KeyState Release Release Release Release Release
+defaultKeyState = KeyState Release Release Release Release Release Release
 
 
 defaultMouseState :: MouseState
@@ -185,20 +187,19 @@ data BuffersInfo = BuffersInfo { indice :: BufferObject
                                , indiceCount :: GLint
                                , vertexBuffersLength :: Int
                                , vertexBufferId :: GLuint
-                               , ext :: Maybe ExtGeomInfo
+                               , ext :: OptionGeomInfo
                                }
 
 
-data ExtGeomInfo = ExtGeomInfo { normalBufferId :: GLuint
-                               , centerBufferId :: GLuint
-                               , mazeBufferId :: GLuint
-                               }
+data OptionGeomInfo = OptionGeomInfo { normalBufferId :: Maybe GLuint
+                                     , centerBufferId :: Maybe GLuint
+                                     , mazeBufferId :: Maybe GLuint
+                                     }
 
 
 data GLIDs = GLIDs { shaderInfo :: ShaderInfo
                    , objectBuffersInfo :: BuffersInfo
                    , labyrinthBuffersInfo :: BuffersInfo
---                   , wallsBuffersInfo :: BuffersInfo
                    , normalsBuffersInfo :: BuffersInfo
                    , bugMarkerBuffersInfo :: BuffersInfo
                    }
@@ -214,24 +215,30 @@ createShader vertexShaderFile fragShaderFile = do
   return ShaderInfo{..}
 
 
+loadOptionalBuffers :: Maybe [GLfloat] -> Maybe [GLfloat] -> Maybe [GLfloat] -> IO OptionGeomInfo
+loadOptionalBuffers m_normalData m_centersData m_mazeData = do
+  normalBufferId <- loadOptionalBuffer m_normalData
+  centerBufferId <- loadOptionalBuffer m_centersData
+  mazeBufferId <- loadOptionalBuffer m_mazeData
+  return OptionGeomInfo{..}
+
+
+loadOptionalBuffer :: Maybe [GLfloat] -> IO (Maybe GLuint)
+loadOptionalBuffer m_data = do case m_data of
+                                 Nothing -> return Nothing
+                                 Just dat -> do
+                                             id <- fillNewFloatBuffer dat
+                                             return $ Just id
+
+
 loadBuffers :: [GLfloat] -> [GLuint] -> Maybe [GLfloat] -> Maybe [GLfloat] -> Maybe [GLfloat] -> IO BuffersInfo
 loadBuffers verticeData indiceData m_normalData m_centersData m_mazeData = do
 
   indice <- makeBuffer ElementArrayBuffer indiceData
   let indiceCount = indexCount indiceData
-
   let vertexBuffersLength = length verticeData
   vertexBufferId <- fillNewFloatBuffer verticeData
-
-  ext <- case (m_normalData, m_centersData, m_mazeData) of
-    (Just normalData, Just centersData, Just mazeData) -> do
-      normalBufferId <- fillNewFloatBuffer normalData
-      centerBufferId <- fillNewFloatBuffer centersData
-      mazeBufferId <- fillNewFloatBuffer mazeData
-      return $ Just ExtGeomInfo{..}
-    _ ->
-      return Nothing
-
+  ext <- loadOptionalBuffers m_normalData m_centersData m_mazeData
   return BuffersInfo{..}
 
 
@@ -264,7 +271,6 @@ initGL drawFront drawBack m_angles = do
                               loadBuffers [x,y,z,x*2,y*2,z*2] [0,1] Nothing Nothing Nothing
 
   labyrinthBuffersInfo <- loadBuffers [] [] Nothing Nothing Nothing
---  wallsBuffersInfo <- loadBuffers [] [] Nothing Nothing Nothing
 
   return GLIDs{..}
 
@@ -272,12 +278,20 @@ initGL drawFront drawBack m_angles = do
 cleanBuffers :: BuffersInfo -> IO ()
 cleanBuffers BuffersInfo{..} = do
   with vertexBufferId $ glDeleteBuffers 1
-  case ext of
-    Just ExtGeomInfo{..} -> do
-      with normalBufferId $ glDeleteBuffers 1
-      with centerBufferId $ glDeleteBuffers 1
-      with mazeBufferId $ glDeleteBuffers 1
-    _ -> return ()
+  cleanOptionalBuffers ext
+
+
+cleanOptionalBuffers :: OptionGeomInfo -> IO ()
+cleanOptionalBuffers OptionGeomInfo{..} = do
+  cleanOptionalBuffer normalBufferId
+  cleanOptionalBuffer centerBufferId
+  cleanOptionalBuffer mazeBufferId
+
+
+cleanOptionalBuffer :: Maybe GLuint -> IO ()
+cleanOptionalBuffer m_id = do
+  case m_id of Nothing -> return ()
+               Just i  -> with i $ glDeleteBuffers 1
 
 
 -- rendering code
@@ -289,14 +303,23 @@ bindSimpleGeometry ShaderInfo{..} BuffersInfo{..} = do
 
 
 bindGeometry :: ShaderInfo -> BuffersInfo -> IO ()
-bindGeometry ShaderInfo{..} BuffersInfo{..} = do
+bindGeometry si@ShaderInfo{..} BuffersInfo{..} = do
   bindFloatBufferToAttrib 3 vertexBufferId vertexAttrib
-  case ext of
-    Just ExtGeomInfo{..} -> do
-      bindFloatBufferToAttrib 3 normalBufferId normalAttrib
-      bindFloatBufferToAttrib 1 centerBufferId centerAttrib
-      bindFloatBufferToAttrib 1 mazeBufferId mazeAttrib
-    _ -> return ()
+  bindOptionalGeometries ext si
+
+
+bindOptionalGeometries :: OptionGeomInfo -> ShaderInfo -> IO ()
+bindOptionalGeometries OptionGeomInfo{..} ShaderInfo{..} = do
+  bindOptionalGeometry 3 normalAttrib normalBufferId
+  bindOptionalGeometry 1 centerAttrib centerBufferId
+  bindOptionalGeometry 1 mazeAttrib mazeBufferId
+
+
+bindOptionalGeometry :: GLint -> GLuint -> Maybe GLuint -> IO ()
+bindOptionalGeometry size attribId m_id = do
+  case m_id of Nothing -> return ()
+               Just i  -> bindFloatBufferToAttrib size i attribId
+
 
 
 unbindGeometry :: ShaderInfo -> IO ()
@@ -319,8 +342,8 @@ bindUniformVector prog uName vec = do
   with vec $ glUniform4fv vLoc 1 . castPtr
 
 
-render :: GLfloat -> Bool -> Bool -> Bool -> Bool -> Mat44f -> GLIDs -> IO ()
-render t drawSolid drawNormals drawLabyrinth depthRender mvp glids@GLIDs{..} = do
+render :: GLfloat -> Bool -> Bool -> Bool -> GLfloat -> GLfloat -> Mat44f -> GLIDs -> IO ()
+render t drawSolid drawNormals drawLabyrinth depthMode depthScale mvp glids@GLIDs{..} = do
   GL.clear [GL.ColorBuffer, GL.DepthBuffer]
 
   let ShaderInfo{..} = shaderInfo
@@ -330,7 +353,8 @@ render t drawSolid drawNormals drawLabyrinth depthRender mvp glids@GLIDs{..} = d
   colLoc <- get $ uniformLocation prog "u_color"
   bColLoc <- get $ uniformLocation prog "u_borderColor"
   borderWidthLoc <- get $ uniformLocation prog "u_borderWidth"
-  depthRenderLoc <- get $ uniformLocation prog "u_allowDepth"
+  depthModeLoc <- get $ uniformLocation prog "u_depthMode"
+  depthScaleLoc <- get $ uniformLocation prog "u_depthScale"
 
   -- bind time
   timeLoc <- get $ uniformLocation prog "u_time"
@@ -340,7 +364,8 @@ render t drawSolid drawNormals drawLabyrinth depthRender mvp glids@GLIDs{..} = d
   bindUniformMatrix prog "u_mvpMat" mvp
 
   -- depth render mode
-  uniform depthRenderLoc $= GL.Index1 (if depthRender then 1.0 else 0.0 :: GLfloat)
+  uniform depthModeLoc $= GL.Index1 depthMode
+  uniform depthScaleLoc $= GL.Index1 depthScale
 
   if drawNormals
     then do
@@ -395,28 +420,6 @@ render t drawSolid drawNormals drawLabyrinth depthRender mvp glids@GLIDs{..} = d
 --      uniform colLoc $= GL.Color4 0 0 0 (1 :: GLfloat)
 --      uniform bColLoc $= GL.Color4 0 0 0 (1 :: GLfloat)
       return ()
-
-
---  -- draw walls
---  if drawWalls
---    then do
---      -- bind uniform colors
---      uniform colLoc $= GL.Color4 0 1 0 (1 :: GLfloat)
---      uniform bColLoc $= GL.Color4 0 1 0 (1 :: GLfloat)
---
---      uniform borderWidthLoc $= GL.Index1 (0 :: GLfloat)
---
---      -- bind attributes
---      bindGeometry shaderInfo wallsBuffersInfo
---
---      -- bind indice
---      bindBuffer ElementArrayBuffer $= Just (indice wallsBuffersInfo)
---
---      drawElements GL.Lines (indiceCount wallsBuffersInfo) GL.UnsignedInt offset0
---
---      unbindGeometry shaderInfo
---    else do
---      return ()
 
 
   -- draw labyrinth path
@@ -617,6 +620,7 @@ handleKeys state = do
   kc <- GLFW.getKey 'C'
   kw <- GLFW.getKey 'W'
   kd <- GLFW.getKey 'D'
+  ki <- GLFW.getKey 'I'
   kpl <- GLFW.getKey GLFW.KP_ADD
   kmi <- GLFW.getKey GLFW.KP_SUBTRACT
 
@@ -625,12 +629,14 @@ handleKeys state = do
   let sR = released ks s
   let cR = released kc c
   let dR = released kd d
+  let dI = released ki i
 
   let newKeyState = keyState { n = kn
                              , s = ks
                              , l = kl
                              , c = kc
                              , d = kd
+                             , i = ki
                              }
 
   let (newCuts, newSeed) = if cR then
@@ -639,23 +645,16 @@ handleKeys state = do
                            else
                              (pendingCuts state, seed state)
 
-  let zoomF = if kpl == Press then 1.01 else if kmi == Press then (1/1.01) else 1
-  if zoomF /= 1
-    then do
-      m <- get $ projMat state
-      z <- get $ zoom state
-      zoom state $= zoomF * z
-      projMat state $= G.scale zoomF m
-    else
-      return ()
-
+  let scaleF = if kpl == Press then 1.01 else if kmi == Press then (1/1.01) else 1
+  let dScale = max 0.0000001 $ min 1 $ scaleF * depthScale state
 
   return state { keys = newKeyState
                , drawSolid = if sR then not $ drawSolid state else drawSolid state
                , drawNormals = if nR then not $ drawNormals state else drawNormals state
                , drawLabyrinth = if lR then not $ drawLabyrinth state else drawLabyrinth state
---               , drawWalls = if wR then not $ drawWalls state else drawWalls state
                , depthRender = if dR then not $ depthRender state else depthRender state
+               , depthInvert = if dI then not $ depthInvert state else depthInvert state
+               , depthScale = dScale
                , pendingCuts = newCuts
                , seed = newSeed
                }
@@ -663,18 +662,34 @@ handleKeys state = do
   where released newK oldK = newK == Release && newK /= oldK
 
 
-updateModelRot :: GLfloat -> MouseState -> GlobalState -> GlobalState
-updateModelRot speed newMouseState global =
-  if leftButton newMouseState == Press then
-    global { modelMat = naiveRotMat (diffX * speed) (diffY * speed) `G.multMat` modelMat global }
-  else
-    global
+updateZoom :: GLfloat -> GlobalState -> IO ()
+updateZoom zoomFactor state = do
+  if zoomFactor /= 1
+    then do
+      m <- get $ projMat state
+      z <- get $ zoom state
+      zoom state $= zoomFactor * z
+      projMat state $= G.scale zoomFactor m
+    else
+      return ()
+
+
+applyMouseActions :: GLfloat -> MouseState -> GlobalState -> IO GlobalState
+applyMouseActions speed newMouseState global = do
+  updateZoom zoomF global
+  if leftButton newMouseState == Press
+    then
+      -- update model rotation matrix
+      return global' { modelMat = naiveRotMat (diffX * speed) (diffY * speed) `G.multMat` modelMat global }
+    else
+      return global'
   where
-
     oldMouse = mouse global
-
     diffX = fromIntegral $ (mouseX newMouseState) - (mouseX oldMouse)
     diffY = fromIntegral $ (mouseY newMouseState) - (mouseY oldMouse)
+    diffWheel = wheel newMouseState - wheel oldMouse
+    zoomF = 1.01 ** (fromIntegral diffWheel)
+    global' = global { mouse = newMouseState }
 
 
 loop :: IO Action -> GlobalState -> IO GlobalState
@@ -692,35 +707,32 @@ loop action global = do
   let newMouseState = mouseStateUpdater $ mouse newGlobal0
 
   -- update the view related properties in the global state
-  let newGlobal1 = updateModelRot speed newMouseState newGlobal0
-
-  let newGlobal2 = newGlobal1 { mouse = newMouseState }
-
+  newGlobal1 <- applyMouseActions speed newMouseState newGlobal0
 
   -- cut model
   t <- get time
-  newGlobal <- case pendingCuts newGlobal2 of
-                 [] -> return newGlobal2
+  newGlobal <- case pendingCuts newGlobal1 of
+                 [] -> return newGlobal1
                  (th,ph) : cs
-                   | t - lastCutTime newGlobal2 > 0.01 -> do
-                     let m' = applyCut th ph $ model newGlobal2
-                     newState <- loadModel newGlobal2 m'
+                   | t - lastCutTime newGlobal1 > 0.01 -> do
+                     let m' = applyCut th ph $ model newGlobal1
+                     newState <- loadModel newGlobal1 m'
                      t' <- get time
                      return newState { pendingCuts = cs, lastCutTime = t' }
-                   | otherwise -> return newGlobal2
+                   | otherwise -> return newGlobal1
 
   -- prepare matrices for rendering
-  p <- get $ projMat newGlobal2
-  let vp = p `G.multMat` viewMat newGlobal2
-  let mvp = vp `G.multMat` modelMat newGlobal2
+  p <- get $ projMat newGlobal1
+  let vp = p `G.multMat` viewMat newGlobal1
+  let mvp = vp `G.multMat` modelMat newGlobal1
 
   -- render
   render (simTime newGlobal)
-         (drawSolid newGlobal0)
-         (drawNormals newGlobal0)
-         (drawLabyrinth newGlobal0)
---         (drawWalls newGlobal0)
-         (depthRender newGlobal0)
+         (drawSolid newGlobal)
+         (drawNormals newGlobal)
+         (drawLabyrinth newGlobal)
+         (if depthRender newGlobal then if depthInvert newGlobal then -1 else 1 else 0)
+         (depthScale newGlobal)
          mvp
          (glids newGlobal)
 
@@ -758,15 +770,13 @@ loadModel global@GlobalState{..} vm = do
   t2 <- get time
   putStrLn $ "laby gen duration:\t" ++ show (t2 - t1)
 
---  let mazeBuffer = mazeData laby vm
   let (depths, maxDepth) = depthMap laby
-  let (vertexBuffer, ids, centerBuffer, mazeBuffer, normalBuffer) = VC.toBufferData faces (M.toAscList depths) maxDepth
+  let (vertexBuffer, ids, centerBuffer, mazeBuffer, normalBuffer) = toBufferData faces (M.toAscList depths) maxDepth
 
   -- clean gl buffers and recreate them with proper data
   cleanBuffers objectBuffersInfo
   cleanBuffers normalsBuffersInfo
   cleanBuffers labyrinthBuffersInfo
---  cleanBuffers wallsBuffersInfo
 
   newBuffersInfo <- loadBuffers (concatMap G.pointToArr vertexBuffer)
                                 ids
@@ -784,22 +794,14 @@ loadModel global@GlobalState{..} vm = do
                                        Nothing
                                        Nothing
 
-  let pathVertice = labyrinthToPathVertice faces laby
+  let (pathVertice, pathMazeData) = labyrinthToPathVertice faces laby maxDepth
   let pathIndice = labyrinthToPathIndice 0 laby
---  let wallVertice = labyrinthToWallVertice faces laby []
---  let (wallIndice, _) = labyrinthToWallIndice 0 (map VC.neighbours $ VC.faceList vm) laby
 
   newLabyrinthBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) pathVertice)
                                          pathIndice
                                          Nothing
                                          Nothing
-                                         Nothing
-
---  newWallsBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) wallVertice)
---                                     wallIndice
---                                     Nothing
---                                     Nothing
---                                     Nothing
+                                         (Just pathMazeData)
 
   t3 <- get time
   putStrLn $ "load model duration:\t" ++ show (t3 - t0)
@@ -807,7 +809,6 @@ loadModel global@GlobalState{..} vm = do
   let newGlids = glids { objectBuffersInfo = newBuffersInfo
                        , normalsBuffersInfo = newNormalsBuffersInfo
                        , labyrinthBuffersInfo = newLabyrinthBuffersInfo
---                       , wallsBuffersInfo = newWallsBuffersInfo
                        }
 
   return global { glids = newGlids, model = vm, seed = seed' }
@@ -913,8 +914,9 @@ main = do
                            , drawNormals = False
                            , altLaby = altMaze
                            , drawLabyrinth = False
---                           , drawWalls = False
                            , depthRender = False
+                           , depthInvert = False
+                           , depthScale = 0.5
                            , mouse = defaultMouseState
                            , glids = glstuff
                            , simTime = 0
@@ -940,6 +942,5 @@ main = do
   cleanBuffers $ normalsBuffersInfo $ glids lastState
   cleanBuffers $ bugMarkerBuffersInfo $ glids lastState
   cleanBuffers $ labyrinthBuffersInfo $ glids lastState
---  cleanBuffers $ wallsBuffersInfo $ glids lastState
   GLFW.closeWindow
   GLFW.terminate
