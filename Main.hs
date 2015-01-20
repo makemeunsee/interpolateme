@@ -108,8 +108,8 @@ data MouseState = MouseState { mouseX :: GLint
 data GlobalState = GlobalState { viewMat :: Mat44f
                                , drawSolid :: Bool
                                , drawNormals :: Bool
-                               , altLaby :: Bool
-                               , drawLabyrinth :: Bool
+                               , computeMazePath :: Bool
+                               , drawMazePath :: Bool
                                , depthRender :: Bool
                                , depthInvert :: Bool
                                , depthScale :: GLfloat
@@ -343,7 +343,7 @@ bindUniformVector prog uName vec = do
 
 
 render :: GLfloat -> Bool -> Bool -> Bool -> GLfloat -> GLfloat -> Mat44f -> GLIDs -> IO ()
-render t drawSolid drawNormals drawLabyrinth depthMode depthScale mvp glids@GLIDs{..} = do
+render t drawSolid drawNormals drawMazePath depthMode depthScale mvp glids@GLIDs{..} = do
   GL.clear [GL.ColorBuffer, GL.DepthBuffer]
 
   let ShaderInfo{..} = shaderInfo
@@ -423,7 +423,7 @@ render t drawSolid drawNormals drawLabyrinth depthMode depthScale mvp glids@GLID
 
 
   -- draw labyrinth path
-  if drawLabyrinth
+  if drawMazePath
     then do
       -- bind uniforms
       uniform colLoc $= GL.Color4 1 0 0 (1 :: GLfloat)
@@ -646,12 +646,12 @@ handleKeys state = do
                              (pendingCuts state, seed state)
 
   let scaleF = if kpl == Press then 1.01 else if kmi == Press then (1/1.01) else 1
-  let dScale = max 0.0000001 $ min 1 $ scaleF * depthScale state
+  let dScale = max 0.00001 $ min 1 $ scaleF * depthScale state
 
   return state { keys = newKeyState
                , drawSolid = if sR then not $ drawSolid state else drawSolid state
                , drawNormals = if nR then not $ drawNormals state else drawNormals state
-               , drawLabyrinth = if lR then not $ drawLabyrinth state else drawLabyrinth state
+               , drawMazePath = if lR then not $ drawMazePath state else drawMazePath state
                , depthRender = if dR then not $ depthRender state else depthRender state
                , depthInvert = if dI then not $ depthInvert state else depthInvert state
                , depthScale = dScale
@@ -730,7 +730,7 @@ loop action global = do
   render (simTime newGlobal)
          (drawSolid newGlobal)
          (drawNormals newGlobal)
-         (drawLabyrinth newGlobal)
+         (drawMazePath newGlobal)
          (if depthRender newGlobal then if depthInvert newGlobal then -1 else 1 else 0)
          (depthScale newGlobal)
          mvp
@@ -763,20 +763,18 @@ loadModel global@GlobalState{..} vm = do
   let fc = VC.faceCount vm
 
   t1 <- get time
-  let laby2 = labyrinth2 faces
-  let (laby1, seed') = labyrinth1 seed faces
-  let laby = if altLaby then laby2 else laby1
+  let (laby, seed') = labyrinth1 seed faces
   putStrLn $ "mazes sizes:\t" ++ show (size laby)
   t2 <- get time
   putStrLn $ "laby gen duration:\t" ++ show (t2 - t1)
 
   let (depths, maxDepth) = depthMap laby
+
   let (vertexBuffer, ids, centerBuffer, mazeBuffer, normalBuffer) = toBufferData faces (M.toAscList depths) maxDepth
 
   -- clean gl buffers and recreate them with proper data
   cleanBuffers objectBuffersInfo
   cleanBuffers normalsBuffersInfo
-  cleanBuffers labyrinthBuffersInfo
 
   newBuffersInfo <- loadBuffers (concatMap G.pointToArr vertexBuffer)
                                 ids
@@ -794,17 +792,33 @@ loadModel global@GlobalState{..} vm = do
                                        Nothing
                                        Nothing
 
-  let (pathVertice, pathMazeData) = labyrinthToPathVertice faces laby maxDepth
-  let pathIndice = labyrinthToPathIndice 0 laby
 
-  newLabyrinthBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) pathVertice)
-                                         pathIndice
-                                         Nothing
-                                         Nothing
-                                         (Just pathMazeData)
+  -- computing the vertice of the maze path is complicated and heavy. dont do it unless specifically requested.
+  newLabyrinthBuffersInfo <- if computeMazePath
+    then do
+      cleanBuffers labyrinthBuffersInfo
 
-  t3 <- get time
-  putStrLn $ "load model duration:\t" ++ show (t3 - t0)
+      t3 <- get time
+      let (pathVertice, pathMazeData) = labyrinthToPathVertice faces laby maxDepth
+      putStrLn $ show $ length pathVertice
+      t4 <- get time
+      putStrLn $ "path verts duration:\t" ++ (show $ t4 - t3)
+      let pathIndice = labyrinthToPathIndice 0 laby
+      putStrLn $ show $ length pathIndice
+      t5 <- get time
+      putStrLn $ "path ids duration:\t" ++ (show $ t5 - t4)
+
+      newLabyrinthBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) pathVertice)
+                                             pathIndice
+                                             Nothing
+                                             Nothing
+                                             (Just pathMazeData)
+
+      t3 <- get time
+      putStrLn $ "load model duration:\t" ++ show (t3 - t0)
+      return newLabyrinthBuffersInfo
+    else
+      return labyrinthBuffersInfo
 
   let newGlids = glids { objectBuffersInfo = newBuffersInfo
                        , normalsBuffersInfo = newNormalsBuffersInfo
@@ -838,8 +852,8 @@ main = do
   -- draw back and front faces
   let bothFaces = boolArgument "--b" args
 
-  -- use alternative maze
-  let altMaze = boolArgument "--a" args
+  -- compute and render maze path
+  let computeMazePath = boolArgument "--p" args
 
   -- seed input
   let seedStr = maybe "imullinati" id $ strArgument "--s" args
@@ -912,9 +926,9 @@ main = do
   let state0 = GlobalState { viewMat = viewMatOf (pi/2) (pi/2) 1
                            , drawSolid = True
                            , drawNormals = False
-                           , altLaby = altMaze
-                           , drawLabyrinth = False
-                           , depthRender = False
+                           , computeMazePath = computeMazePath
+                           , drawMazePath = True
+                           , depthRender = True
                            , depthInvert = False
                            , depthScale = 0.5
                            , mouse = defaultMouseState
