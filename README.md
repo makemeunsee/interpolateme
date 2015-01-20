@@ -22,6 +22,7 @@ Run with:
 * "--b" to draw both faces, back and front.
 * "--c xxx" to specify the number of cells to create at start. Default is 1000, recommended between 1000 and 10000.
 * "--s someString" to specify the seed to use to randomize the cells.
+* "--g xx" to specify the maze overlapping factor. 100 for no overlapping, 25 for medium overlapping, >10 for extreme overlapping.
 * "--p" to compute and draw the maze path. Warning: *very* memory heavy for models with ~3000 cells or more.
 
 Features

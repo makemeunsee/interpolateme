@@ -100,14 +100,18 @@ shuffle seed xs = shuffle0 seed xs 0
         shuffle0 s' (swapElts i r xs) (i+1)
 
 
--- TODO minGap as arg
-labyrinth1 :: RND.Seed -> S.Seq (Face a) -> (Labyrinth Int, RND.Seed)
-labyrinth1 seed topo
+-- create random maze from the face connection graph, reaching all the faces.
+-- minGapFrac allows overlapping of the maze: a cell can be part of the maze multiple times, if it's added at sufficiently distant depth in the maze.
+-- minGapFrac is the minimum depth difference, as percentage of the face count, for which a cell can be re-entered.
+-- for instance, for a solid with 200 faces, minGapFrac at 25, a depth diff of 50 is required to re-enter a cell.
+-- set minGapFrac at 100 for no overlapping. negative values unsupported.
+labyrinth1 :: RealFrac a => RND.Seed -> Int -> S.Seq (Face a) -> (Labyrinth Int, RND.Seed)
+labyrinth1 seed minGapFrac topo
   | S.null topo = (Leaf (-1) 0, seed) -- illegal
   | otherwise   = fst $ topologyToLabyrinth0 seed (singleton 0 [0]) 0 0
   where
     maxDepth = S.length topo
-    minGap = 2 * maxDepth `div` 7
+    minGap = floor $ 0.01 * (fromIntegral $ maxDepth * minGapFrac)
     topologyToLabyrinth0 seed visited i depth =
       let (shuffled, seed0) = shuffle seed $ neighbours $ S.index topo i in
       let (subnodes, seed', visited') = foldr (\j (newNodes, oldSeed, oldVisited) ->

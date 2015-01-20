@@ -110,6 +110,7 @@ data GlobalState = GlobalState { viewMat :: Mat44f
                                , drawNormals :: Bool
                                , computeMazePath :: Bool
                                , drawMazePath :: Bool
+                               , mazeDepthGap :: Int
                                , depthRender :: Bool
                                , depthInvert :: Bool
                                , depthScale :: GLfloat
@@ -745,6 +746,16 @@ loop action global = do
     else return newGlobal
 
 
+intArgument :: String -> Int -> [String] -> Int
+intArgument arg defaultValue args =
+  -- cuts input
+  let cutsStr = strArgument arg args in
+  maybe defaultValue
+        (\str -> case reads str of
+          [] -> defaultValue
+          [(i, _)] -> i)
+        cutsStr
+
 boolArgument :: String -> [String] -> Bool
 boolArgument arg args = [] /= filter (== arg) args
 
@@ -763,7 +774,7 @@ loadModel global@GlobalState{..} vm = do
   let fc = VC.faceCount vm
 
   t1 <- get time
-  let (laby, seed') = labyrinth1 seed faces
+  let (laby, seed') = labyrinth1 seed mazeDepthGap faces
   putStrLn $ "mazes sizes:\t" ++ show (size laby)
   t2 <- get time
   putStrLn $ "laby gen duration:\t" ++ show (t2 - t1)
@@ -861,14 +872,8 @@ main = do
 
   putStrLn $ "seed:\t" ++ seedStr
 
-  let defaultCutCount = 1000
-  -- cuts input
-  let cutsStr = strArgument "--c" args
-  let cuts = maybe defaultCutCount
-                   (\str -> case reads str of
-                     [] -> defaultCutCount
-                     [(i, _)] -> i)
-                   cutsStr
+  let cuts = intArgument "--c" 1000 args
+  let mazeDepthGap = intArgument "--g" 28 args
 
 
   -- initialize early to have access to time
@@ -928,9 +933,10 @@ main = do
                            , drawNormals = False
                            , computeMazePath = computeMazePath
                            , drawMazePath = True
+                           , mazeDepthGap = mazeDepthGap
                            , depthRender = True
-                           , depthInvert = False
-                           , depthScale = 0.5
+                           , depthInvert = True
+                           , depthScale = 0.04 * fromIntegral cuts / fromIntegral mazeDepthGap
                            , mouse = defaultMouseState
                            , glids = glstuff
                            , simTime = 0
