@@ -54,6 +54,7 @@ import Data.List.Split (splitOn)
 import Data.Maybe (fromJust)
 import qualified Data.Sequence as S
 import qualified Data.Foldable as F
+import qualified Data.Map as M
 
 import qualified Random.MWC.Pure as RND
 
@@ -91,7 +92,6 @@ data KeyState = KeyState { n :: KeyButtonState
                          , s :: KeyButtonState
                          , l :: KeyButtonState
                          , c :: KeyButtonState
-                         , w :: KeyButtonState
                          , d :: KeyButtonState
                          }
 
@@ -109,7 +109,7 @@ data GlobalState = GlobalState { viewMat :: Mat44f
                                , drawNormals :: Bool
                                , altLaby :: Bool
                                , drawLabyrinth :: Bool
-                               , drawWalls :: Bool
+--                               , drawWalls :: Bool
                                , depthRender :: Bool
                                , mouse :: MouseState
                                , modelMat :: Mat44f
@@ -129,7 +129,7 @@ data GlobalState = GlobalState { viewMat :: Mat44f
 
 
 defaultKeyState :: KeyState
-defaultKeyState = KeyState Release Release Release Release Release Release
+defaultKeyState = KeyState Release Release Release Release Release
 
 
 defaultMouseState :: MouseState
@@ -198,7 +198,7 @@ data ExtGeomInfo = ExtGeomInfo { normalBufferId :: GLuint
 data GLIDs = GLIDs { shaderInfo :: ShaderInfo
                    , objectBuffersInfo :: BuffersInfo
                    , labyrinthBuffersInfo :: BuffersInfo
-                   , wallsBuffersInfo :: BuffersInfo
+--                   , wallsBuffersInfo :: BuffersInfo
                    , normalsBuffersInfo :: BuffersInfo
                    , bugMarkerBuffersInfo :: BuffersInfo
                    }
@@ -264,7 +264,7 @@ initGL drawFront drawBack m_angles = do
                               loadBuffers [x,y,z,x*2,y*2,z*2] [0,1] Nothing Nothing Nothing
 
   labyrinthBuffersInfo <- loadBuffers [] [] Nothing Nothing Nothing
-  wallsBuffersInfo <- loadBuffers [] [] Nothing Nothing Nothing
+--  wallsBuffersInfo <- loadBuffers [] [] Nothing Nothing Nothing
 
   return GLIDs{..}
 
@@ -319,8 +319,8 @@ bindUniformVector prog uName vec = do
   with vec $ glUniform4fv vLoc 1 . castPtr
 
 
-render :: GLfloat -> Bool -> Bool -> Bool -> Bool -> Bool -> Mat44f -> GLIDs -> IO ()
-render t drawSolid drawNormals drawLabyrinth drawWalls depthRender mvp glids@GLIDs{..} = do
+render :: GLfloat -> Bool -> Bool -> Bool -> Bool -> Mat44f -> GLIDs -> IO ()
+render t drawSolid drawNormals drawLabyrinth depthRender mvp glids@GLIDs{..} = do
   GL.clear [GL.ColorBuffer, GL.DepthBuffer]
 
   let ShaderInfo{..} = shaderInfo
@@ -380,43 +380,43 @@ render t drawSolid drawNormals drawLabyrinth drawWalls depthRender mvp glids@GLI
     then do
       uniform colLoc $= GL.Color4 1 1 1 (1 :: GLfloat)
       uniform bColLoc $= GL.Color4 0.05 0.05 0.05 (1 :: GLfloat)
-   else do
-      uniform colLoc $= GL.Color4 0 0 0 (1 :: GLfloat)
-      uniform bColLoc $= GL.Color4 0 0 0 (1 :: GLfloat)
-
-  uniform borderWidthLoc $= GL.Index1 (0.8 :: GLfloat)
-
-  -- bind attributes
-  bindGeometry shaderInfo objectBuffersInfo
-
-  -- bind indice
-  bindBuffer ElementArrayBuffer $= Just (indice objectBuffersInfo)
-
-  drawElements GL.Triangles (indiceCount objectBuffersInfo) GL.UnsignedInt offset0
-
-  unbindGeometry shaderInfo
-
-
-  -- draw walls
-  if drawWalls
-    then do
-      -- bind uniform colors
-      uniform colLoc $= GL.Color4 0 1 0 (1 :: GLfloat)
-      uniform bColLoc $= GL.Color4 0 1 0 (1 :: GLfloat)
-
-      uniform borderWidthLoc $= GL.Index1 (0 :: GLfloat)
+      uniform borderWidthLoc $= GL.Index1 (0.8 :: GLfloat)
 
       -- bind attributes
-      bindGeometry shaderInfo wallsBuffersInfo
+      bindGeometry shaderInfo objectBuffersInfo
 
       -- bind indice
-      bindBuffer ElementArrayBuffer $= Just (indice wallsBuffersInfo)
+      bindBuffer ElementArrayBuffer $= Just (indice objectBuffersInfo)
 
-      drawElements GL.Lines (indiceCount wallsBuffersInfo) GL.UnsignedInt offset0
+      drawElements GL.Triangles (indiceCount objectBuffersInfo) GL.UnsignedInt offset0
 
       unbindGeometry shaderInfo
     else do
+--      uniform colLoc $= GL.Color4 0 0 0 (1 :: GLfloat)
+--      uniform bColLoc $= GL.Color4 0 0 0 (1 :: GLfloat)
       return ()
+
+
+--  -- draw walls
+--  if drawWalls
+--    then do
+--      -- bind uniform colors
+--      uniform colLoc $= GL.Color4 0 1 0 (1 :: GLfloat)
+--      uniform bColLoc $= GL.Color4 0 1 0 (1 :: GLfloat)
+--
+--      uniform borderWidthLoc $= GL.Index1 (0 :: GLfloat)
+--
+--      -- bind attributes
+--      bindGeometry shaderInfo wallsBuffersInfo
+--
+--      -- bind indice
+--      bindBuffer ElementArrayBuffer $= Just (indice wallsBuffersInfo)
+--
+--      drawElements GL.Lines (indiceCount wallsBuffersInfo) GL.UnsignedInt offset0
+--
+--      unbindGeometry shaderInfo
+--    else do
+--      return ()
 
 
   -- draw labyrinth path
@@ -624,14 +624,12 @@ handleKeys state = do
   let lR = released kl l
   let sR = released ks s
   let cR = released kc c
-  let wR = released kw w
   let dR = released kd d
 
   let newKeyState = keyState { n = kn
                              , s = ks
                              , l = kl
                              , c = kc
-                             , w = kw
                              , d = kd
                              }
 
@@ -656,7 +654,7 @@ handleKeys state = do
                , drawSolid = if sR then not $ drawSolid state else drawSolid state
                , drawNormals = if nR then not $ drawNormals state else drawNormals state
                , drawLabyrinth = if lR then not $ drawLabyrinth state else drawLabyrinth state
-               , drawWalls = if wR then not $ drawWalls state else drawWalls state
+--               , drawWalls = if wR then not $ drawWalls state else drawWalls state
                , depthRender = if dR then not $ depthRender state else depthRender state
                , pendingCuts = newCuts
                , seed = newSeed
@@ -721,7 +719,7 @@ loop action global = do
          (drawSolid newGlobal0)
          (drawNormals newGlobal0)
          (drawLabyrinth newGlobal0)
-         (drawWalls newGlobal0)
+--         (drawWalls newGlobal0)
          (depthRender newGlobal0)
          mvp
          (glids newGlobal)
@@ -754,20 +752,21 @@ loadModel global@GlobalState{..} vm = do
 
   t1 <- get time
   let laby2 = labyrinth2 faces
-  let laby1 = labyrinth1 faces
+  let (laby1, seed') = labyrinth1 seed faces
   let laby = if altLaby then laby2 else laby1
   putStrLn $ "mazes sizes:\t" ++ show (size laby)
   t2 <- get time
   putStrLn $ "laby gen duration:\t" ++ show (t2 - t1)
 
-  let mazeBuffer = mazeData laby vm
-  let (vertexBuffer, ids, centerBuffer, normalBuffer) = VC.toBufferData vm
+--  let mazeBuffer = mazeData laby vm
+  let (depths, maxDepth) = depthMap laby
+  let (vertexBuffer, ids, centerBuffer, mazeBuffer, normalBuffer) = VC.toBufferData faces (M.toAscList depths) maxDepth
 
   -- clean gl buffers and recreate them with proper data
   cleanBuffers objectBuffersInfo
   cleanBuffers normalsBuffersInfo
   cleanBuffers labyrinthBuffersInfo
-  cleanBuffers wallsBuffersInfo
+--  cleanBuffers wallsBuffersInfo
 
   newBuffersInfo <- loadBuffers (concatMap G.pointToArr vertexBuffer)
                                 ids
@@ -787,8 +786,8 @@ loadModel global@GlobalState{..} vm = do
 
   let pathVertice = labyrinthToPathVertice faces laby
   let pathIndice = labyrinthToPathIndice 0 laby
-  let wallVertice = labyrinthToWallVertice faces laby []
-  let (wallIndice, _) = labyrinthToWallIndice 0 (map VC.neighbours $ VC.faceList vm) laby
+--  let wallVertice = labyrinthToWallVertice faces laby []
+--  let (wallIndice, _) = labyrinthToWallIndice 0 (map VC.neighbours $ VC.faceList vm) laby
 
   newLabyrinthBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) pathVertice)
                                          pathIndice
@@ -796,11 +795,11 @@ loadModel global@GlobalState{..} vm = do
                                          Nothing
                                          Nothing
 
-  newWallsBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) wallVertice)
-                                     wallIndice
-                                     Nothing
-                                     Nothing
-                                     Nothing
+--  newWallsBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) wallVertice)
+--                                     wallIndice
+--                                     Nothing
+--                                     Nothing
+--                                     Nothing
 
   t3 <- get time
   putStrLn $ "load model duration:\t" ++ show (t3 - t0)
@@ -808,10 +807,10 @@ loadModel global@GlobalState{..} vm = do
   let newGlids = glids { objectBuffersInfo = newBuffersInfo
                        , normalsBuffersInfo = newNormalsBuffersInfo
                        , labyrinthBuffersInfo = newLabyrinthBuffersInfo
-                       , wallsBuffersInfo = newWallsBuffersInfo
+--                       , wallsBuffersInfo = newWallsBuffersInfo
                        }
 
-  return global { glids = newGlids, model = vm }
+  return global { glids = newGlids, model = vm, seed = seed' }
 
 
 applyCut theta phi m = VC.cutModel m (PC.Plane nx ny nz sfPt)
@@ -914,7 +913,7 @@ main = do
                            , drawNormals = False
                            , altLaby = altMaze
                            , drawLabyrinth = False
-                           , drawWalls = False
+--                           , drawWalls = False
                            , depthRender = False
                            , mouse = defaultMouseState
                            , glids = glstuff
@@ -941,6 +940,6 @@ main = do
   cleanBuffers $ normalsBuffersInfo $ glids lastState
   cleanBuffers $ bugMarkerBuffersInfo $ glids lastState
   cleanBuffers $ labyrinthBuffersInfo $ glids lastState
-  cleanBuffers $ wallsBuffersInfo $ glids lastState
+--  cleanBuffers $ wallsBuffersInfo $ glids lastState
   GLFW.closeWindow
   GLFW.terminate

@@ -24,6 +24,7 @@ import qualified Data.Sequence as S
 import Data.Set (singleton, notMember, insert)
 import qualified Data.Foldable as F
 import Data.Maybe (fromJust, maybe)
+import qualified Data.List as L
 
 import ListUtil
 import qualified Geometry as G
@@ -97,27 +98,43 @@ faceIndice offset Face{..} =
   concatMap (\(i,j) -> map (offset+) [centerIndex, 2*j, 2*i, 2*i, 2*j, 2*j+1, 2*i, 2*j+1, 2*i+1]) idPairs
 
 
-
-toBufferData :: (RealFloat a, Integral b) => VoronoiModel a -> ([G.Point3f a], [b], [a], [G.Point3f a])
-toBufferData VoronoiModel{..} = (reverse vs, ids, reverse centers, reverse normals)
+toBufferData :: (RealFloat a, Integral b) => S.Seq (Face a) -> [(Int, [Int])] -> Int -> ([G.Point3f a], [b], [a], [a], [G.Point3f a])
+toBufferData faces depthMap maxDepth = (reverse vs, ids, reverse centers, reverse mazeData, reverse normals)
   where
-    fc = S.length faces
+    maxDepthF = fromIntegral maxDepth
+    fc = fromIntegral $ S.length faces
     (  vs
      , ids
      , centers
      , normals
-     , _) = foldr (\i (vs, is, cs, ns, offset) ->
+     , mazeData
+     , _) = foldr (\(i, depths) (vs, is, cs, ns, md, offset) ->
                       let f = S.index faces i in
                       let newVs = vertice f in
                       let l = length newVs in
-                      ( barycenter f : (concatMap (\v -> [G.times 0.5 v, v]) newVs) ++ vs
-                      , (faceIndice (fromIntegral offset) f) ++ is
-                      , 1 : (take (2*l) $ repeat 0) ++ cs
-                      , (take (2*l+1) $ repeat $ seed f) ++ ns
-                      , offset + 2*l + 1)
+                      case depths of
+                        [] ->
+                          let ms = take ((+) 1 $ (*) 2 $ length $ vertice f) $ repeat 0 in
+                          ( barycenter f : (concatMap (\v -> [G.times 0.98 v, v]) newVs) ++ vs
+                          , (faceIndice (fromIntegral offset) f) ++ is
+                          , 1 : (take (2*l) $ repeat 0) ++ cs
+                          , (take (2*l+1) $ repeat $ seed f) ++ ns
+                          , ms ++ md
+                          , offset + 2*l + 1)
+                        _ -> foldr (\d (vs', is', cs', ns', md', offset') ->
+                                     let ms = take ((+) 1 $ (*) 2 $ length $ vertice f) $ repeat $ (1 + maxDepthF - fromIntegral d) / maxDepthF in -- dToHalf pos
+                                     ( barycenter f : (concatMap (\v -> [G.times 0.98 v, v]) newVs) ++ vs'
+                                     , (faceIndice (fromIntegral offset') f) ++ is'
+                                     , 1 : (take (2*l) $ repeat 0) ++ cs'
+                                     , (take (2*l+1) $ repeat $ seed f) ++ ns'
+                                     , ms ++ md'
+                                     , offset' + 2*l + 1)
+                                   )
+                                   (vs, is, cs, ns, md, offset)
+                                   depths
                   )
-                  ([], [], [], [], 0)
-                  $ take fc [0..]
+                  ([], [], [], [], [], 0)
+                  depthMap
 
 
 closestSeed :: RealFloat a => VoronoiModel a -> G.Point3f a -> (Int, G.Point3f a)

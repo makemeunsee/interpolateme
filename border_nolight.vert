@@ -12,11 +12,12 @@ uniform float u_time;
 out float v_centerFlag;
 out float v_mazeDepth;
 
+// TODO: depth scale from uniform
 void main()
 {
     float d = 0.0;
     if (u_allowDepth > 0.0) {
-        d = - a_mazeDepth / 10.0;
+        d = - a_mazeDepth / 2.0;
     }
     gl_Position = u_mvpMat * vec4((1.0+d) * position, 1.0);
     v_centerFlag = a_centerFlag;
