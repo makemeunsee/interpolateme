@@ -114,6 +114,7 @@ data GlobalState = GlobalState { viewMat :: Mat44f
                                , depthRender :: Bool
                                , depthInvert :: Bool
                                , depthScale :: GLfloat
+                               , explodedFactor :: GLfloat
                                , mouse :: MouseState
                                , modelMat :: Mat44f
                                , model :: VC.VoronoiModel GLfloat
@@ -202,7 +203,6 @@ data GLIDs = GLIDs { shaderInfo :: ShaderInfo
                    , objectBuffersInfo :: BuffersInfo
                    , labyrinthBuffersInfo :: BuffersInfo
                    , normalsBuffersInfo :: BuffersInfo
-                   , bugMarkerBuffersInfo :: BuffersInfo
                    }
 
 
@@ -265,12 +265,6 @@ initGL drawFront drawBack m_angles = do
   -- create data buffers
   objectBuffersInfo <- loadBuffers [] [] Nothing Nothing Nothing
   normalsBuffersInfo <- loadBuffers [] [] Nothing Nothing Nothing
-  bugMarkerBuffersInfo <- case m_angles of
-                            Nothing -> loadBuffers [] [] Nothing Nothing Nothing
-                            Just (theta,phi) -> do
-                              let G.Point3f x y z = latLongPosition theta phi 1
-                              loadBuffers [x,y,z,x*2,y*2,z*2] [0,1] Nothing Nothing Nothing
-
   labyrinthBuffersInfo <- loadBuffers [] [] Nothing Nothing Nothing
 
   return GLIDs{..}
@@ -343,8 +337,8 @@ bindUniformVector prog uName vec = do
   with vec $ glUniform4fv vLoc 1 . castPtr
 
 
-render :: GLfloat -> Bool -> Bool -> Bool -> GLfloat -> GLfloat -> Mat44f -> GLIDs -> IO ()
-render t drawSolid drawNormals drawMazePath depthMode depthScale mvp glids@GLIDs{..} = do
+render :: GLfloat -> Bool -> Bool -> Bool -> GLfloat -> GLfloat -> GLfloat -> Mat44f -> GLIDs -> IO ()
+render t drawSolid drawNormals drawMazePath depthMode depthScale explodedFactor mvp glids@GLIDs{..} = do
   GL.clear [GL.ColorBuffer, GL.DepthBuffer]
 
   let ShaderInfo{..} = shaderInfo
@@ -356,6 +350,7 @@ render t drawSolid drawNormals drawMazePath depthMode depthScale mvp glids@GLIDs
   borderWidthLoc <- get $ uniformLocation prog "u_borderWidth"
   depthModeLoc <- get $ uniformLocation prog "u_depthMode"
   depthScaleLoc <- get $ uniformLocation prog "u_depthScale"
+  expFactLoc <- get $ uniformLocation prog "u_explodedFactor"
 
   -- bind time
   timeLoc <- get $ uniformLocation prog "u_time"
@@ -367,6 +362,9 @@ render t drawSolid drawNormals drawMazePath depthMode depthScale mvp glids@GLIDs
   -- depth render mode
   uniform depthModeLoc $= GL.Index1 depthMode
   uniform depthScaleLoc $= GL.Index1 depthScale
+
+  -- exploded
+  uniform expFactLoc $= GL.Index1 explodedFactor
 
   if drawNormals
     then do
@@ -388,25 +386,13 @@ render t drawSolid drawNormals drawMazePath depthMode depthScale mvp glids@GLIDs
       return ()
 
 
-  -- bug marker
-  uniform colLoc $= GL.Color4 0 0 0 (1 :: GLfloat)
-  uniform bColLoc $= GL.Color4 0 0 0 (1 :: GLfloat)
-  uniform borderWidthLoc $= GL.Index1 (0 :: GLfloat)
-  -- bind attributes
-  bindGeometry shaderInfo bugMarkerBuffersInfo
-  -- bind indice
-  bindBuffer ElementArrayBuffer $= Just (indice bugMarkerBuffersInfo)
-  drawElements GL.Lines (indiceCount bugMarkerBuffersInfo) GL.UnsignedInt offset0
-  unbindGeometry shaderInfo
-
-
   -- draw object
   -- bind uniform colors
   if drawSolid
     then do
       uniform colLoc $= GL.Color4 1 1 1 (1 :: GLfloat)
       uniform bColLoc $= GL.Color4 0.05 0.05 0.05 (1 :: GLfloat)
-      uniform borderWidthLoc $= GL.Index1 (0.8 :: GLfloat)
+      uniform borderWidthLoc $= GL.Index1 (1.0 :: GLfloat)
 
       -- bind attributes
       bindGeometry shaderInfo objectBuffersInfo
@@ -624,6 +610,8 @@ handleKeys state = do
   ki <- GLFW.getKey 'I'
   kpl <- GLFW.getKey GLFW.KP_ADD
   kmi <- GLFW.getKey GLFW.KP_SUBTRACT
+  kpd <- GLFW.getKey GLFW.PAGEDOWN
+  kpu <- GLFW.getKey GLFW.PAGEUP
 
   let nR = released kn n
   let lR = released kl l
@@ -649,6 +637,9 @@ handleKeys state = do
   let scaleF = if kpl == Press then 1.01 else if kmi == Press then (1/1.01) else 1
   let dScale = max 0.00001 $ min 1 $ scaleF * depthScale state
 
+  let scaleExp = if kpu == Press then 1.01 else if kpd == Press then (1/1.01) else 1
+  let expFact = max 1 $ scaleExp * explodedFactor state
+
   return state { keys = newKeyState
                , drawSolid = if sR then not $ drawSolid state else drawSolid state
                , drawNormals = if nR then not $ drawNormals state else drawNormals state
@@ -656,6 +647,7 @@ handleKeys state = do
                , depthRender = if dR then not $ depthRender state else depthRender state
                , depthInvert = if dI then not $ depthInvert state else depthInvert state
                , depthScale = dScale
+               , explodedFactor = expFact
                , pendingCuts = newCuts
                , seed = newSeed
                }
@@ -734,6 +726,7 @@ loop action global = do
          (drawMazePath newGlobal)
          (if depthRender newGlobal then if depthInvert newGlobal then -1 else 1 else 0)
          (depthScale newGlobal)
+         (explodedFactor newGlobal)
          mvp
          (glids newGlobal)
 
@@ -825,11 +818,12 @@ loadModel global@GlobalState{..} vm = do
                                              Nothing
                                              (Just pathMazeData)
 
-      t3 <- get time
-      putStrLn $ "load model duration:\t" ++ show (t3 - t0)
       return newLabyrinthBuffersInfo
     else
       return labyrinthBuffersInfo
+
+  t3 <- get time
+  putStrLn $ "load model duration:\t" ++ show (t3 - t0)
 
   let newGlids = glids { objectBuffersInfo = newBuffersInfo
                        , normalsBuffersInfo = newNormalsBuffersInfo
@@ -937,6 +931,7 @@ main = do
                            , depthRender = True
                            , depthInvert = True
                            , depthScale = 100 * fromIntegral cuts / fromIntegral mazeDepthGap
+                           , explodedFactor = 1
                            , mouse = defaultMouseState
                            , glids = glstuff
                            , simTime = 0
@@ -960,7 +955,6 @@ main = do
   -- exit
   cleanBuffers $ objectBuffersInfo $ glids lastState
   cleanBuffers $ normalsBuffersInfo $ glids lastState
-  cleanBuffers $ bugMarkerBuffersInfo $ glids lastState
   cleanBuffers $ labyrinthBuffersInfo $ glids lastState
   GLFW.closeWindow
   GLFW.terminate

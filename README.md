@@ -32,6 +32,7 @@ Features
 * D: toggle maze depth.
 * I: reverse maze depth.
 * +/-: depth exaggeration control.
+* Page Up / Page Down: explosion control.
 * L: show/hide maze path (must have been started with --p).
 * S: show/hide model.
 * C: apply 50 random cuts in a row (slow on already high poly models).
