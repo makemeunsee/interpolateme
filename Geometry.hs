@@ -11,6 +11,7 @@ module Geometry ( Point3f(Point3f), Normal
                 , vec3, vec4, vec4ToPoint3f
                 , lookAtMatrix
                 , orthoMatrix, orthoMatrixFromScreen
+                , projMatrix, projMatrixFromScreen
                 , scale
                 , multMat, multInvMatV
                 , rotate
@@ -216,6 +217,24 @@ orthoMatrix left right bottom top near far = x V.:. y V.:. z V.:. h V.:. ()
         y = 0 V.:. y_orth V.:. 0 V.:. ty V.:. ()
         z = 0 V.:. 0 V.:. z_orth V.:. tz V.:. ()
         h = 0 V.:. 0 V.:. 0 V.:. 1 V.:. ()
+
+
+projMatrixFromScreen :: (RealFloat a, Integral b) => b -> b -> V.Mat44 a
+projMatrixFromScreen w h = projMatrix near far top (wf / hf)
+  where wf = fromIntegral w
+        hf = fromIntegral h
+        near = 1
+        far = 10
+        top = 1
+
+
+projMatrix :: RealFloat a => a -> a -> a -> a -> V.Mat44 a
+projMatrix n f t aspectRatio = x V.:. y V.:. z V.:. h V.:. ()
+  where r = t * aspectRatio
+        x = (n/r) V.:. 0 V.:. 0 V.:. 0 V.:. ()
+        y = 0 V.:. (n/t) V.:. 0 V.:. 0 V.:. ()
+        z = 0 V.:. 0 V.:. (-(f+n)/(f-n)) V.:. (-2*f*n/(f-n)) V.:. ()
+        h = 0 V.:. 0 V.:. (-1) V.:. 0 V.:. ()
 
 
 multMat :: RealFloat a => V.Mat44 a -> V.Mat44 a -> V.Mat44 a
