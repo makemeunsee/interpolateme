@@ -211,10 +211,11 @@ labyrinthToWallIndice offset faces (Node i _ ls) = (indice, newOffset)
 faceIndice :: Integral a => a -> Face b -> [a]
 faceIndice offset Face{..} =
   let l = length vertice in
-  let centerIndex = 2 * fromIntegral l in
+  let centerIndex = 1 + 2 * fromIntegral l in
+  let centerIndex' = 2 * fromIntegral l in
   let verticeIndice = take l [0..] in
   let idPairs = cyclicConsecutivePairs verticeIndice in
-  concatMap (\(i,j) -> map (offset+) [centerIndex, 2*j, 2*i, 2*i, 2*j, 2*j+1, 2*i, 2*j+1, 2*i+1]) idPairs
+  concatMap (\(i,j) -> map (offset+) [centerIndex', 2*i+1, 2*j+1, centerIndex, 2*j, 2*i, 2*i, 2*j, 2*j+1, 2*i, 2*j+1, 2*i+1]) idPairs
 
 
 depthValue :: RealFloat a => Int -> Int -> a
@@ -238,21 +239,21 @@ toBufferData faces depthMap maxDepth = (reverse vs, ids, reverse centers, revers
                       let l = length newVs in
                       case depths of
                         [] ->
-                          let ms = take ((+) 1 $ (*) 2 $ length $ vertice f) $ repeat 0 in
-                          ( barycenter f : (concatMap (\v -> [G.times 0.98 v, v]) newVs) ++ vs
+                          let ms = take ((+) 2 $ (*) 2 $ length $ vertice f) $ repeat 0 in
+                          ( (concatMap (\v -> [G.times 0.975 v, v]) $ barycenter f : newVs) ++ vs
                           , (faceIndice (fromIntegral offset) f) ++ is
-                          , 1 : (take (2*l) $ repeat 0) ++ cs
-                          , (take (2*l+1) $ repeat $ seed f) ++ ns
+                          , 1 : 1 : (take (2*l) $ repeat 0) ++ cs
+                          , (take (2*l+2) $ repeat $ seed f) ++ ns
                           , ms ++ md
-                          , offset + 2*l + 1)
+                          , offset + 2*l + 2)
                         _ -> foldr (\d (vs', is', cs', ns', md', offset') ->
-                                     let ms = take ((+) 1 $ (*) 2 $ length $ vertice f) $ repeat $ depth d in -- dToHalf pos
-                                     ( barycenter f : (concatMap (\v -> [G.times 0.98 v, v]) newVs) ++ vs'
+                                     let ms = take ((+) 2 $ (*) 2 $ length $ vertice f) $ repeat $ depth d in -- dToHalf pos
+                                     ( (concatMap (\v -> [G.times 0.975 v, v]) $ barycenter f : newVs) ++ vs'
                                      , (faceIndice (fromIntegral offset') f) ++ is'
-                                     , 1 : (take (2*l) $ repeat 0) ++ cs'
-                                     , (take (2*l+1) $ repeat $ seed f) ++ ns'
+                                     , 1 : 1 : (take (2*l) $ repeat 0) ++ cs'
+                                     , (take (2*l+2) $ repeat $ seed f) ++ ns'
                                      , ms ++ md'
-                                     , offset' + 2*l + 1)
+                                     , offset' + 2*l + 2)
                                    )
                                    (vs, is, cs, ns, md, offset)
                                    depths
