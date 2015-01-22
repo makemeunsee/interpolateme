@@ -558,8 +558,8 @@ handleKeys state = do
                              , i = ki
                              }
 
-  let scaleF = if kpl == Press then 1.01 else if kmi == Press then (1/1.01) else 1
-  let dScale = max 0.00001 $ min 1 $ scaleF * depthScale state
+  let scaleF = if kpl == Press then 0.01 else if kmi == Press then (-0.01) else 0
+  let dScale = max 0 $ min 1 $ scaleF + depthScale state
 
   let scaleExp = if kpu == Press then 1.01 else if kpd == Press then (1/1.01) else 1
   let expFact = max 1 $ scaleExp * explodedFactor state
@@ -821,7 +821,7 @@ main = do
                            , mazeDepthGap = mazeDepthGap
                            , depthRender = True
                            , depthInvert = True
-                           , depthScale = 100 * fromIntegral cuts / fromIntegral mazeDepthGap
+                           , depthScale = fromIntegral mazeDepthGap / 100
                            , explodedFactor = 1
                            , mouse = defaultMouseState
                            , glids = glstuff
