@@ -10,6 +10,7 @@ module VoronoiCut ( fromModel
                   , barycenter
                   , closestSeed
                   , cutFace
+                  , cutModelFromAngles
                   , cutModel
                   )
 
@@ -27,6 +28,7 @@ import qualified Data.List as L
 
 import ListUtil
 import qualified Geometry as G
+import qualified LinAlgFunctions as LAF
 import PlaneCut ( ToPlane (..)
                 , Plane (..)
                 , intersectPlaneAndSegment
@@ -142,6 +144,12 @@ cutFace newFaceId f@Face{..} pl@Plane{..} =
                 case cx*kx+cy*ky+cz*kz of x | abs x <= tolerance -> OnPlane
                                             | x < -tolerance     -> Below
                                             | otherwise          -> Above
+
+
+cutModelFromAngles :: RealFloat a => a -> a -> VoronoiModel a -> VoronoiModel a
+cutModelFromAngles theta phi m = cutModel m (Plane nx ny nz sfPt)
+  where sfPt@(G.Point3f nx ny nz) = LAF.latLongPosition theta phi 1
+
 
 
 cutModel :: RealFloat a => VoronoiModel a -> Plane a -> VoronoiModel a

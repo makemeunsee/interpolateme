@@ -1,7 +1,7 @@
 module Main where
 
 import Geometry
-import FloretSphere
+import Models
 import Test.Hspec
 
 main :: IO ()

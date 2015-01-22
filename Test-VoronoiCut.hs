@@ -5,7 +5,7 @@ import Test.Hspec
 import VoronoiCut
 import PlaneCut ( Plane (..) )
 import Geometry
-import FloretSphere
+import Models
 
 main :: IO ()
 main = hspec $ do

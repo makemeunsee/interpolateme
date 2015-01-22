@@ -12,8 +12,6 @@ module PlaneCut ( FacedModel(FacedModel)
 
 where
 
---import System.IO.Unsafe (unsafePerformIO)
-
 import Data.List (elemIndex, findIndex, findIndices, partition)
 import Data.Array.IArray (IArray, Array, array, (!))
 

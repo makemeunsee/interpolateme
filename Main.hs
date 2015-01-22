@@ -40,7 +40,6 @@ import Graphics.Rendering.OpenGL.Raw ( glUniformMatrix4fv
                                      )
 import Graphics.GLUtil
 
-import Control.Exception
 import Control.Monad (foldM)
 
 import Foreign (with, fromBool, castPtr, alloca, peek, withArrayLen, sizeOf, Ptr, mallocArray, peekArray, free, nullPtr)
@@ -49,40 +48,17 @@ import Foreign.C.Types (CFloat, CInt)
 import Data.Maybe (listToMaybe)
 import Data.IORef (IORef, newIORef)
 import Data.Vec (Mat44, Vec4, multmv, identity)
-import Data.List (findIndices, elem, find)
-import Data.List.Split (splitOn)
-import Data.Maybe (fromJust)
-import qualified Data.Sequence as S
-import qualified Data.Foldable as F
-import qualified Data.Map as M
 
-import qualified Random.MWC.Pure as RND
-
-import FloretSphere
+import Models
 import qualified Geometry as G
-import GLGenericFunctions ( naiveRotMat
-                          , latLongPosition
-                          , viewMatOf
-                          )
-import FlatModel ( FlatModel (FlatModel)
-                 , fromModel
-                 )
-import ListUtil
+import qualified LinAlgFunctions as LAF
 import qualified VoronoiCut as VC
-import qualified PlaneCut as PC
 import Labyrinth
-
--- NearZero instance for GLfloat
-import Data.Vec.LinAlg (NearZero(..))
-instance NearZero CFloat where
-  nearZero x = abs x < 1e-6
-  {-# INLINE nearZero #-}
+import RandomUtil
 
 
 type Vec4f = Vec4 GLfloat
 type Mat44f = Mat44 GLfloat
-type Point3GL = G.Point3f GLfloat
-type FlatModelGL = FlatModel GLfloat
 
 
 data Action = Action (IO Action, MouseState -> MouseState)
@@ -91,7 +67,6 @@ data Action = Action (IO Action, MouseState -> MouseState)
 data KeyState = KeyState { n :: KeyButtonState
                          , s :: KeyButtonState
                          , l :: KeyButtonState
-                         , c :: KeyButtonState
                          , d :: KeyButtonState
                          , i :: KeyButtonState
                          }
@@ -117,15 +92,11 @@ data GlobalState = GlobalState { viewMat :: Mat44f
                                , explodedFactor :: GLfloat
                                , mouse :: MouseState
                                , modelMat :: Mat44f
-                               , model :: VC.VoronoiModel GLfloat
                                , glids :: GLIDs
                                , simTime :: GLfloat
-                               , seed :: RND.Seed
                                , keys :: KeyState
                                , projMat :: IORef Mat44f
                                , zoom :: IORef GLfloat
-                               , pendingCuts :: [(GLfloat, GLfloat)]
-                               , lastCutTime :: Double
                                }
 
 
@@ -133,7 +104,7 @@ data GlobalState = GlobalState { viewMat :: Mat44f
 
 
 defaultKeyState :: KeyState
-defaultKeyState = KeyState Release Release Release Release Release Release
+defaultKeyState = KeyState Release Release Release Release Release
 
 
 defaultMouseState :: MouseState
@@ -142,33 +113,6 @@ defaultMouseState = MouseState { mouseX = 0
                                , wheel = 0
                                , leftButton = Release
                                }
-
-
--- rnd / num distribution functions
-
-
-seedForString :: String -> RND.Seed
-seedForString str = RND.seed $ map charToWord32 str
-  where charToWord32 c = fromIntegral $ fromEnum c
-
-
--- GLfloat RangeRandom instance
-instance RND.RangeRandom CFloat where
-  range_random (x0, x1) s = (realToFrac r, s')
-    where (r, s') = RND.range_random(realToFrac x0 :: Float, realToFrac x1 :: Float) s
-
-
--- GLint RangeRandom instance
-instance RND.RangeRandom CInt where
-  range_random (x0, x1) s = (fromIntegral r, s')
-    where (r, s') = RND.range_random(fromIntegral x0 :: Int, fromIntegral x1 :: Int) s
-
-
-rndSpherePosition :: (RealFloat a, RND.RangeRandom a) => RND.Seed -> (a, a, RND.Seed)
-rndSpherePosition seed = (2*pi*u, acos $ 2*v - 1, newSeed)
-  where
-    (u, newSeed0) = RND.range_random (0, 1) seed
-    (v, newSeed) = RND.range_random (0, 1) newSeed0
 
 
 -- how many to draw
@@ -243,19 +187,14 @@ loadBuffers verticeData indiceData m_normalData m_centersData m_mazeData = do
   return BuffersInfo{..}
 
 
-initGL :: Bool -> Bool -> Maybe (GLfloat, GLfloat) -> IO GLIDs
-initGL drawFront drawBack m_angles = do
+initGL :: IO GLIDs
+initGL = do
   GL.depthFunc $= Just GL.Less
   GL.blend $= GL.Enabled
   GL.blendFunc $= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
   GL.shadeModel $= GL.Smooth
 
-  let front = if drawFront then GL.Fill else GL.Line
-  let back = if drawBack then GL.Fill else GL.Line
-  GL.polygonMode $= (front, back)
-
   GL.cullFace $= Just GL.Back
---  GL.cullFace $= Nothing
 
   GL.lineWidth $= 1
 
@@ -537,7 +476,7 @@ resize :: IORef Mat44f -> IORef GLfloat -> GLFW.WindowSizeCallback
 resize projMatRef zoomRef size@(GL.Size w h) = do
   zoom <- get zoomRef
   GL.viewport $= (GL.Position 0 0, size)
-  projMatRef $= (G.scale zoom $ G.orthoMatrixFromScreen w h 2)
+  projMatRef $= (LAF.scale zoom $ LAF.orthoMatrixFromScreen w h 2)
   return ()
 
 
@@ -609,23 +548,15 @@ handleKeys state = do
   let nR = released kn n
   let lR = released kl l
   let sR = released ks s
-  let cR = released kc c
   let dR = released kd d
   let dI = released ki i
 
   let newKeyState = keyState { n = kn
                              , s = ks
                              , l = kl
-                             , c = kc
                              , d = kd
                              , i = ki
                              }
-
-  let (newCuts, newSeed) = if cR then
-                             let (newC, newS) = generateRndCuts 50 (seed state) in
-                             (pendingCuts state ++ newC, newS)
-                           else
-                             (pendingCuts state, seed state)
 
   let scaleF = if kpl == Press then 1.01 else if kmi == Press then (1/1.01) else 1
   let dScale = max 0.00001 $ min 1 $ scaleF * depthScale state
@@ -641,8 +572,6 @@ handleKeys state = do
                , depthInvert = if dI then not $ depthInvert state else depthInvert state
                , depthScale = dScale
                , explodedFactor = expFact
-               , pendingCuts = newCuts
-               , seed = newSeed
                }
 
   where released newK oldK = newK == Release && newK /= oldK
@@ -655,7 +584,7 @@ updateZoom zoomFactor state = do
       m <- get $ projMat state
       z <- get $ zoom state
       zoom state $= zoomFactor * z
-      projMat state $= G.scale zoomFactor m
+      projMat state $= LAF.scale zoomFactor m
     else
       return ()
 
@@ -666,7 +595,7 @@ applyMouseActions speed newMouseState global = do
   if leftButton newMouseState == Press
     then
       -- update model rotation matrix
-      return global' { modelMat = naiveRotMat (diffX * speed) (diffY * speed) `G.multMat` modelMat global }
+      return global' { modelMat = LAF.naiveRotMat (diffX * speed) (diffY * speed) `LAF.multMat` modelMat global }
     else
       return global'
   where
@@ -693,24 +622,12 @@ loop action global = do
   let newMouseState = mouseStateUpdater $ mouse newGlobal0
 
   -- update the view related properties in the global state
-  newGlobal1 <- applyMouseActions speed newMouseState newGlobal0
-
-  -- cut model
-  t <- get time
-  newGlobal <- case pendingCuts newGlobal1 of
-                 [] -> return newGlobal1
-                 (th,ph) : cs
-                   | t - lastCutTime newGlobal1 > 0.01 -> do
-                     let m' = applyCut th ph $ model newGlobal1
-                     newState <- loadModel newGlobal1 m'
-                     t' <- get time
-                     return newState { pendingCuts = cs, lastCutTime = t' }
-                   | otherwise -> return newGlobal1
+  newGlobal <- applyMouseActions speed newMouseState newGlobal0
 
   -- prepare matrices for rendering
-  p <- get $ projMat newGlobal1
-  let vp = p `G.multMat` viewMat newGlobal1
-  let mvp = vp `G.multMat` modelMat newGlobal1
+  p <- get $ projMat newGlobal
+  let vp = p `LAF.multMat` viewMat newGlobal
+  let mvp = vp `LAF.multMat` modelMat newGlobal
 
   -- render
   render (simTime newGlobal)
@@ -750,8 +667,8 @@ strArgument :: String -> [String] -> Maybe String
 strArgument arg args = listToMaybe $ drop 1 $ dropWhile (/= arg) args
 
 
-loadModel :: GlobalState -> VC.VoronoiModel GLfloat -> IO GlobalState
-loadModel global@GlobalState{..} vm = do
+loadModel :: GlobalState -> VC.VoronoiModel GLfloat -> Labyrinth Int -> IO GlobalState
+loadModel global@GlobalState{..} vm laby = do
 
   t0 <- get time
   let GLIDs{..} = glids
@@ -759,15 +676,8 @@ loadModel global@GlobalState{..} vm = do
   let faces = VC.faces vm
   let fc = VC.faceCount vm
 
-  t1 <- get time
-  let (laby, seed') = labyrinth1 seed mazeDepthGap faces
-  putStrLn $ "mazes sizes:\t" ++ show (size laby)
-  t2 <- get time
-  putStrLn $ "laby gen duration:\t" ++ show (t2 - t1)
-
   let (depths, maxDepth) = depthMap laby
-
-  let (vertexBuffer, ids, centerBuffer, mazeBuffer, normalBuffer) = toBufferData faces (M.toAscList depths) maxDepth
+  let (vertexBuffer, ids, centerBuffer, mazeBuffer, normalBuffer) = toBufferData faces depths maxDepth
 
   -- clean gl buffers and recreate them with proper data
   cleanBuffers objectBuffersInfo
@@ -823,20 +733,7 @@ loadModel global@GlobalState{..} vm = do
                        , labyrinthBuffersInfo = newLabyrinthBuffersInfo
                        }
 
-  return global { glids = newGlids, model = vm, seed = seed' }
-
-
-applyCut theta phi m = VC.cutModel m (PC.Plane nx ny nz sfPt)
-  where sfPt@(G.Point3f nx ny nz) = latLongPosition theta phi 1
-
-
-generateRndCuts 0 seed = ([], seed)
-generateRndCuts n seed
-  | n <= 0    = ([], seed)
-  | otherwise = ((theta, phi) : arr, seed'')
-  where
-    (arr, seed'') = generateRndCuts (n-1) seed'
-    (theta, phi, seed') = rndSpherePosition seed
+  return global { glids = newGlids }
 
 
 main :: IO ()
@@ -846,9 +743,6 @@ main = do
 
   -- fullscreen flag
   let fullScreenRequest = boolArgument "--f" args
-
-  -- draw back and front faces
-  let bothFaces = boolArgument "--b" args
 
   -- compute and render maze path
   let computeMazePath = boolArgument "--p" args
@@ -871,7 +765,7 @@ main = do
   t0 <- get time
   let (rndCuts, seed') = generateRndCuts cuts seed
   putStrLn $ "cuts:\t" ++ show cuts
-  let rndCutsModel = foldr (\(t,p) m  -> applyCut t p m) cuttableModel $ reverse rndCuts
+  let rndCutsModel = foldr (\(t,p) m  -> VC.cutModelFromAngles t p m) cuttableModel $ reverse rndCuts
   putStrLn $ "last face seed:\t" ++ (show $ VC.seed $ VC.lastFace rndCutsModel)
 --  putStrLn "cut\tfaces\tduration"
 --  (rndCutsModel, _) <- F.foldrM (\(t,p) (m,i)  -> do
@@ -888,6 +782,12 @@ main = do
   t1 <- get time
   putStrLn $ "topology:\t" ++ (show $ map VC.neighbours $ VC.faceList rndCutsModel)
   putStrLn $ "Truncation duration: " ++ show (t1 - t0)
+
+  t2 <- get time
+  let (laby, seed'') = labyrinth1 seed' mazeDepthGap $ VC.faces rndCutsModel
+  putStrLn $ "mazes sizes:\t" ++ show (size laby)
+  t3 <- get time
+  putStrLn $ "laby gen duration:\t" ++ show (t3 - t2)
 
   fullscreenMode <- get GLFW.desktopMode
 
@@ -908,14 +808,12 @@ main = do
   GLFW.windowPos $= GL.Position 200 200
 
   -- init GL state
-  glstuff <- initGL (True)
-                    (bothFaces)
-                    Nothing
+  glstuff <- initGL
 
   -- init global state
   projMat <- newIORef identity
   zoom <- newIORef 1.75
-  let state0 = GlobalState { viewMat = viewMatOf (pi/2) (pi/2) 1
+  let state0 = GlobalState { viewMat = LAF.viewMatOf (pi/2) (pi/2) 1
                            , drawSolid = True
                            , drawNormals = False
                            , computeMazePath = computeMazePath
@@ -928,16 +826,13 @@ main = do
                            , mouse = defaultMouseState
                            , glids = glstuff
                            , simTime = 0
-                           , seed = seed'
                            , keys = defaultKeyState
                            , projMat = projMat
                            , modelMat = identity
                            , zoom = zoom
-                           , pendingCuts = []
-                           , lastCutTime = 0
                            }
 
-  state <- loadModel state0 rndCutsModel
+  state <- loadModel state0 rndCutsModel laby
 
   -- setup stuff
   GLFW.swapInterval       $= 1 -- vsync

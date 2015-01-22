@@ -15,8 +15,8 @@ Data-Files:          border_nolight.frag, border_nolight.vert
 Executable interpolateme
   Main-is:             Main.hs
   ghc-options:         -O2
-  Build-Depends:       base >= 3 && < 5, OpenGL >= 2.3, GLFW, GLUtil, OpenGLRaw, Vec, AC-Random, scientific, split, array, containers
-  Other-Modules:       Geometry, ListUtil, FloretSphere, FlatModel, VoronoiCut, Labyrinth
+  Build-Depends:       base >= 3 && < 5, OpenGL >= 2.3, GLFW, GLUtil, OpenGLRaw, Vec, AC-Random, array, containers
+  Other-Modules:       Geometry, ListUtil, Models, VoronoiCut, Labyrinth, LinAlgFunctions
 
 Test-Suite geometry-tests
   Type:                exitcode-stdio-1.0

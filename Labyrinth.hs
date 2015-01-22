@@ -4,7 +4,7 @@ module Labyrinth
 where
 
 import qualified Data.List as L
-import Data.Map (Map, singleton, notMember, insert, (!), lookup, empty, unionWith)
+import Data.Map (Map, singleton, notMember, insert, (!), lookup, empty, unionWith, toAscList)
 import qualified Data.Set as Set
 import qualified Data.Sequence as S
 import qualified Random.MWC.Pure as RND
@@ -219,11 +219,11 @@ faceIndice offset Face{..} =
 
 
 depthValue :: RealFloat a => Int -> Int -> a
-depthValue maxDepth depth = (1 + maxDepthF - fromIntegral depth) / maxDepthF
+depthValue maxDepth depth = (maxDepthF - fromIntegral depth) / maxDepthF
   where maxDepthF = fromIntegral maxDepth
 
 
-toBufferData :: (RealFloat a, Integral b) => S.Seq (Face a) -> [(Int, [Int])] -> Int -> ([G.Point3f a], [b], [a], [a], [G.Point3f a])
+toBufferData :: (RealFloat a, Integral b) => S.Seq (Face a) -> Map Int [Int] -> Int -> ([G.Point3f a], [b], [a], [a], [G.Point3f a])
 toBufferData faces depthMap maxDepth = (reverse vs, ids, reverse centers, reverse mazeData, reverse normals)
   where
     depth = depthValue maxDepth
@@ -259,4 +259,4 @@ toBufferData faces depthMap maxDepth = (reverse vs, ids, reverse centers, revers
                                    depths
                   )
                   ([], [], [], [], [], 0)
-                  depthMap
+                  $ toAscList depthMap

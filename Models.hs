@@ -1,9 +1,10 @@
-module FloretSphere ( tetrahedron
-                    , cube
-                    , dodecahedron
-                    , icosahedron
-                    , polyhedrons
-                    )
+module Models ( tetrahedron
+              , cube
+              , dodecahedron
+              , icosahedron
+              , polyhedrons
+              )
+
 where
 
 import Control.Exception (assert)

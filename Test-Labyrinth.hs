@@ -3,18 +3,18 @@ module Main where
 import Test.Hspec
 
 import Labyrinth
-import FloretSphere (cube, tetrahedron)
+import Models (cube, tetrahedron)
 import Geometry
 import VoronoiCut
 
 main :: IO ()
 main = hspec $ do
-  let laby0 = Leaf 0
-  let laby1 = Node 1 [Leaf 2]
-  let laby2 = Node 2 [Leaf 5, Leaf 4]
-  let laby3 = Node 3 [Node 4 [Leaf 2]]
+  let laby0 = Leaf 0 0
+  let laby1 = Node 1 0 [Leaf 2 1]
+  let laby2 = Node 2 0 [Leaf 5 1, Leaf 4 1]
+  let laby3 = Node 3 0 [Node 4 1 [Leaf 2 2]]
 
-  let cubeLaby = Node 0 [Node 2 [Leaf 1], Leaf 4, Leaf 3, Leaf 5]
+  let cubeLaby = Node 0 0 [Node 2 1 [Leaf 1 2], Leaf 4 1, Leaf 3 1, Leaf 5 1]
 
   let cubeVM = fromModel cube
   let cubeFaces = VoronoiCut.faces cubeVM
@@ -37,11 +37,11 @@ main = hspec $ do
 
   describe "labyrinth to path vertice" $ do
     it "should work" $ do
-      labyrinthToPathVertice cubeFaces laby0 `shouldBe` [Point3f 0 1 0]
-      labyrinthToPathVertice cubeFaces laby1 `shouldBe` [Point3f 0 (-1) 0, Point3f 1 (-1) 0, Point3f 1 0 0]
-      labyrinthToPathVertice cubeFaces laby2 `shouldBe` [Point3f 1 0 0,Point3f 1 0 (-1),Point3f 0 0 (-1),Point3f 1 0 1,Point3f 0 0 1]
-      labyrinthToPathVertice cubeFaces laby3 `shouldBe` [Point3f (-1) 0 0,Point3f (-1) 0 1,Point3f 0 0 1,Point3f 1 0 1,Point3f 1 0 0]
-      labyrinthToPathVertice cubeFaces cubeLaby `shouldBe` [Point3f 0 1 0,Point3f 1 1 0,Point3f 1 0 0,Point3f 1 (-1) 0,Point3f 0 (-1) 0,Point3f 0 1 1,Point3f 0 0 1,Point3f (-1) 1 0,Point3f (-1) 0 0,Point3f 0 1 (-1),Point3f 0 0 (-1)]
+      labyrinthToPathVertice cubeFaces laby0 1 `shouldBe` ([Point3f 0 1 0], [1])
+      labyrinthToPathVertice cubeFaces laby1 1 `shouldBe` ([Point3f 0 (-1) 0, Point3f 1 (-1) 0, Point3f 1 0 0], [1,1,0])
+      labyrinthToPathVertice cubeFaces laby2 1 `shouldBe` ([Point3f 1 0 0,Point3f 1 0 (-1),Point3f 0 0 (-1),Point3f 1 0 1,Point3f 0 0 1], [1,1,0,1,0])
+      labyrinthToPathVertice cubeFaces laby3 2 `shouldBe` ([Point3f (-1) 0 0,Point3f (-1) 0 1,Point3f 0 0 1,Point3f 1 0 1,Point3f 1 0 0], [1,1,0.5,0.5,0])
+      labyrinthToPathVertice cubeFaces cubeLaby 2 `shouldBe` ([Point3f 0 1 0,Point3f 1 1 0,Point3f 1 0 0,Point3f 1 (-1) 0,Point3f 0 (-1) 0,Point3f 0 1 1,Point3f 0 0 1,Point3f (-1) 1 0,Point3f (-1) 0 0,Point3f 0 1 (-1),Point3f 0 0 (-1)], [1.0,1.0,0.5,0.5,0.0,1.0,0.5,1.0,0.5,1.0,0.5])
 
   describe "labyrinth to path indice" $ do
     it "should work" $ do

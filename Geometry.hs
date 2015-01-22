@@ -5,28 +5,15 @@ module Geometry ( Point3f(Point3f), Normal
                 , norm, normalized, cross, times, pointToArr, add, forceNorm, vec, divBy, dot
                 , dist
                 , Model(Model), vertice, faces
+                , barycenter, faceBarycenter
                 , edgeNeighbours, vertexNeighbours, facesForEachVertex
                 , combine
                 , gold
-                , vec3, vec4, vec4ToPoint3f
-                , lookAtMatrix
-                , orthoMatrix, orthoMatrixFromScreen
-                , projMatrix, projMatrixFromScreen
-                , scale
-                , multMat, multInvMatV
-                , rotate
-                , rotateM, rotateL
-                , rotMatrix4, transMatrix4
-                , negXRot, posXRot, negYRot, posYRot
-                , barycenter, faceBarycenter
                 , modelAutoNormals
                 )
 where
 
-import qualified Data.Vec as V
-import Data.Word
 import Data.List (elemIndex, elemIndices)
-import Data.Maybe (fromJust, listToMaybe)
 import ListUtil
 
 data Point3f a = Point3f a a a
@@ -149,142 +136,3 @@ normalized p@(Point3f x y z) = Point3f (x / n) (y / n) (z / n)
 
 forceNorm :: RealFloat a => a -> Point3f a -> Point3f a
 forceNorm a p = a `times` (normalized p)
-
-
-rotate :: RealFloat a => a -> Normal a -> Point3f a -> Point3f a
-rotate a n (Point3f x y z) =
-  Point3f (m !! 0 !! 0 * x + m !! 0 !! 1 * y + m !! 0 !! 2 * z)
-          (m !! 1 !! 0 * x + m !! 1 !! 1 * y + m !! 1 !! 2 * z)
-          (m !! 2 !! 0 * x + m !! 2 !! 1 * y + m !! 2 !! 2 * z)
-  where m = rotMatrix a n
-
-
-rotateM :: RealFloat a => V.Mat44 a -> Point3f a -> Point3f a
-rotateM mat (Point3f x y z) = Point3f rx ry rz
-  where rx V.:. ry V.:. rz V.:. _ = V.multmv mat $ vec4 x y z
-
-
-rotateL :: RealFloat a => [a] -> Point3f a -> Point3f a
-rotateL l = rotateM $ V.matFromList l
-
-
-rotMatrix :: RealFloat a => a -> Normal a -> [[a]]
-rotMatrix a (Point3f nx ny nz) = [ [cos a + nx*nx*(1-cos a),    nx*ny*(1-cos a) - nz*sin a, nx*nz*(1-cos a) + ny*sin a]
-                                 , [nx*ny*(1-cos a) + nz*sin a, cos a + ny*ny*(1-cos a),    ny*nz*(1-cos a) - nx*sin a]
-                                 , [nx*nz*(1-cos a) - ny*sin a, ny*nz*(1-cos a) + nx*sin a, cos a + nz*nz*(1-cos a)]
-                                 ]
-
-rotMatrix4 :: RealFloat a => a -> Normal a -> V.Mat44 a
-rotMatrix4 a p = V.matFromLists [m3 !! 0 ++ [0], m3 !! 1 ++ [0], m3 !! 2 ++ [0], [0,0,0,1]]
-  where m3 = rotMatrix a p
-
-transMatrix4 :: RealFloat a => Point3f a -> V.Mat44 a
-transMatrix4 (Point3f x y z) = V.matFromLists [[1,0,0,x], [0,1,0,y], [0,0,1,z], [0,0,0,1]]
-
-lookAtMatrix :: RealFloat a => V.Vec3 a -> V.Vec3 a -> V.Vec3 a -> V.Mat44 a
-lookAtMatrix eye target up = x V.:. y V.:. z V.:. h V.:. ()
-	where
-	forward = V.normalize $ target - eye
-	right = V.normalize $ V.cross forward up
-	up' = V.cross right forward
-	x = V.snoc right (-(V.dot right eye))
-	y = V.snoc up' (-(V.dot up' eye))
-	z = V.snoc (-forward) (V.dot forward eye)
-	h = 0 V.:. 0 V.:. 0 V.:. 1 V.:. ()
-
-
-orthoMatrixFromScreen :: (RealFloat a, Integral b) => b -> b -> a -> V.Mat44 a
-orthoMatrixFromScreen w h k = orthoMatrix left right bottom top near far
-  where hh = if h < 0 then 1 else h
-        aspect = (fromIntegral w) / (fromIntegral hh)
-        far = 100
-        near = -100
-        right = k * aspect
-        top = k
-        left = -right
-        bottom = -top
-
-
-orthoMatrix :: RealFloat a => a -> a -> a -> a -> a -> a -> V.Mat44 a
-orthoMatrix left right bottom top near far = x V.:. y V.:. z V.:. h V.:. ()
-  where x_orth = 2 / (right - left)
-        y_orth = 2 / (top - bottom)
-        z_orth = -2 / (far - near)
-        tx = -(right + left) / (right - left)
-        ty = -(top + bottom) / (top - bottom)
-        tz = -(far + near) / (far - near)
-        x = x_orth V.:. 0 V.:. 0 V.:. tx V.:. ()
-        y = 0 V.:. y_orth V.:. 0 V.:. ty V.:. ()
-        z = 0 V.:. 0 V.:. z_orth V.:. tz V.:. ()
-        h = 0 V.:. 0 V.:. 0 V.:. 1 V.:. ()
-
-
-projMatrixFromScreen :: (RealFloat a, Integral b) => b -> b -> V.Mat44 a
-projMatrixFromScreen w h = projMatrix near far top (wf / hf)
-  where wf = fromIntegral w
-        hf = fromIntegral h
-        near = 1
-        far = 10
-        top = 1
-
-
-projMatrix :: RealFloat a => a -> a -> a -> a -> V.Mat44 a
-projMatrix n f t aspectRatio = x V.:. y V.:. z V.:. h V.:. ()
-  where r = t * aspectRatio
-        x = (n/r) V.:. 0 V.:. 0 V.:. 0 V.:. ()
-        y = 0 V.:. (n/t) V.:. 0 V.:. 0 V.:. ()
-        z = 0 V.:. 0 V.:. (-(f+n)/(f-n)) V.:. (-2*f*n/(f-n)) V.:. ()
-        h = 0 V.:. 0 V.:. (-1) V.:. 0 V.:. ()
-
-
-multMat :: RealFloat a => V.Mat44 a -> V.Mat44 a -> V.Mat44 a
-multMat = V.multmm
-
-
--- multInvMatV :: Floating a => V.Mat44 a -> V.Vec4 a -> V.Vec4 a
-multInvMatV m = V.multmv (fromJust $ V.invert m)
-
-
-scale :: RealFloat a => a -> V.Mat44 a -> V.Mat44 a
-scale k = V.scale (vec4 k k k)
-
-
-vec3 x y z = (x V.:. y V.:. z V.:. ())
-
-
-vec4 x y z = (x V.:. y V.:. z V.:. 1 V.:. ())
-
-
-vec4ToPoint3f (x V.:. y V.:. z V.:. _ V.:. ()) = Point3f x y z
-
-
-negXRot :: RealFloat a => V.Mat44 a
-negXRot = x V.:. y V.:. z V.:. w V.:. ()
-  where x = 1 V.:. 0    V.:. 0    V.:. 0 V.:. ()
-        y = 0 V.:. 0    V.:. 1    V.:. 0 V.:. ()
-        z = 0 V.:. (-1) V.:. 0    V.:. 0 V.:. ()
-        w = 0 V.:. 0    V.:. 0    V.:. 1 V.:. ()
-
-
-posXRot :: RealFloat a => V.Mat44 a
-posXRot = x V.:. y V.:. z V.:. w V.:. ()
-  where x = 1 V.:. 0    V.:. 0    V.:. 0 V.:. ()
-        y = 0 V.:. 0    V.:. (-1) V.:. 0 V.:. ()
-        z = 0 V.:. 1    V.:. 0    V.:. 0 V.:. ()
-        w = 0 V.:. 0    V.:. 0    V.:. 1 V.:. ()
-
-
-negYRot :: RealFloat a => V.Mat44 a
-negYRot = x V.:. y V.:. z V.:. w V.:. ()
-  where x = 0 V.:. 0    V.:. (-1) V.:. 0 V.:. ()
-        y = 0 V.:. 1    V.:. 0    V.:. 0 V.:. ()
-        z = 1 V.:. 0    V.:. 0    V.:. 0 V.:. ()
-        w = 0 V.:. 0    V.:. 0    V.:. 1 V.:. ()
-
-
-posYRot :: RealFloat a => V.Mat44 a
-posYRot = x V.:. y V.:. z V.:. w V.:. ()
-  where x = 0    V.:. 0    V.:. 1    V.:. 0 V.:. ()
-        y = 0    V.:. 1    V.:. 0    V.:. 0 V.:. ()
-        z = (-1) V.:. 0    V.:. 0    V.:. 0 V.:. ()
-        w = 0    V.:. 0    V.:. 0    V.:. 1 V.:. ()
