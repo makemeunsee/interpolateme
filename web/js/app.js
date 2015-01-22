@@ -9,12 +9,14 @@ function arrToMat( arr ) {
 
 function makeMesh( model ) {
     var customUniforms = {
-       u_time: { type: "1f", value: 0 },
-       u_allowDepth: { type: "1f", value: 0 },
-       u_borderWidth: { type: "1f", value: 0 },
-       u_mvpMat: { type: "m4", value: new THREE.Matrix4() },
-       u_color: { type: "v4", value: new THREE.Vector4( 1, 1, 1, 1 ) },
-       u_borderColor: { type: "v4", value: new THREE.Vector4( 0, 0, 0, 1 ) }
+        u_time: { type: "1f", value: 0 },
+        u_depthMode: { type: "1f", value: 0 },
+        u_depthScale: { type: "1f", value: 0 },
+        u_explodedFactor: { type: "1f", value: 0 },
+        u_borderWidth: { type: "1f", value: 0 },
+        u_mvpMat: { type: "m4", value: new THREE.Matrix4() },
+        u_color: { type: "v4", value: new THREE.Vector4( 1, 1, 1, 1 ) },
+        u_borderColor: { type: "v4", value: new THREE.Vector4( 0, 0, 0, 1 ) }
     };
     
     var geometry = new THREE.BufferGeometry();
@@ -35,7 +37,7 @@ function makeMesh( model ) {
             value: []
         }
     };
-//    var shaderMaterial = new THREE.RawShaderMaterial({
+
     var shaderMaterial = new THREE.ShaderMaterial({
         attributes:     attributes,
         uniforms:       customUniforms,
@@ -48,33 +50,19 @@ function makeMesh( model ) {
     var normals = new Float32Array( model.vertice.length );
     var centerFlag = new Float32Array( model.vertice.length / 3 );
     var mazeDepth = new Float32Array( model.vertice.length / 3 );
-    if ( model.centers !== undefined ) {
-        for (var i = 0; i < model.vertice.length / 3; i++) {
-            positions [ 3*i ] = model.vertice[ 3*i ];
-            normals [ 3*i ] = model.normals[ 3*i ];
-            positions [ 3*i+1 ] = model.vertice[ 3*i+1 ];
-            normals [ 3*i+1 ] = model.normals[ 3*i+1 ];
-            positions [ 3*i+2 ] = model.vertice[ 3*i+2 ];
-            normals [ 3*i+2 ] = model.normals[ 3*i+2 ];
-//            geometry.vertices.push( new THREE.Vector3( model.vertice[ 3*i ], model.vertice[ 3*i+1 ], model.vertice[ 3*i+2 ] ) ) ;
-//            attributes.a_normal.value.push( new THREE.Vector3( model.normals[ 3*i ], model.normals[ 3*i+1 ], model.normals[ 3*i+2 ] ) );
-            centerFlag[ i ] = model.centers[ i ];
-//            attributes.a_centerFlag.value.push( model.centers[ i ] );
-            mazeDepth[ i ] = model.mazeData[ i ];
-//            attributes.a_mazeDepth.value.push( model.mazeData[ i ] );
-        }
-    } else {
-        for (var i = 0; i < model.vertice.length / 3; i++) {
-            positions [ 3*i ] = model.vertice[ 3*i ];
-            positions [ 3*i+1 ] = model.vertice[ 3*i+1 ];
-            positions [ 3*i+2 ] = model.vertice[ 3*i+2 ];
-//            geometry.vertices.push( new THREE.Vector3( model.vertice[ 3*i ], model.vertice[ 3*i+1 ], model.vertice[ 3*i+2 ] ) ) ;
-        }
+    for (var i = 0; i < model.vertice.length / 3; i++) {
+        positions [ 3*i ] = model.vertice[ 3*i ];
+        normals [ 3*i ] = model.normals[ 3*i ];
+        positions [ 3*i+1 ] = model.vertice[ 3*i+1 ];
+        normals [ 3*i+1 ] = model.normals[ 3*i+1 ];
+        positions [ 3*i+2 ] = model.vertice[ 3*i+2 ];
+        normals [ 3*i+2 ] = model.normals[ 3*i+2 ];
+        centerFlag[ i ] = model.centers[ i ];
+        mazeDepth[ i ] = model.mazeData[ i ];
     }
     var indices = new Uint16Array( model.indice.length );
     for (var i = 0; i < model.indice.length ; i++) {
         indices[ i ] = model.indice[ i ];
-//        geometry.faces.push( new THREE.Face3( model.indice[3*i], model.indice[3*i+1], model.indice[3*i+2] ) );
     }
 
     geometry.addAttribute( 'index', new THREE.BufferAttribute( indices, 1 ) );
@@ -83,20 +71,16 @@ function makeMesh( model ) {
     geometry.addAttribute( 'a_normal', new THREE.BufferAttribute( normals, 3 ) );
     geometry.addAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
 
-    if ( model.centers !== undefined ) {
-        return new THREE.Mesh( geometry, shaderMaterial );
-    } else {
-        return new THREE.Line( geometry, shaderMaterial, THREE.LinePieces );
-    }
+    return new THREE.Mesh( geometry, shaderMaterial );
 }
 
-function modelFromRaw( model, mazeData ) {
+function modelFromRaw( model ) {
     return {
         "vertice": model[0],
-        "indice": model[1],
-        "normals": model[2],
-        "centers": model[3],
-        "mazeData": mazeData
+        "normals": model[1],
+        "centers": model[2],
+        "mazeData": model[3],
+        "indice": model[4],
     };
 }
 
@@ -111,73 +95,45 @@ DummyCamera.prototype = Object.create( THREE.Camera.prototype );
 function appMain() {
 
     var seed = Math.random().toString().slice(2);
-    console.log("seed0: ", seed);
-    var prng;
-    
-    function nextSeed() {
-        prng = new Math.seedrandom(seed);
-        seed = prng().toString().slice(2);
-        console.log("next seed: ", seed);
-    }
-
-    nextSeed();
-
-    function rndSpherePosition() {
-        var u = Math.random();
-        var v = Math.random();
-        return { "theta": 2*Math.PI*u, "phi": Math.acos( 2*v - 1 ) };
-    }
+    console.log("seed: ", seed);
 
     // help dialog
     $(function() {
         $( "#dialog" ).dialog({
             width: 600,
-            height: 200
+            height: 180
         });
     });
     $( "#dialog" ).dialog( "close" );
 
-//    function toggleUI() {
-//        console.log("toggling ui");
-//        if ( $( "#gui" ).css( "display" ) === "none" )
-//            $( "#gui" ).show();
-//        else
-//            $( "#gui" ).hide();
-//    }
+    function toggleUI() {
+        console.log("toggling ui");
+        if ( $( "#gui" ).css( "display" ) === "none" )
+            $( "#gui" ).show();
+        else
+            $( "#gui" ).hide();
+    }
 
     // jqueryui widgets
     $(function() {
       $( "button" ).button();
     });
 
-    var depthMaze = false;
-    function depthMazeFct() {
+    var depthMaze = true;
+    function flatFct() {
         depthMaze = !depthMaze;
     }
-    $("#depthMaze").unbind("click");
-    $("#depthMaze").click(depthMazeFct);
-    $('#depthMaze').attr('checked', false);
+    $("#flat").unbind("click");
+    $("#flat").click(flatFct);
+    $("#flat").attr("checked", false);
 
-    var showMazePath = false;
-    function showMazePathFct() {
-        showMazePath = !showMazePath;
+    var reverseDepth = false;
+    function reverseDepthFct() {
+        reverseDepth = !reverseDepth;
     }
-    $("#showMazePath").unbind("click");
-    $("#showMazePath").click(showMazePathFct);
-    $('#showMazePath').attr('checked', false);
-
-    var showSolid = true;
-    function showSolidFct() {
-        showSolid = !showSolid;
-        if (!showSolid) {
-            $('#depthMaze').attr('disabled', true);
-        } else {
-            $('#depthMaze').attr('disabled', false);
-        }
-    }
-    $("#showSolid").unbind("click");
-    $("#showSolid").click(showSolidFct);
-    $('#showSolid').attr('checked', true);
+    $("#reverseDepth").unbind("click");
+    $("#reverseDepth").click(reverseDepthFct);
+    $("#reverseDepth").attr("checked", false);
 
     function showHelp() {
         if ( $( "#dialog" ).dialog( "isOpen" ) )
@@ -187,6 +143,9 @@ function appMain() {
     }
     $("#showHelp").unbind("click");
     $("#showHelp").click(showHelp);
+
+    var depthExagg = 0.5;
+    var explosion = 0.0;
 
     function screenshot() {
         var w = window.open('', '');
@@ -203,67 +162,7 @@ function appMain() {
     $("#fullscreen").unbind("click");
     $("#fullscreen").click(toggleFullscreen);
 
-    function rndCutsFct() {
-        var now = Date.now();
-
-        var oldMesh = currentMesh;
-        var oldPathMesh = currentPathMesh;
-        scene.remove( oldMesh );
-        scene.remove( oldPathMesh );
-
-        console.log("Killing old mesh:", Date.now() - now);
-
-        var max = 0;
-        var acc = 0;
-        for (var index = 0; index < 64; index++) {
-            var now1 = Date.now();
-            var cutSeed = rndSpherePosition();
-            baseModel = Haste.truncateAtPoint ( baseModel
-                                              , cutSeed.theta
-                                              , cutSeed.phi);
-
-            var duration = Date.now() - now1;
-            if (duration > max) {
-                max = duration;
-            }
-            acc = acc + duration;
-        }
-        console.log("Max cut duration:", max);
-        console.log("Mean cut duration:", acc / 2000);
-
-        var now1 = Date.now();
-        maze = Haste.toMaze ( baseModel );
-        var now2 = Date.now();
-        console.log("To maze:", now2 - now1);
-
-        mazeData = Haste.toMazeData ( baseModel, maze );
-        flatModel = modelFromRaw ( Haste.toFlatModel ( baseModel ), mazeData );
-        mazeModel = modelFromRaw ( Haste.mazeVerticeAndIds ( baseModel, maze ) );
-        currentMesh = makeMesh ( flatModel );
-        currentPathMesh = makeMesh( mazeModel );
-        console.log("To mesh:", Date.now() - now2);
-
-        oldMesh.geometry.dispose();
-        oldPathMesh.geometry.dispose();
-        oldMesh.material.dispose();
-        oldPathMesh.material.dispose();
-
-        var now3 = Date.now();
-        scene.add( currentMesh );
-        scene.add( currentPathMesh );
-        console.log("To scene:", Date.now() - now3);
-
-        console.log("64 cuts:", Date.now() - now);
-    }
-    $("#rndCuts").unbind("click");
-    $("#rndCuts").click(rndCutsFct);
-
-    var modelId = 2;
-    var baseModel = Haste.loadModel ( modelId );
-    var maze = Haste.toMaze ( baseModel );
-    var mazeData = Haste.toMazeData ( baseModel, maze );
-    var flatModel = modelFromRaw ( Haste.toFlatModel ( baseModel ), mazeData );
-    var mazeModel = modelFromRaw ( Haste.mazeVerticeAndIds ( baseModel, maze ) );
+    var model = modelFromRaw ( Haste.createMazePlanet ( seed, 100, 100 ) );
 
     var zoomMax = 16;
     var zoomMin = 0.0625;
@@ -302,8 +201,7 @@ function appMain() {
     
     updateProjection(window.innerWidth, window.innerHeight);
 
-    var currentMesh =  makeMesh( flatModel );
-    var currentPathMesh = makeMesh( mazeModel );
+    var currentMesh =  makeMesh( model );
 
     var mainContainer = document.getElementById( 'main' );
 
@@ -322,7 +220,6 @@ function appMain() {
     mainContainer.appendChild( canvas );
 
     scene.add( currentMesh );
-    scene.add( currentPathMesh );
 
     function leftButton(evt) {
         var button = evt.which || evt.button;
@@ -359,7 +256,7 @@ function appMain() {
             } else {    //tapped within 300ms of last tap. double tap
               clearTimeout(tapped); //stop single tap callback
               tapped = null;
-              // nothing bound to double tap
+              toggleUI()
             }
         }
     }
@@ -416,8 +313,7 @@ function appMain() {
       // Firefox
     canvas.addEventListener( "DOMMouseScroll", onMouseWheel, false );
 
-//    nothing bound to double click
-//    canvas.addEventListener( "dblclick", cut, false );
+    canvas.addEventListener( "dblclick", toggleUI, false );
     
     THREEx.WindowResize(renderer, updateProjection);
     THREEx.FullScreen.bindKey({ charCode : 'f'.charCodeAt(0) });
@@ -478,31 +374,20 @@ function appMain() {
 //        var now = Date.now();
 //        var dt = now - then;
 
-        if ( showSolid && depthMaze ) {
-            currentMesh.material.uniforms.u_allowDepth.value = 1.0;
+        if ( depthMaze && reverseDepth ) {
+            currentMesh.material.uniforms.u_depthMode.value = -1.0;
+        } else if ( depthMaze && !reverseDepth ) {
+            currentMesh.material.uniforms.u_depthMode.value = 1.0;
         } else {
-            currentMesh.material.uniforms.u_allowDepth.value = 0.0;
+            currentMesh.material.uniforms.u_depthMode.value = 0.0;
         }
+        currentMesh.material.uniforms.u_explodedFactor.value = explosion;
+        currentMesh.material.uniforms.u_depthScale.value = depthExagg;
         currentMesh.material.uniforms.u_time.value = simTime;
         currentMesh.material.uniforms.u_borderWidth.value = 1.0;
         currentMesh.material.uniforms.u_mvpMat.value = mvp;
-        if ( showSolid ) {
-            currentMesh.material.uniforms.u_color.value = new THREE.Vector4(1,1,1,1);
-            currentMesh.material.uniforms.u_borderColor.value = new THREE.Vector4(0.05,0.05,0.05,1);
-        } else {
-            currentMesh.material.uniforms.u_color.value = new THREE.Vector4(0,0,0,1);
-            currentMesh.material.uniforms.u_borderColor.value = new THREE.Vector4(0,0,0,1);
-        }
-
-        if ( showMazePath ) {
-            scene.add( currentPathMesh );
-            currentPathMesh.material.uniforms.u_borderWidth.value = 0.0;
-            currentPathMesh.material.uniforms.u_mvpMat.value = mvp;
-            currentPathMesh.material.uniforms.u_color.value = new THREE.Vector4(1,0,0,1);
-            currentPathMesh.material.uniforms.u_borderColor.value = new THREE.Vector4(1,0,0,1);
-        } else {
-            scene.remove( currentPathMesh );
-        }
+        currentMesh.material.uniforms.u_color.value = new THREE.Vector4(1,1,1,1);
+        currentMesh.material.uniforms.u_borderColor.value = new THREE.Vector4(0.05,0.05,0.05,1);
 
         renderer.render(scene, dummyCam);
 

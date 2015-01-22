@@ -17,27 +17,30 @@
   <body>
     <div id="dialog" title="Voronoi cells on a sphere - maze generator">
       <p>Click and drag to interact.</p>
-      <p>'Random cuts' truncates randomly 256 times.</p>
-      <p>Scroll / pinch to adjust object position to the cutting plane.</p>
+      <p>Scroll / pinch to zoom.</p>
+      <p>Double click / tap to hide UI.</p>
     </div>
     <div id="gui" class="gui-container">
         <div>
-            <button id="rndCuts">random cuts</button>
             <button id="screenshot">screenshot</button>
             <button id="fullscreen">fullscreen</button>
             <button id="showHelp">?</button>
         </div>
         <div>
             <br/>
-            <input type="checkbox" id="depthMaze"><label id="depthMazeLabel" for="depthMaze">Depth maze</label>
+            <input type="checkbox" id="flat"><label id="flatLabel" for="flat">Flat tessellation</label>
         </div>
         <div>
             <br/>
-            <input type="checkbox" id="showMazePath"><label id="showMazePathLabel" for="showMazePath">Show path</label>
+            <input type="checkbox" id="reverseDepth"><label id="reverseDepthLabel" for="reverseDepth">Reverse depth</label>
         </div>
         <div>
             <br/>
-            <input type="checkbox" id="showSolid"><label id="showSolidLabel" for="showSolid">Show solid</label>
+            <input type="number" min="0" max="1" step="any" id="depthExaggeration"><label id="depthExaggerationLabel" for="depthExaggeration">Depth exaggeration</label>
+        </div>
+        <div>
+            <br/>
+            <input type="number" min="0" step="any" id="explosion"><label id="explosionLabel" for="explosion">Explosion factor</label>
         </div>
     </div>
     <div id="main"></div>
@@ -52,30 +55,39 @@
 uniform vec4 u_color;
 uniform vec4 u_borderColor;
 uniform float u_borderWidth;
-uniform float u_allowDepth;
+uniform float u_depthMode;
 
 varying float v_centerFlag;
 varying float v_mazeDepth;
 
 float edgeFactor(const float thickness, const float centerFlag)
 {
-    //vec3 d = fwidth(bary);
-    //vec3 a3 = smoothstep(vec3(0.0), d*thickness, bary);
-    //return min(min(a3.x, a3.y), a3.z);
     return smoothstep(0.0, fwidth(centerFlag)*thickness, centerFlag);
+}
+
+vec4 shade(const float depth) {
+    if (depth < 0.33) {
+        return vec4(0.01 + 3.0 * (0.33 - depth), 0.01 + 3.0 * depth, 0.01, 1.0);
+    } else if (depth < 0.66) {
+        return vec4(0.01, 0.01 + 3.0 * (0.33 - (depth-0.33)), 0.01 + 3.0 * (depth-0.33), 1.0);
+    } else {
+        return vec4(0.01 + 3.0 * (depth-0.66), 0.01, 0.01 + 3.0 * (0.33 - (depth-0.66)), 1.0);
+    }
 }
 
 void main()
 {
     float f = edgeFactor(u_borderWidth, v_centerFlag);
-    float g = 1.0;
-    if (u_allowDepth > 0.0) {
-        g = 0.1 + 0.9 * (1.0 - v_mazeDepth);
+    vec4 baseColor = u_color;
+    if (u_depthMode > 0.0) {
+        baseColor = shade(v_mazeDepth);
+    } else if (u_depthMode < 0.0) {
+        baseColor = shade(v_mazeDepth);
     }
     gl_FragColor = vec4 (
-        g * mix(
+        mix(
             u_borderColor,
-            u_color,
+            baseColor,
             f).rgb,
         1.0
     );
@@ -89,8 +101,10 @@ attribute vec3 a_normal;
 attribute float a_mazeDepth;
 
 uniform mat4 u_mvpMat;
-uniform float u_allowDepth;
 uniform float u_time;
+uniform float u_depthMode;
+uniform float u_depthScale;
+uniform float u_explodedFactor;
 
 varying float v_centerFlag;
 varying float v_mazeDepth;
@@ -98,10 +112,12 @@ varying float v_mazeDepth;
 void main()
 {
     float d = 0.0;
-    if (u_allowDepth > 0.0) {
-        d = - a_mazeDepth / 10.0;
+    if (u_depthMode > 0.0) {
+        d = a_mazeDepth * u_depthScale;
+    } else if (u_depthMode < 0.0) {
+        d = - a_mazeDepth * u_depthScale;
     }
-    gl_Position = u_mvpMat * vec4((1.0+d) * position, 1.0);
+    gl_Position = u_mvpMat * vec4((1.0+d) * (position + (u_explodedFactor * a_normal)), 1.0);
     v_centerFlag = a_centerFlag;
     v_mazeDepth = a_mazeDepth;
 }</script>
