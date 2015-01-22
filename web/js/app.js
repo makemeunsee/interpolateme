@@ -1,3 +1,14 @@
+function getURLParameter(sParam) {
+    var sPageURL = window.location.search.substring(1);
+    var sURLVariables = sPageURL.split('&');
+    for (var i = 0; i < sURLVariables.length; i++) {
+        var sParameterName = sURLVariables[i].split('=');
+        if (sParameterName[0] == sParam) {
+            return sParameterName[1];
+        }
+    }
+}
+
 function arrToMat( arr ) {
     var mat = new THREE.Matrix4();
     mat.set( arr[0], arr[1], arr[2], arr[3],
@@ -94,8 +105,14 @@ DummyCamera.prototype = Object.create( THREE.Camera.prototype );
 
 function appMain() {
 
-    var seed = Math.random().toString().slice(2);
-    console.log("seed: ", seed);
+    var seed = getURLParameter("seed") || Math.random().toString().slice(2);
+    console.log("seed:\t", seed);
+
+    function rndSpherePosition() {
+        var u = Math.random();
+        var v = Math.random();
+        return [ 2*Math.PI*u, Math.acos( 2*v - 1 ) ];
+    }
 
     // help dialog
     $(function() {
@@ -162,7 +179,20 @@ function appMain() {
     $("#fullscreen").unbind("click");
     $("#fullscreen").click(toggleFullscreen);
 
-    var model = modelFromRaw ( Haste.createMazePlanet ( seed, 100, 100 ) );
+    var cuts = getURLParameter("cells") || 0;
+    console.log( "cells:\t", cuts );
+    var cutPositions = new Array(2*cuts);
+    for ( var i = 0; i < cuts; i++ ) {
+        var cut = rndSpherePosition();
+        cutPositions[2*i] = cut[0];
+        cutPositions[2*i+1] = cut[1];
+    }
+
+    var id = getURLParameter( "polyId" ) || 3;
+    console.log( "polyId:\t", id );
+    var overlapThreshold = getURLParameter( "overlapThreshold" ) || 100;
+    console.log( "overlapThreshold:\t", overlapThreshold );
+    var model = modelFromRaw ( Haste.createMazePlanet ( id, seed, cutPositions, overlapThreshold ) );
 
     var zoomMax = 16;
     var zoomMin = 0.0625;
