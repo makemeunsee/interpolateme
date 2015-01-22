@@ -404,8 +404,6 @@ render t drawSolid drawNormals drawMazePath depthMode depthScale explodedFactor 
 
       unbindGeometry shaderInfo
     else do
---      uniform colLoc $= GL.Color4 0 0 0 (1 :: GLfloat)
---      uniform bColLoc $= GL.Color4 0 0 0 (1 :: GLfloat)
       return ()
 
 
@@ -413,8 +411,8 @@ render t drawSolid drawNormals drawMazePath depthMode depthScale explodedFactor 
   if drawMazePath
     then do
       -- bind uniforms
-      uniform colLoc $= GL.Color4 1 0 0 (1 :: GLfloat)
-      uniform bColLoc $= GL.Color4 1 0 0 (1 :: GLfloat)
+      uniform colLoc $= GL.Color4 0.4 0.4 0.4 (1 :: GLfloat)
+      uniform bColLoc $= GL.Color4 0.4 0.4 0.4 (1 :: GLfloat)
       uniform borderWidthLoc $= GL.Index1 (0 :: GLfloat)
 
       -- bind attributes
@@ -426,11 +424,6 @@ render t drawSolid drawNormals drawMazePath depthMode depthScale explodedFactor 
       drawElements GL.Lines (indiceCount labyrinthBuffersInfo) GL.UnsignedInt offset0
 
       unbindGeometry shaderInfo
-
-      -- bind uniforms
-      uniform colLoc $= GL.Color4 1 0 0 (1 :: GLfloat)
-      uniform bColLoc $= GL.Color4 1 0 0 (1 :: GLfloat)
-      uniform borderWidthLoc $= GL.Index1 (0 :: GLfloat)
     else
       return ()
 
