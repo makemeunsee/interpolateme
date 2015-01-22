@@ -34,12 +34,11 @@ Features
 * Page Up / Page Down: explosion control.
 * L: show/hide maze path (must have been started with --p).
 * S: show/hide model.
-* C: apply 50 random cuts in a row (slow on already high poly models).
 * N: show/hide face normals (originating from face centers).
 * ESC or Q to exit.
 * Web demo (partial port, slow, unstable at least on Firefox): open web/index.html after compiling to JS with:
 
-``hastec '--start=$HASTE_MAIN(); appMain();' --with-js=web/js/app.js MainJs.hs -o web/js/appHaste.js``
+``hastec '--start=$HASTE_MAIN();' --with-js=web/js/app.js MainJs.hs -o web/js/appHaste.js``
 
 In the works
 ------------

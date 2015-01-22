@@ -303,7 +303,7 @@ render t drawSolid drawNormals drawMazePath depthMode depthScale explodedFactor 
   uniform depthScaleLoc $= GL.Index1 depthScale
 
   -- exploded
-  uniform expFactLoc $= GL.Index1 explodedFactor
+  uniform expFactLoc $= GL.Index1 (explodedFactor-1)
 
   if drawNormals
     then do

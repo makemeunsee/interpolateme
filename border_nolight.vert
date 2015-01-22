@@ -22,7 +22,7 @@ void main()
     } else if (u_depthMode < 0.0) {
         d = - a_mazeDepth * u_depthScale;
     }
-    gl_Position = u_mvpMat * vec4((1.0+d) * (position + ((u_explodedFactor - 1.0) * normal)), 1.0);
+    gl_Position = u_mvpMat * vec4((1.0+d) * (position + (u_explodedFactor * normal)), 1.0);
     v_centerFlag = a_centerFlag;
     v_mazeDepth = a_mazeDepth;
 }
