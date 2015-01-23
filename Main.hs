@@ -707,20 +707,17 @@ loadModel global@GlobalState{..} vm laby = do
       cleanBuffers labyrinthBuffersInfo
 
       t3 <- get time
-      let (pathVertice, pathMazeData) = labyrinthToPathVertice faces laby maxDepth
-      putStrLn $ show $ length pathVertice
+      let (pathVs, pathDs, pathIds) = labyrinthToBuffers faces maxDepth laby 0
+      putStrLn $ "path size:\t" ++ (show $ length pathVs)
+      putStrLn $ "path ids size:\t" ++ (show $ length pathIds)
       t4 <- get time
-      putStrLn $ "path verts duration:\t" ++ (show $ t4 - t3)
-      let pathIndice = labyrinthToPathIndice 0 laby
-      putStrLn $ show $ length pathIndice
-      t5 <- get time
-      putStrLn $ "path ids duration:\t" ++ (show $ t5 - t4)
+      putStrLn $ "path buffers duration:\t" ++ (show $ t4 - t3)
 
-      newLabyrinthBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) pathVertice)
-                                             pathIndice
+      newLabyrinthBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) pathVs)
+                                             pathIds
                                              Nothing
                                              Nothing
-                                             (Just pathMazeData)
+                                             (Just pathDs)
 
       return newLabyrinthBuffersInfo
     else
@@ -785,7 +782,7 @@ main = do
   putStrLn $ "Truncation duration: " ++ show (t1 - t0)
 
   t2 <- get time
-  let (laby, seed'') = labyrinth1' seed' mazeDepthGap $ VC.faces rndCutsModel
+  let (laby, seed'') = labyrinth1 seed' mazeDepthGap $ VC.faces rndCutsModel
 --  putStrLn $ "maze:\t" ++ show laby
   putStrLn $ "maze size:\t" ++ show (size laby)
   t3 <- get time
@@ -823,7 +820,7 @@ main = do
                            , mazeDepthGap = mazeDepthGap
                            , depthRender = True
                            , depthInvert = True
-                           , depthScale = fromIntegral mazeDepthGap / 100
+                           , depthScale = fromIntegral mazeDepthGap / 200
                            , explodedFactor = 1
                            , mouse = defaultMouseState
                            , glids = glstuff

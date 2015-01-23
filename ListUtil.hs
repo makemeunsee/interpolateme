@@ -70,3 +70,9 @@ removeDups (h:t) =
   if elem h t
     then removeDups t
     else h : removeDups t
+
+
+swapElems i j ls = [get k x | (k, x) <- zip [0..] ls]
+  where get k x | k == i = ls !! j
+                | k == j = ls !! i
+                | otherwise = x

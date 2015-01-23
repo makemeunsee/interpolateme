@@ -20,44 +20,32 @@ import VoronoiCut
 -- a simple data structure for a graph / labyrinth.
 -- each node/leaf should hold a unique index value
 data Labyrinth a = Node a Int ![Labyrinth a]
-                 | Leaf a Int
                  deriving (Eq, Show)
 
 
 -- the cell index held at the head of this labyrinth
 nodeValue :: Labyrinth a -> a
-nodeValue (Leaf i _) = i
 nodeValue (Node i _ _) = i
 
 
 nodeDepth :: Labyrinth a -> Int
-nodeDepth (Leaf _ d) = d
 nodeDepth (Node _ d _) = d
-
-
-values :: Labyrinth a -> [a]
-values (Leaf i _) = [i]
-values (Node i _ ls) = i : concatMap values ls
 
 
 -- the number of elements in this labyrinth
 size :: Labyrinth a -> Int
-size (Leaf _ _) = 1
 size (Node _ _ ls) = 1 + foldr' (\l s -> s + size l) 0 ls
 
 
 longestBranch :: Labyrinth a -> Int
-longestBranch (Leaf _ d) = d+1 -- branch length = depth + 1
-longestBranch (Node _ _ ls) = foldr' (\l m -> max m $ longestBranch l) 0 ls
+longestBranch (Node _ d ls) = foldr' (\l m -> max m $ longestBranch l) d ls
 
 
 depthMap :: Ord a => Labyrinth a -> (Map a [Int], Int)
-depthMap (Leaf i d) = (singleton i [d], d)
-depthMap (Node i d ls) = foldr' (\(m', d') (m, oldMax) -> (unionWith (++) m m', max d' oldMax)) (depthMap $ Leaf i d) $ map depthMap ls
+depthMap (Node i d ls) = foldr' (\(m', d') (m, oldMax) -> (unionWith (++) m m', max d' oldMax)) (singleton i [d], d) $ map depthMap ls
 
 
 elem :: Eq a => a -> Labyrinth a -> Bool
-elem k (Leaf i _) = k == i
 elem k (Node j _ ls) = k == j || any (Labyrinth.elem k) ls
 
 
@@ -65,26 +53,14 @@ elem k (Node j _ ls) = k == j || any (Labyrinth.elem k) ls
 -- does NOT check for duplicates
 insertAt :: Eq a => a -> a -> Labyrinth a -> Labyrinth a
 insertAt k at laby = case laby of
-  Leaf i d | i == at   -> Node i d [Leaf k $ d+1]                 -- turn leaf into a parent node
-           | otherwise -> Leaf i d                              -- return unconcerned leaf intact
-  Node i d ls | i == at   -> Node i d $ (Leaf k $ d+1) : ls       -- insert k as new leaf to found parent
+  Node i d ls | i == at   -> Node i d $ (Node k (d+1) []) : ls       -- insert k as new leaf to found parent
               | otherwise -> Node i d $ map (insertAt k at) ls  -- explore the labyrinth to find the right parent
-
-
----- blindly insert a leaf of value 'k' into the labyrinth, at node of value 'atValue' and depth 'atDepth', if any
----- does NOT check for duplicates
---insertAtDepth :: Eq a => a -> a -> Int -> Labyrinth a -> Labyrinth a
---insertAtDepth k atValue atDepth laby = case laby of
---  Leaf i d | i == atValue && d == atDepth -> Node i d [Leaf k $ d+1]
---           | otherwise                    -> Leaf i d
---  Node i d ls | i == atValue && d == atDepth -> Node i d $ (Leaf k $ d+1) : ls
---              | otherwise                    -> Node i d $ map (insertAtDepth k atValue atDepth) ls
 
 
 labyrinth2 :: S.Seq (Face a) -> Labyrinth Int
 labyrinth2 topo
-  | S.null topo = Leaf (-1) 0 -- illegal
-  | otherwise   = laby2Rec [0] (Leaf 0 0) (Set.singleton 0)
+  | S.null topo = Node (-1) (-1) [] -- illegal
+  | otherwise   = laby2Rec [0] (Node 0 0 []) (Set.singleton 0)
   where
     laby2Rec [] laby visited = laby
     laby2Rec stack laby visited = let currentId = head stack in
@@ -102,12 +78,6 @@ labyrinth2 topo
            $ neighbours $ S.index topo i)
 
 
-swapElts i j ls = [get k x | (k, x) <- zip [0..] ls]
-  where get k x | k == i = ls !! j
-                | k == j = ls !! i
-                | otherwise = x
-
-
 shuffle :: RND.Seed -> [a] -> ([a], RND.Seed)
 shuffle seed xs = shuffle0 seed xs 0
   where
@@ -116,12 +86,12 @@ shuffle seed xs = shuffle0 seed xs 0
         (xs, s)
       else
         let (r,s') = RND.range_random (i, length xs -1) s in
-        shuffle0 s' (swapElts i r xs) (i+1)
+        shuffle0 s' (swapElems i r xs) (i+1)
 
 
-labyrinth1' :: RealFrac a => RND.Seed -> Int -> S.Seq (Face a) -> (Labyrinth Int, RND.Seed)
-labyrinth1' seed minGapFrac topo
-  | S.null topo = (Leaf (-1) 0, seed) -- illegal
+labyrinth1 :: RealFrac a => RND.Seed -> Int -> S.Seq (Face a) -> (Labyrinth Int, RND.Seed)
+labyrinth1 seed minGapFrac topo
+  | S.null topo = (Node (-1) (-1) [], seed) -- illegal
   | otherwise   = topologyToLabyrinth0 seed (singleton 0 [0]) [] [(0, 0)]
   where
     maxDepth = S.length topo
@@ -136,10 +106,10 @@ labyrinth1' seed minGapFrac topo
       if depth >= maxDepth || explorable == [] then
         if depth > 0 then
           let newAcc = case acc of
-                         [] -> [Leaf i depth]
+                         [] -> [Node i depth []]
                          ls -> let (tails, parallelBranches) = L.partition (\l-> nodeDepth l == depth+1) ls in
                                if tails == [] then
-                                 (Leaf i depth) : ls
+                                 (Node i depth []) : ls
                                else
                                  (Node i depth tails) : parallelBranches
                        in
@@ -152,114 +122,27 @@ labyrinth1' seed minGapFrac topo
         topologyToLabyrinth0 seed' newVisited acc ((j, depth+1):(i, depth):parents)
 
 
--- create random maze from the face connection graph, reaching all the faces.
--- minGapFrac allows overlapping of the maze: a cell can be part of the maze multiple times, if it's added at sufficiently distant depth in the maze.
--- minGapFrac is the minimum depth difference, as percentage of the face count, for which a cell can be re-entered.
--- for instance, for a solid with 200 faces, minGapFrac at 25, a depth diff of 50 is required to re-enter a cell.
--- set minGapFrac at 100 for no overlapping. negative values unsupported.
-labyrinth1 :: RealFrac a => RND.Seed -> Int -> S.Seq (Face a) -> (Labyrinth Int, RND.Seed)
-labyrinth1 seed minGapFrac topo
-  | S.null topo = (Leaf (-1) 0, seed) -- illegal
-  | otherwise   = fst $ topologyToLabyrinth0 seed (singleton 0 [0]) 0 0
-  where
-    maxDepth = S.length topo
-    minGap = floor $ 0.01 * (fromIntegral $ maxDepth * minGapFrac)
-    topologyToLabyrinth0 seed !visited i depth =
-      if depth < maxDepth && subnodes /= [] then
-        ((Node i depth subnodes, seed'), visited')
-      else
-        ((Leaf i depth, seed0), visited)
-      where (shuffled, seed0) = shuffle seed $ neighbours $ S.index topo i
-            (subnodes, seed', visited') = foldr' (\j (newNodes, oldSeed, oldVisited) ->
-                                                   case Data.Map.lookup j oldVisited of
-                                                     Just l | L.any (\d -> abs (depth - d) <= minGap) l ->
-                                                              (newNodes, oldSeed, oldVisited)
-                                                            | otherwise ->
-                                                              (newNode : newNodes, newSeed, newVisited)
-                                                                where ((newNode, newSeed), newVisited) = topologyToLabyrinth0 oldSeed (insert j (depth : l) oldVisited) j $ depth+1
-                                                     _ ->
-                                                       (newNode : newNodes, newSeed, newVisited)
-                                                         where ((newNode, newSeed), newVisited) = topologyToLabyrinth0 oldSeed (insert j [depth] oldVisited) j $ depth+1
-                                                 )
-                                                 ([], seed0, visited)
-                                                 shuffled
-
--- visit all paths once
---labyrinth1 :: S.Seq (Face a) -> Labyrinth In
---labyrinth1 seed topo
---  | S.null topo = Leaf (-1) 0 -- illegal
---  | otherwise   = fst $ topologyToLabyrinth0 Set.empty 0 0
---  where
---    maxDepth = S.length topo
---    topologyToLabyrinth0 visited i depth =
---      let (subnodes, visited') = foldr (\j (newNodes, oldVisited) ->
---                                                case Set.member (j,i) oldVisited of
---                                                  True -> (newNodes, oldVisited)
---                                                  False ->
---                                                    let (newNode, newVisited) = topologyToLabyrinth0 (Set.insert (j,i) $ Set.insert (i,j) oldVisited) j $ depth+1 in
---                                                    (newNode : newNodes, newVisited)
---                                              )
---                                              ([], visited)
---                                              $ neighbours $ S.index topo i in
---      if subnodes /= [] then
---        (Node i depth subnodes, visited')
---      else
---        (Leaf i depth, visited)
-
-
--- given a solid (vertice and faces) and a labyrinth which values are face indice,
--- build the 3D vertex data representing this labyrinth
--- labyrinth MUST be consistent with solid topology
-labyrinthToPathVertice :: RealFloat a => S.Seq (Face a) -> Labyrinth Int -> Int -> ([G.Point3f a], [a])
-labyrinthToPathVertice faces (Leaf i d) maxDepth = labyrinthToPathVertice faces (Node i d []) maxDepth
-labyrinthToPathVertice faces (Node i d ls) maxDepth = ( bary : (concatMap (uncurry prependBaryCenter) subnodesVerts')
-                                                      , (depth d) : concatMap ((depth d) :) subnodesDepths
-                                                      )
+labyrinthToBuffers :: (RealFloat a, Integral b) => S.Seq (Face a) -> Int -> Labyrinth Int -> b -> ([G.Point3f a], [a], [b])
+labyrinthToBuffers faces maxDepth (Node i d ls) offset = ( bary : subnodesBarys
+                                                         , (depth d) : subnodesDepths
+                                                         , subnodesIds
+                                                         )
   where
     depth = depthValue maxDepth
     face = S.index faces i
     bary = barycenter face
-    (subnodesVerts, subnodesDepths) = unzip $ map (\l -> labyrinthToPathVertice faces l maxDepth) ls
-    subnodesVerts' = zip subnodesVerts $ map nodeValue ls
-    prependBaryCenter vs j = (junctionPoint j) : vs
+    (subnodesBarys, subnodesDepths, subnodesIds, _) = foldr' (\l (bs, ds, ids, o) ->
+                                                               let (bs', ds', ids') = labyrinthToBuffers faces maxDepth l (o+2) in
+                                                               ( bs ++ (junctionPoint (nodeValue l) : bs')
+                                                               , ds ++ (depth (d+1) : ds')
+                                                               , offset : (o+1) : (o+1) : (o+2) : ids' ++ ids
+                                                               , o + 1 + (fromIntegral $ length bs'))
+                                                             )
+                                                             ([], [], [], offset)
+                                                             ls
     junctionPoint j =
       let [v0, v1] = intersection (vertice face) (vertice $ S.index faces j) in
       G.times 0.5 $ G.add v0 v1
-
-
--- build a list of indice defining segments, to be used along labyrinthToVertice
-labyrinthToPathIndice :: Integral a => a -> Labyrinth b -> [a]
-labyrinthToPathIndice offset (Leaf _ _) = []
-labyrinthToPathIndice offset (Node _ _ ls) = indice
-  where
-    (_, indice) = foldr' (\l (o,ids) -> ( o+(fromIntegral $ 2*size l), offset : o+1 : o+1 : o+2 : labyrinthToPathIndice (o+2) l ++ ids ) )
-                         (offset, [])
-                         ls
-
-
-labyrinthToWallVertice :: RealFloat a => S.Seq (Face a) -> Labyrinth Int -> [(G.Point3f a, G.Point3f a)] -> [G.Point3f a]
-labyrinthToWallVertice faces (Leaf i d) parentEdges = labyrinthToWallVertice faces (Node i d []) parentEdges
-labyrinthToWallVertice faces (Node i _ ls) parentEdges = ownWalls ++ concatMap (\n -> labyrinthToWallVertice faces n edges) ls
-  where
-    edges = cyclicConsecutivePairs $ vertice $ S.index faces i
-    childEdges = concatMap (\l -> cyclicConsecutivePairs $ vertice $ S.index faces $ nodeValue l) ls
-    toAvoid = parentEdges ++ childEdges
-    ownWalls = concatMap (\(i,j) -> [i,j]) $ filter (\(j,k) -> not $ L.elem (k,j) toAvoid) edges
-
-
-labyrinthToWallIndice :: Integral a => a -> [[Int]] -> Labyrinth Int -> ([a], a)
-labyrinthToWallIndice offset faces (Leaf d x) = labyrinthToWallIndice offset faces (Node x d [])
-labyrinthToWallIndice offset faces (Node i _ ls) = (indice, newOffset)
-  where
-    wallCount = length (faces !! i) - length ls
-    newOffset0 = offset + (fromIntegral wallCount) * 2
-    ownIndice = concatMap (\j -> map (j*2 + offset + ) [0,1]) $ take wallCount [0..]
-    (indice, newOffset) = foldr' (\l (ids, o) ->
-                                   let (newIds, o') = labyrinthToWallIndice o faces l in
-                                   (ids ++ newIds, o')
-                                 )
-                                 (ownIndice, newOffset0)
-                                 ls
 
 
 faceIndice :: Integral a => a -> Face b -> [a]
