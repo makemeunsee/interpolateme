@@ -48,6 +48,7 @@ import Foreign.C.Types (CFloat, CInt)
 import Data.Maybe (listToMaybe)
 import Data.IORef (IORef, newIORef)
 import Data.Vec (Mat44, Vec4, multmv, identity)
+import Data.Foldable (foldr', foldl')
 
 import Models
 import qualified Geometry as G
@@ -765,7 +766,7 @@ main = do
   t0 <- get time
   let (rndCuts, seed') = generateRndCuts cuts seed
   putStrLn $ "cuts:\t" ++ show cuts
-  let rndCutsModel = foldr (\(t,p) m  -> VC.cutModelFromAngles t p m) cuttableModel $ reverse rndCuts
+  let rndCutsModel = foldr' (\(t,p) m -> VC.cutModelFromAngles t p m) cuttableModel rndCuts
   putStrLn $ "last face seed:\t" ++ (show $ VC.seed $ VC.lastFace rndCutsModel)
 --  putStrLn "cut\tfaces\tduration"
 --  (rndCutsModel, _) <- F.foldrM (\(t,p) (m,i)  -> do
@@ -784,8 +785,9 @@ main = do
   putStrLn $ "Truncation duration: " ++ show (t1 - t0)
 
   t2 <- get time
-  let (laby, seed'') = labyrinth1 seed' mazeDepthGap $ VC.faces rndCutsModel
-  putStrLn $ "mazes sizes:\t" ++ show (size laby)
+  let (laby, seed'') = labyrinth1' seed' mazeDepthGap $ VC.faces rndCutsModel
+--  putStrLn $ "maze:\t" ++ show laby
+  putStrLn $ "maze size:\t" ++ show (size laby)
   t3 <- get time
   putStrLn $ "laby gen duration:\t" ++ show (t3 - t2)
 
