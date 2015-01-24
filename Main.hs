@@ -48,7 +48,7 @@ import Foreign.C.Types (CFloat, CInt)
 import Data.Maybe (listToMaybe)
 import Data.IORef (IORef, newIORef)
 import Data.Vec (Mat44, Vec4, multmv, identity)
-import Data.Foldable (foldr', foldl')
+import Data.Foldable (foldr', foldl', foldrM)
 
 import Models
 import qualified Geometry as G
@@ -751,7 +751,7 @@ main = do
 
   putStrLn $ "seed:\t" ++ seedStr
 
-  let cuts = intArgument "--c" 1000 args
+  let cuts = intArgument "--c" 8000 args
   let mazeDepthGap = intArgument "--g" 28 args
 
 
@@ -762,21 +762,22 @@ main = do
 
   t0 <- get time
   let (rndCuts, seed') = generateRndCuts cuts seed
-  putStrLn $ "cuts:\t" ++ show cuts
+  putStrLn $ "cuts:\t" ++ (show $ length rndCuts)
+  putStrLn $ "last cut:\t" ++ (show $ last rndCuts)
   let rndCutsModel = foldr' (\(t,p) m -> VC.cutModelFromAngles t p m) cuttableModel rndCuts
   putStrLn $ "last face seed:\t" ++ (show $ VC.seed $ VC.lastFace rndCutsModel)
 --  putStrLn "cut\tfaces\tduration"
---  (rndCutsModel, _) <- F.foldrM (\(t,p) (m,i)  -> do
---                                  putStr $ show i
---                                  t0 <- get time
---                                  let m' = applyCut t p m
---                                  putStr $ "\t" ++ (show $ VC.faceCount m') ++ "\t"
---                                  t1 <- get time
---                                  putStrLn $ show $ t1-t0
---                                  return (m', i+1)
---                                )
---                                (cuttableModel, 0)
---                                $ reverse rndCuts
+--  (rndCutsModel, _) <- foldrM (\(t,p) (m,i)  -> do
+--                                putStr $ show i
+--                                t0 <- get time
+--                                let m' = VC.cutModelFromAngles t p m
+--                                putStr $ "\t" ++ (show $ VC.faceCount m') ++ "\t"
+--                                t1 <- get time
+--                                putStrLn $ show $ t1-t0
+--                                return (m', i+1)
+--                              )
+--                              (cuttableModel, 0)
+--                              rndCuts
   t1 <- get time
   putStrLn $ "topology:\t" ++ (show $ map VC.neighbours $ VC.faceList rndCutsModel)
   putStrLn $ "Truncation duration: " ++ show (t1 - t0)

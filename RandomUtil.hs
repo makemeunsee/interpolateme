@@ -32,10 +32,8 @@ rndSpherePosition seed = (2*pi*u, acos $ 2*v - 1, newSeed)
 
 
 generateRndCuts :: (RealFloat a, RND.RangeRandom a) => Int -> RND.Seed -> ([(a,a)], RND.Seed)
-generateRndCuts 0 seed = ([], seed)
-generateRndCuts n seed
-  | n <= 0    = ([], seed)
-  | otherwise = ((theta, phi) : arr, seed'')
+generateRndCuts n seed = generateRndCuts0 (max 0 n) seed []
+generateRndCuts0 0 seed acc = (acc, seed)
+generateRndCuts0 n seed acc = generateRndCuts0 (n-1) seed' $ (theta, phi) : acc
   where
-    (arr, seed'') = generateRndCuts (n-1) seed'
     (theta, phi, seed') = rndSpherePosition seed
