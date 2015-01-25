@@ -3,9 +3,11 @@
 
 module Labyrinth
 
+
 where
 
-import qualified Random.MWC.Pure as RND
+
+import Random.MWC.Pure (Seed, range_random)
 import Data.Map (Map, singleton, notMember, insert, (!), lookup, empty, unionWith, toAscList)
 import qualified Data.List as L
 import qualified Data.Set as Set
@@ -16,6 +18,7 @@ import Data.Maybe (fromJust, listToMaybe)
 import qualified Geometry as G
 import ListUtil
 import VoronoiCut
+
 
 -- a simple data structure for a graph / labyrinth.
 -- each node/leaf should hold a unique index value
@@ -78,18 +81,7 @@ labyrinth2 topo
            $ neighbours $ S.index topo i)
 
 
-shuffle :: RND.Seed -> [a] -> ([a], RND.Seed)
-shuffle seed xs = shuffle0 seed xs 0
-  where
-    shuffle0 s xs i =
-      if i >= length xs -1 then
-        (xs, s)
-      else
-        let (r,s') = RND.range_random (i, length xs -1) s in
-        shuffle0 s' (swapElems i r xs) (i+1)
-
-
-labyrinth1 :: RealFrac a => RND.Seed -> Int -> S.Seq (Face a) -> (Labyrinth Int, RND.Seed)
+labyrinth1 :: RealFrac a => Seed -> Int -> S.Seq (Face a) -> (Labyrinth Int, Seed)
 labyrinth1 seed minGapFrac topo
   | S.null topo = (Node (-1) (-1) [], seed) -- illegal
   | otherwise   = topologyToLabyrinth0 seed (singleton 0 [0]) [] [(0, 0)]
@@ -97,12 +89,13 @@ labyrinth1 seed minGapFrac topo
     maxDepth = S.length topo
     minGap = floor $ 0.01 * (fromIntegral $ maxDepth * minGapFrac)
     topologyToLabyrinth0 seed visited !acc ((i, depth) : parents) =
-      let (shuffled, seed') = shuffle seed $ neighbours $ S.index topo i in
       let explorable = filter (\(_, depths) ->
                                 depths == [] || L.all (\d -> abs (depth - d) > minGap) depths
                               )
                               $ map (\n -> (n, maybe [] id $ Data.Map.lookup n visited))
-                              shuffled in
+                              $ neighbours $ S.index topo i in
+      let l = length explorable in
+      let (rndIndex, seed') = range_random (0, l) seed in
       if depth >= maxDepth || explorable == [] then
         if depth > 0 then
           let newAcc = case acc of
@@ -117,7 +110,7 @@ labyrinth1 seed minGapFrac topo
         else
           (Node i 0 acc, seed)
       else
-        let (j, jDepths) = head explorable in
+        let (j, jDepths) = explorable !! rndIndex in
         let newVisited = insert j (depth : jDepths) visited in
         topologyToLabyrinth0 seed' newVisited acc ((j, depth+1):(i, depth):parents)
 
@@ -156,12 +149,18 @@ faceIndice offset Face{..} =
 
 
 depthValue :: RealFloat a => Int -> Int -> a
-depthValue maxDepth depth = (maxDepthF - fromIntegral depth) / maxDepthF
+depthValue maxDepth depth = fromIntegral depth / maxDepthF
   where maxDepthF = fromIntegral maxDepth
 
 
-toBufferData :: (RealFloat a, Integral b) => S.Seq (Face a) -> Map Int [Int] -> Int -> ([G.Point3f a], [b], [a], [a], [G.Point3f a])
-toBufferData faces depthMap maxDepth = (reverse vs, ids, reverse centers, reverse mazeData, reverse normals)
+toBufferData :: (RealFloat a, Integral b) => S.Seq (Face a) -> Map Int [Int] -> Int -> ([G.Point3f a], [b], [a], [a], [G.Point3f a], [a])
+toBufferData faces depthMap maxDepth = ( reverse vs
+                                       , ids
+                                       , reverse centers
+                                       , reverse mazeData
+                                       , reverse normals
+                                       , reverse cellIds
+                                       )
   where
     depth = depthValue maxDepth
     fc = fromIntegral $ S.length faces
@@ -170,30 +169,24 @@ toBufferData faces depthMap maxDepth = (reverse vs, ids, reverse centers, revers
      , centers
      , normals
      , mazeData
-     , _) = foldr' (\(i, depths) (vs, is, cs, ns, md, offset) ->
+     , cellIds
+     , _) = foldr' (\(i, depths) (vs, is, cs, ns, md, fis, offset) ->
                        let f = S.index faces i in
                        let newVs = vertice f in
                        let l = length newVs in
-                       case depths of
-                         [] ->
-                           let ms = take ((+) 2 $ (*) 2 $ length $ vertice f) $ repeat 0 in
-                           ( (concatMap (\v -> [G.times 0.975 v, v]) $ barycenter f : newVs) ++ vs
-                           , (faceIndice (fromIntegral offset) f) ++ is
-                           , 1 : 1 : (take (2*l) $ repeat 0) ++ cs
-                           , (take (2*l+2) $ repeat $ seed f) ++ ns
-                           , ms ++ md
-                           , offset + 2*l + 2)
-                         _ -> foldr' (\d (vs', is', cs', ns', md', offset') ->
-                                       let ms = take ((+) 2 $ (*) 2 $ length $ vertice f) $ repeat $ depth d in -- dToHalf pos
-                                       ( (concatMap (\v -> [G.times 0.975 v, v]) $ barycenter f : newVs) ++ vs'
-                                       , (faceIndice (fromIntegral offset') f) ++ is'
-                                       , 1 : 1 : (take (2*l) $ repeat 0) ++ cs'
-                                       , (take (2*l+2) $ repeat $ seed f) ++ ns'
-                                       , ms ++ md'
-                                       , offset' + 2*l + 2)
-                                     )
-                                     (vs, is, cs, ns, md, offset)
-                                     depths
+                       foldr' (\d (vs', is', cs', ns', md', fis', offset') ->
+                                let ms = take (2*l+2) $ repeat $ depth d in -- dToHalf pos
+                                ( (concatMap (\v -> [G.times 0.975 v, v]) $ barycenter f : newVs) ++ vs'
+                                , (faceIndice (fromIntegral offset') f) ++ is'
+                                , 1 : 1 : (take (2*l) $ repeat 0) ++ cs'
+                                , (take (2*l+2) $ repeat $ seed f) ++ ns'
+                                , ms ++ md'
+                                , (take (2*l+2) $ repeat $ fromIntegral i) ++ fis'
+                                , offset' + 2*l + 2
+                                )
+                              )
+                              (vs, is, cs, ns, md, fis, offset)
+                              depths
                    )
-                   ([], [], [], [], [], 0)
+                   ([], [], [], [], [], [], 0)
                    $ toAscList depthMap
