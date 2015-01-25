@@ -19,10 +19,9 @@ Usage
 Run with:
 
 * "--f" for fullscreen.
-* "--c xxx" to specify the number of cells to create at start. Default is 1000, recommended between 1000 and 10000.
+* "--c xxx" to specify the number of cells to create at start. Default is 8000, slow from 20000 onward.
 * "--s someString" to specify the seed to use to randomize the cells.
 * "--g xx" to specify the maze overlapping factor. 100 for no overlapping, 25 for medium overlapping, >10 for extreme overlapping.
-* "--p" to compute and draw the maze path. Warning: *very* memory heavy for models with ~3000 cells or more.
 
 Features
 --------
@@ -31,10 +30,10 @@ Features
 * D: toggle maze depth.
 * I: reverse maze depth.
 * +/-: depth exaggeration control.
-* Page Up / Page Down: explosion control.
-* L: show/hide maze path (must have been started with --p).
+* Page Up / Page Down: explosion factor control.
+* L: show/hide maze path.
 * S: show/hide model.
-* N: show/hide face normals (originating from face centers).
+* N: show/hide face normals (originating from Voronoi cells seeds).
 * ESC or Q to exit.
 * Web demo (partial port, slow, unstable at least on Firefox): open web/index.html after compiling to JS with:
 

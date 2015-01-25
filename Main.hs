@@ -87,7 +87,6 @@ data MouseState = MouseState { mouseX :: GLint
 data GlobalState = GlobalState { viewMat :: Mat44f
                                , drawSolid :: Bool
                                , drawNormals :: Bool
-                               , computeMazePath :: Bool
                                , drawMazePath :: Bool
                                , mazeDepthGap :: Int
                                , depthRender :: Bool
@@ -363,18 +362,20 @@ render t drawSolid drawNormals drawMazePath depthMode depthScale explodedFactor 
       uniform colLoc $= GL.Color4 1 1 1 (1 :: GLfloat)
       uniform bColLoc $= GL.Color4 0.05 0.05 0.05 (1 :: GLfloat)
       uniform borderWidthLoc $= GL.Index1 (1.0 :: GLfloat)
-
-      -- bind attributes
-      bindGeometry shaderInfo objectBuffersInfo
-
-      -- bind indice
-      bindBuffer ElementArrayBuffer $= Just (indice objectBuffersInfo)
-
-      drawElements GL.Triangles (indiceCount objectBuffersInfo) GL.UnsignedInt offset0
-
-      unbindGeometry shaderInfo
     else do
-      return ()
+      uniform colLoc $= GL.Color4 0 0 0 (1 :: GLfloat)
+      uniform bColLoc $= GL.Color4 0.0 0.0 0.0 (1 :: GLfloat)
+      uniform borderWidthLoc $= GL.Index1 (0 :: GLfloat)
+
+  -- bind attributes
+  bindGeometry shaderInfo objectBuffersInfo
+
+  -- bind indice
+  bindBuffer ElementArrayBuffer $= Just (indice objectBuffersInfo)
+
+  drawElements GL.Triangles (indiceCount objectBuffersInfo) GL.UnsignedInt offset0
+
+  unbindGeometry shaderInfo
 
 
   -- draw labyrinth path
@@ -759,28 +760,20 @@ loadModel global@GlobalState{..} vm laby = do
                                        Nothing
 
 
-  -- computing the vertice of the maze path is complicated and heavy. dont do it unless specifically requested.
-  newLabyrinthBuffersInfo <- if computeMazePath
-    then do
-      cleanBuffers labyrinthBuffersInfo
+  cleanBuffers labyrinthBuffersInfo
 
-      t3 <- get time
-      let (pathVs, pathDs, pathIds) = labyrinthToBuffers faces depthMax laby 0
-      putStrLn $ "path size:\t" ++ (show $ length pathVs)
-      putStrLn $ "path ids size:\t" ++ (show $ length pathIds)
-      t4 <- get time
-      putStrLn $ "path buffers duration:\t" ++ (show $ t4 - t3)
+  t3 <- get time
+  let (pathVs, pathIds, pathDs) = toPathBufferData faces depths depthMax
+  putStrLn $ "path size:\t" ++ (show $ length pathVs)
+  t4 <- get time
+  putStrLn $ "path buffers duration:\t" ++ (show $ t4 - t3)
 
-      newLabyrinthBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) pathVs)
-                                             pathIds
-                                             Nothing
-                                             Nothing
-                                             (Just pathDs)
-                                             Nothing
-
-      return newLabyrinthBuffersInfo
-    else
-      return labyrinthBuffersInfo
+  newLabyrinthBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) pathVs)
+                                         pathIds
+                                         Nothing
+                                         Nothing
+                                         (Just pathDs)
+                                         Nothing
 
   t3 <- get time
   putStrLn $ "load model duration:\t" ++ show (t3 - t0)
@@ -800,9 +793,6 @@ main = do
 
   -- fullscreen flag
   let fullScreenRequest = boolArgument "--f" args
-
-  -- compute and render maze path
-  let computeMazePath = boolArgument "--p" args
 
   -- seed input
   let seedStr = maybe "sexyseed" id $ strArgument "--s" args
@@ -891,8 +881,7 @@ main = do
   let state0 = GlobalState { viewMat = LAF.viewMatOf (pi/2) (pi/2) 1
                            , drawSolid = True
                            , drawNormals = False
-                           , computeMazePath = computeMazePath
-                           , drawMazePath = True
+                           , drawMazePath = False
                            , mazeDepthGap = mazeDepthGap
                            , depthRender = True
                            , depthInvert = True
