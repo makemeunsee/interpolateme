@@ -81,12 +81,15 @@ labyrinth2 topo
            $ neighbours $ S.index topo i)
 
 
-labyrinth1 :: RealFrac a => Seed -> Int -> S.Seq (Face a) -> (Labyrinth Int, Seed)
-labyrinth1 seed minGapFrac topo
+-- create a random maze, using the face neighbours as a topology.
+-- the maze graph has a maximum depth of maxDepth
+-- a face can be part of the maze multiple times (overlapping), with a minimum depth gap of (minGapFrac * maxDepth / 100) between maze nodes referring to the same face.
+-- if minGapFrac is set to 100, no overlap can happen.
+labyrinth1 :: RealFrac a => Seed -> Int -> Int -> S.Seq (Face a) -> (Labyrinth Int, Seed)
+labyrinth1 seed maxDepth minGapFrac topo
   | S.null topo = (Node (-1) (-1) [], seed) -- illegal
   | otherwise   = topologyToLabyrinth0 seed (singleton 0 [0]) [] [(0, 0)]
   where
-    maxDepth = S.length topo
     minGap = floor $ 0.01 * (fromIntegral $ maxDepth * minGapFrac)
     topologyToLabyrinth0 seed visited !acc ((i, depth) : parents) =
       let explorable = filter (\(_, depths) ->

@@ -847,7 +847,7 @@ main = do
 
   let faces = VC.faces rndCutsModel
   t2 <- get time
-  let (laby, seed'') = labyrinth1 seed' mazeDepthGap faces
+  let (laby, seed'') = labyrinth1 seed' (Seq.length faces) mazeDepthGap faces
 --  putStrLn $ "maze:\t" ++ show laby
   let cellCount = size laby
   putStrLn $ "maze size:\t" ++ show cellCount
