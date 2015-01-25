@@ -4,6 +4,7 @@ in vec3 position;
 in vec3 normal;
 in float a_centerFlag;
 in float a_mazeDepth;
+in float a_faceId;
 
 uniform mat4 u_mvpMat;
 uniform float u_time;
@@ -13,6 +14,7 @@ uniform float u_explodedFactor;
 
 out float v_centerFlag;
 out float v_mazeDepth;
+out float v_faceId;
 
 void main()
 {
@@ -25,4 +27,5 @@ void main()
     gl_Position = u_mvpMat * vec4((1.0+d) * (position + (u_explodedFactor * normal)), 1.0);
     v_centerFlag = a_centerFlag;
     v_mazeDepth = a_mazeDepth;
+    v_faceId = a_faceId;
 }
