@@ -16,6 +16,7 @@ Run with:
 * "--b" to draw both faces, back and front
 * "--c xxx" to specify the number of cuts to apply on the model
 * "--s someString" to specify the seed to use to randomize the cuts
+* "--p xxx" to specify the base polyhedron to use. 0: tetrahedron, 1: cube, 2: dodecahedron, 3:icosahedron.
 
 Features
 --------

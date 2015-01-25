@@ -756,7 +756,7 @@ main = do
   let seedStr = strArgument "--s" args
   let seed = seedForString $ maybe "elohim" id seedStr
 
-  let defaultCutCount = 1000
+  let defaultCutCount = 0
   -- cuts input
   let cutsStr = strArgument "--c" args
   let cuts = maybe defaultCutCount
@@ -764,12 +764,23 @@ main = do
                      [] -> defaultCutCount
                      [(i, _)] -> i)
                    cutsStr
+  putStrLn $ "truncations:\t" ++ show cuts
+
+  let defaultSolidId = 0
+  -- poly id input
+  let polyIdStr = strArgument "--p" args
+  let polyId = maybe defaultSolidId
+                   (\str -> case reads str of
+                     [] -> defaultSolidId
+                     [(i, _)] -> max 0 $ min 3 i)
+                   polyIdStr
+  putStrLn $ "solid:\t" ++ show polyId
 
 
   -- initialize early to have access to time
   GLFW.initialize
 
-  let cuttableModel = PC.fromModel tetrahedron
+  let cuttableModel = PC.fromModel $ polyhedrons !! polyId
 
   t0 <- get time
   let (rndCuts, _) = generateRndCuts cuts seed
