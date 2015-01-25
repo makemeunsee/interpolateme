@@ -45,10 +45,13 @@ import Control.Monad (foldM)
 import Foreign (with, fromBool, castPtr, alloca, peek, withArrayLen, sizeOf, Ptr, mallocArray, peekArray, free, nullPtr)
 import Foreign.C.Types (CFloat, CInt)
 
-import Data.Maybe (listToMaybe)
+import qualified Data.Map as Map
+import qualified Data.Sequence as Seq
+import Data.Maybe (listToMaybe, fromJust)
 import Data.IORef (IORef, newIORef)
 import Data.Vec (Mat44, Vec4, multmv, identity)
 import Data.Foldable (foldr', foldl', foldrM)
+import Random.MWC.Pure (Seed, range_random)
 
 import Models
 import qualified Geometry as G
@@ -98,6 +101,10 @@ data GlobalState = GlobalState { viewMat :: Mat44f
                                , keys :: KeyState
                                , projMat :: IORef Mat44f
                                , zoom :: IORef GLfloat
+                               , faces :: Seq.Seq (VC.Face GLfloat)
+                               , depths :: Map.Map Int [Int]
+                               , depthMax :: Int
+                               , seed :: Seed
                                }
 
 
@@ -127,6 +134,7 @@ data ShaderInfo = ShaderInfo { prog :: Program
                              , normalAttrib :: GLuint
                              , centerAttrib :: GLuint
                              , mazeAttrib :: GLuint
+                             , faceIdAttrib :: GLuint
                              }
 
 
@@ -141,6 +149,7 @@ data BuffersInfo = BuffersInfo { indice :: BufferObject
 data OptionGeomInfo = OptionGeomInfo { normalBufferId :: Maybe GLuint
                                      , centerBufferId :: Maybe GLuint
                                      , mazeBufferId :: Maybe GLuint
+                                     , faceIdBufferId :: Maybe GLuint
                                      }
 
 
@@ -158,14 +167,16 @@ createShader vertexShaderFile fragShaderFile = do
   AttribLocation normalAttrib <- get (attribLocation prog "normal")
   AttribLocation centerAttrib <- get (attribLocation prog "a_centerFlag")
   AttribLocation mazeAttrib <- get (attribLocation prog "a_mazeDepth")
+  AttribLocation faceIdAttrib <- get (attribLocation prog "a_faceId")
   return ShaderInfo{..}
 
 
-loadOptionalBuffers :: Maybe [GLfloat] -> Maybe [GLfloat] -> Maybe [GLfloat] -> IO OptionGeomInfo
-loadOptionalBuffers m_normalData m_centersData m_mazeData = do
+loadOptionalBuffers :: Maybe [GLfloat] -> Maybe [GLfloat] -> Maybe [GLfloat] -> Maybe [GLfloat] -> IO OptionGeomInfo
+loadOptionalBuffers m_normalData m_centersData m_mazeData m_faceIdData = do
   normalBufferId <- loadOptionalBuffer m_normalData
   centerBufferId <- loadOptionalBuffer m_centersData
   mazeBufferId <- loadOptionalBuffer m_mazeData
+  faceIdBufferId <- loadOptionalBuffer m_faceIdData
   return OptionGeomInfo{..}
 
 
@@ -177,14 +188,14 @@ loadOptionalBuffer m_data = do case m_data of
                                              return $ Just id
 
 
-loadBuffers :: [GLfloat] -> [GLuint] -> Maybe [GLfloat] -> Maybe [GLfloat] -> Maybe [GLfloat] -> IO BuffersInfo
-loadBuffers verticeData indiceData m_normalData m_centersData m_mazeData = do
+loadBuffers :: [GLfloat] -> [GLuint] -> Maybe [GLfloat] -> Maybe [GLfloat] -> Maybe [GLfloat] -> Maybe [GLfloat] -> IO BuffersInfo
+loadBuffers verticeData indiceData m_normalData m_centersData m_mazeData m_faceIdData = do
 
   indice <- makeBuffer ElementArrayBuffer indiceData
   let indiceCount = indexCount indiceData
   let vertexBuffersLength = length verticeData
   vertexBufferId <- fillNewFloatBuffer verticeData
-  ext <- loadOptionalBuffers m_normalData m_centersData m_mazeData
+  ext <- loadOptionalBuffers m_normalData m_centersData m_mazeData m_faceIdData
   return BuffersInfo{..}
 
 
@@ -203,9 +214,9 @@ initGL = do
   shaderInfo <- Main.createShader "border_nolight.vert" "border_nolight.frag"
 
   -- create data buffers
-  objectBuffersInfo <- loadBuffers [] [] Nothing Nothing Nothing
-  normalsBuffersInfo <- loadBuffers [] [] Nothing Nothing Nothing
-  labyrinthBuffersInfo <- loadBuffers [] [] Nothing Nothing Nothing
+  objectBuffersInfo <- loadBuffers [] [] Nothing Nothing Nothing Nothing
+  normalsBuffersInfo <- loadBuffers [] [] Nothing Nothing Nothing Nothing
+  labyrinthBuffersInfo <- loadBuffers [] [] Nothing Nothing Nothing Nothing
 
   return GLIDs{..}
 
@@ -221,6 +232,7 @@ cleanOptionalBuffers OptionGeomInfo{..} = do
   cleanOptionalBuffer normalBufferId
   cleanOptionalBuffer centerBufferId
   cleanOptionalBuffer mazeBufferId
+  cleanOptionalBuffer faceIdBufferId
 
 
 cleanOptionalBuffer :: Maybe GLuint -> IO ()
@@ -248,6 +260,7 @@ bindOptionalGeometries OptionGeomInfo{..} ShaderInfo{..} = do
   bindOptionalGeometry 3 normalAttrib normalBufferId
   bindOptionalGeometry 1 centerAttrib centerBufferId
   bindOptionalGeometry 1 mazeAttrib mazeBufferId
+  bindOptionalGeometry 1 faceIdAttrib faceIdBufferId
 
 
 bindOptionalGeometry :: GLint -> GLuint -> Maybe GLuint -> IO ()
@@ -263,6 +276,7 @@ unbindGeometry ShaderInfo{..} = do
   glDisableVertexAttribArray normalAttrib
   glDisableVertexAttribArray centerAttrib
   glDisableVertexAttribArray mazeAttrib
+  glDisableVertexAttribArray faceIdAttrib
 
 
 bindUniformMatrix :: Program -> String -> Mat44f -> IO ()
@@ -277,17 +291,33 @@ bindUniformVector prog uName vec = do
   with vec $ glUniform4fv vLoc 1 . castPtr
 
 
-render :: GLfloat -> Bool -> Bool -> Bool -> GLfloat -> GLfloat -> GLfloat -> Mat44f -> GLIDs -> IO ()
-render t drawSolid drawNormals drawMazePath depthMode depthScale explodedFactor mvp glids@GLIDs{..} = do
+render :: GLfloat -> Bool -> Bool -> Bool -> GLfloat -> GLfloat -> GLfloat -> Mat44f -> GLIDs -> Int -> GLfloat -> IO ()
+render t drawSolid drawNormals drawMazePath depthMode depthScale explodedFactor mvp glids@GLIDs{..} litFaceId litFaceDepth = do
   GL.clear [GL.ColorBuffer, GL.DepthBuffer]
 
   let ShaderInfo{..} = shaderInfo
 
   currentProgram $= Just prog
 
+  -- which cell should be lit
+  litFaceLoc <- get $ uniformLocation prog "u_litFace"
+  uniform litFaceLoc $= GL.Index1 (fromIntegral litFaceId :: GLfloat)
+  litDepthLoc <- get $ uniformLocation prog "u_litDepth"
+  uniform litDepthLoc $= GL.Index1 litFaceDepth
+
+  col0Loc <- get $ uniformLocation prog "u_color0"
+  col1Loc <- get $ uniformLocation prog "u_color1"
+  col2Loc <- get $ uniformLocation prog "u_color2"
+  col3Loc <- get $ uniformLocation prog "u_color3"
+  uniform col0Loc $= GL.Color3 1 0 (0 :: GLfloat)
+  uniform col1Loc $= GL.Color3 0.4 0 (1 :: GLfloat)
+  uniform col2Loc $= GL.Color3 1 0.4 (0 :: GLfloat)
+  uniform col3Loc $= GL.Color3 1 0.2 (0.2 :: GLfloat)
+
   colLoc <- get $ uniformLocation prog "u_color"
   bColLoc <- get $ uniformLocation prog "u_borderColor"
   borderWidthLoc <- get $ uniformLocation prog "u_borderWidth"
+
   depthModeLoc <- get $ uniformLocation prog "u_depthMode"
   depthScaleLoc <- get $ uniformLocation prog "u_depthScale"
   expFactLoc <- get $ uniformLocation prog "u_explodedFactor"
@@ -608,8 +638,23 @@ applyMouseActions speed newMouseState global = do
     global' = global { mouse = newMouseState }
 
 
-loop :: IO Action -> GlobalState -> IO GlobalState
-loop action global = do
+nextPosition :: Seed -> MazePosition -> Seq.Seq (VC.Face a) -> Map.Map Int [Int] -> (MazePosition, Seed)
+nextPosition seed currPosition faces depths = (MazePosition newFaceId newDepth, seed')
+  where
+    neighbours = VC.neighbours $ Seq.index faces $ faceId currPosition
+    nsWithDepth = concatMap (\fId -> zip (repeat fId) $ fromJust $ Map.lookup fId depths) neighbours
+    okNs = filter (\(i, d) -> abs (depth currPosition - d) < 10) nsWithDepth
+    l = length okNs
+    (rndIndex, seed') = range_random (0, l) seed
+    (newFaceId, newDepth) = okNs !! rndIndex
+
+
+data MazePosition = MazePosition { faceId :: Int, depth :: Int }
+                    deriving Show
+
+
+loop :: IO Action -> GlobalState -> (MazePosition, Double) -> IO GlobalState
+loop action global (litPosition, lastPositionChange) = do
 
   -- read keyboard actions & update global state
   newGlobal0 <- handleKeys global
@@ -640,14 +685,26 @@ loop action global = do
          (explodedFactor newGlobal)
          mvp
          (glids newGlobal)
+         (faceId litPosition)
+         (fromIntegral (depth litPosition) / fromIntegral (depthMax newGlobal))
+
+  t <- get time
+  let (litUpdate, seed') = if lastPositionChange + 0.01 <= t then
+                             let (updatedPosition, newSeed) = nextPosition (seed newGlobal)
+                                                                       litPosition
+                                                                       (faces newGlobal)
+                                                                       (depths newGlobal) in
+                             ((updatedPosition, t), newSeed)
+                           else
+                             ((litPosition, lastPositionChange), seed newGlobal)
 
   -- exit if window closed or Esc pressed
   esc <- GLFW.getKey GLFW.ESC
   q <- GLFW.getKey 'Q'
   open <- GLFW.getParam GLFW.Opened
   if open && esc /= GLFW.Press && q /= GLFW.Press
-    then loop action' newGlobal
-    else return newGlobal
+    then loop action' newGlobal { seed = seed' } litUpdate
+    else return newGlobal { seed = seed' }
 
 
 intArgument :: String -> Int -> [String] -> Int
@@ -677,8 +734,7 @@ loadModel global@GlobalState{..} vm laby = do
   let faces = VC.faces vm
   let fc = VC.faceCount vm
 
-  let (depths, maxDepth) = depthMap laby
-  let (vertexBuffer, ids, centerBuffer, mazeBuffer, normalBuffer) = toBufferData faces depths maxDepth
+  let (vertexBuffer, ids, centerBuffer, mazeBuffer, normalBuffer, faceIdsBuffer) = toBufferData faces depths depthMax
 
   -- clean gl buffers and recreate them with proper data
   cleanBuffers objectBuffersInfo
@@ -689,6 +745,7 @@ loadModel global@GlobalState{..} vm laby = do
                                 (Just $ concatMap G.pointToArr normalBuffer)
                                 (Just centerBuffer)
                                 (Just mazeBuffer)
+                                (Just faceIdsBuffer)
 
   let faceCenters = VC.normals vm -- on the unit sphere so they're normalized too
   let verticeOfNormalsBuffer = concatMap (\(G.Point3f cx cy cz) ->
@@ -696,6 +753,7 @@ loadModel global@GlobalState{..} vm laby = do
                                          faceCenters
   newNormalsBuffersInfo <- loadBuffers verticeOfNormalsBuffer
                                        (take (length verticeOfNormalsBuffer) [0..])
+                                       Nothing
                                        Nothing
                                        Nothing
                                        Nothing
@@ -707,7 +765,7 @@ loadModel global@GlobalState{..} vm laby = do
       cleanBuffers labyrinthBuffersInfo
 
       t3 <- get time
-      let (pathVs, pathDs, pathIds) = labyrinthToBuffers faces maxDepth laby 0
+      let (pathVs, pathDs, pathIds) = labyrinthToBuffers faces depthMax laby 0
       putStrLn $ "path size:\t" ++ (show $ length pathVs)
       putStrLn $ "path ids size:\t" ++ (show $ length pathIds)
       t4 <- get time
@@ -718,6 +776,7 @@ loadModel global@GlobalState{..} vm laby = do
                                              Nothing
                                              Nothing
                                              (Just pathDs)
+                                             Nothing
 
       return newLabyrinthBuffersInfo
     else
@@ -746,7 +805,7 @@ main = do
   let computeMazePath = boolArgument "--p" args
 
   -- seed input
-  let seedStr = maybe "imullinati" id $ strArgument "--s" args
+  let seedStr = maybe "sexyseed" id $ strArgument "--s" args
   let seed = seedForString seedStr
 
   putStrLn $ "seed:\t" ++ seedStr
@@ -763,7 +822,11 @@ main = do
   t0 <- get time
   let (rndCuts, seed') = generateRndCuts cuts seed
   putStrLn $ "cuts:\t" ++ (show $ length rndCuts)
-  putStrLn $ "last cut:\t" ++ (show $ last rndCuts)
+  if cuts > 0
+    then do
+      putStrLn $ "last cut:\t" ++ (show $ last rndCuts)
+    else
+      return ()
   let rndCutsModel = foldr' (\(t,p) m -> VC.cutModelFromAngles t p m) cuttableModel rndCuts
   putStrLn $ "last face seed:\t" ++ (show $ VC.seed $ VC.lastFace rndCutsModel)
 --  putStrLn "cut\tfaces\tduration"
@@ -782,12 +845,24 @@ main = do
   putStrLn $ "topology:\t" ++ (show $ map VC.neighbours $ VC.faceList rndCutsModel)
   putStrLn $ "Truncation duration: " ++ show (t1 - t0)
 
+  let faces = VC.faces rndCutsModel
   t2 <- get time
-  let (laby, seed'') = labyrinth1 seed' mazeDepthGap $ VC.faces rndCutsModel
+  let (laby, seed'') = labyrinth1 seed' mazeDepthGap faces
 --  putStrLn $ "maze:\t" ++ show laby
-  putStrLn $ "maze size:\t" ++ show (size laby)
+  let cellCount = size laby
+  putStrLn $ "maze size:\t" ++ show cellCount
   t3 <- get time
   putStrLn $ "laby gen duration:\t" ++ show (t3 - t2)
+  let (depths, maxDepth) = depthMap laby
+  putStrLn $ "max depth:\t" ++ show maxDepth
+  t4 <- get time
+  putStrLn $ "laby depth mapping:\t" ++ show (t4 - t3)
+
+  let (firstFaceId, seed''') = range_random (0, Seq.length faces) seed''
+  let firstDepths = fromJust $ Map.lookup firstFaceId depths
+  let (dId, seed'''') = range_random (0, length firstDepths) seed'''
+  let firstDepth = firstDepths !! dId
+  putStrLn $ "first position:\t" ++ show (firstFaceId, firstDepth)
 
   fullscreenMode <- get GLFW.desktopMode
 
@@ -830,6 +905,10 @@ main = do
                            , projMat = projMat
                            , modelMat = identity
                            , zoom = zoom
+                           , faces = faces
+                           , depths = depths
+                           , depthMax = maxDepth
+                           , seed = seed''''
                            }
 
   state <- loadModel state0 rndCutsModel laby
@@ -839,7 +918,7 @@ main = do
   GLFW.windowTitle        $= "Voronyi maze"
   GLFW.windowSizeCallback $= resize projMat zoom
   -- main loop
-  lastState <- loop waitForPress state
+  lastState <- loop waitForPress state (MazePosition firstFaceId firstDepth, 0)
   -- exit
   cleanBuffers $ objectBuffersInfo $ glids lastState
   cleanBuffers $ normalsBuffersInfo $ glids lastState
