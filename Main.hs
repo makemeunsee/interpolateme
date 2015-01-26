@@ -73,6 +73,7 @@ data KeyState = KeyState { n :: KeyButtonState
                          , l :: KeyButtonState
                          , d :: KeyButtonState
                          , i :: KeyButtonState
+                         , space :: KeyButtonState
                          }
 
 
@@ -104,6 +105,7 @@ data GlobalState = GlobalState { viewMat :: Mat44f
                                , depths :: Map.Map Int [Int]
                                , depthMax :: Int
                                , seed :: Seed
+                               , highlight :: Bool
                                }
 
 
@@ -111,7 +113,7 @@ data GlobalState = GlobalState { viewMat :: Mat44f
 
 
 defaultKeyState :: KeyState
-defaultKeyState = KeyState Release Release Release Release Release
+defaultKeyState = KeyState Release Release Release Release Release Release
 
 
 defaultMouseState :: MouseState
@@ -355,29 +357,6 @@ render t drawSolid drawNormals drawMazePath depthMode depthScale explodedFactor 
       return ()
 
 
-  -- draw object
-  -- bind uniform colors
-  if drawSolid
-    then do
-      uniform colLoc $= GL.Color4 1 1 1 (1 :: GLfloat)
-      uniform bColLoc $= GL.Color4 0.05 0.05 0.05 (1 :: GLfloat)
-      uniform borderWidthLoc $= GL.Index1 (1.0 :: GLfloat)
-    else do
-      uniform colLoc $= GL.Color4 0 0 0 (1 :: GLfloat)
-      uniform bColLoc $= GL.Color4 0.0 0.0 0.0 (1 :: GLfloat)
-      uniform borderWidthLoc $= GL.Index1 (0 :: GLfloat)
-
-  -- bind attributes
-  bindGeometry shaderInfo objectBuffersInfo
-
-  -- bind indice
-  bindBuffer ElementArrayBuffer $= Just (indice objectBuffersInfo)
-
-  drawElements GL.Triangles (indiceCount objectBuffersInfo) GL.UnsignedInt offset0
-
-  unbindGeometry shaderInfo
-
-
   -- draw labyrinth path
   if drawMazePath
     then do
@@ -397,6 +376,33 @@ render t drawSolid drawNormals drawMazePath depthMode depthScale explodedFactor 
       unbindGeometry shaderInfo
     else
       return ()
+
+
+  let drawSolidFct = do
+                       -- bind attributes
+                       bindGeometry shaderInfo objectBuffersInfo
+                       -- bind indice
+                       bindBuffer ElementArrayBuffer $= Just (indice objectBuffersInfo)
+                       drawElements GL.Triangles (indiceCount objectBuffersInfo) GL.UnsignedInt offset0
+                       unbindGeometry shaderInfo
+
+
+  -- draw object
+  if drawSolid
+    then do
+      uniform colLoc $= GL.Color4 1 1 1 (1 :: GLfloat)
+      uniform bColLoc $= GL.Color4 0.05 0.05 0.05 (1 :: GLfloat)
+      uniform borderWidthLoc $= GL.Index1 (1.0 :: GLfloat)
+      drawSolidFct
+    else if depthMode == 0 -- no depth mode, no solid -> draw solid black
+      then do
+        uniform colLoc $= GL.Color4 0 0 0 (1 :: GLfloat)
+        uniform bColLoc $= GL.Color4 0.0 0.0 0.0 (1 :: GLfloat)
+        uniform borderWidthLoc $= GL.Index1 (0 :: GLfloat)
+        drawSolidFct
+    else
+      return () -- depth mode, no solid -> dont draw solid
+
 
   GLFW.swapBuffers
 
@@ -563,13 +569,10 @@ handleKeys state = do
   let keyState@KeyState{..} = keys state
 
   -- read key inputs
-  tb <- GLFW.getKey GLFW.TAB
   sp <- GLFW.getKey ' '
   kn <- GLFW.getKey 'N'
   ks <- GLFW.getKey 'S'
   kl <- GLFW.getKey 'L'
-  kc <- GLFW.getKey 'C'
-  kw <- GLFW.getKey 'W'
   kd <- GLFW.getKey 'D'
   ki <- GLFW.getKey 'I'
   kpl <- GLFW.getKey GLFW.KP_ADD
@@ -581,13 +584,15 @@ handleKeys state = do
   let lR = released kl l
   let sR = released ks s
   let dR = released kd d
-  let dI = released ki i
+  let iR = released ki i
+  let spR = released sp space
 
   let newKeyState = keyState { n = kn
                              , s = ks
                              , l = kl
                              , d = kd
                              , i = ki
+                             , space = sp
                              }
 
   let scaleF = if kpl == Press then 0.01 else if kmi == Press then (-0.01) else 0
@@ -601,7 +606,8 @@ handleKeys state = do
                , drawNormals = if nR then not $ drawNormals state else drawNormals state
                , drawMazePath = if lR then not $ drawMazePath state else drawMazePath state
                , depthRender = if dR then not $ depthRender state else depthRender state
-               , depthInvert = if dI then not $ depthInvert state else depthInvert state
+               , depthInvert = if iR then not $ depthInvert state else depthInvert state
+               , highlight = if spR then not $ highlight state else highlight state
                , depthScale = dScale
                , explodedFactor = expFact
                }
@@ -670,34 +676,35 @@ loop action global (litPosition, lastPositionChange) = do
 
   -- update the view related properties in the global state
   newGlobal <- applyMouseActions speed newMouseState newGlobal0
+  let GlobalState{..} = newGlobal
 
   -- prepare matrices for rendering
-  p <- get $ projMat newGlobal
-  let vp = p `LAF.multMat` viewMat newGlobal
-  let mvp = vp `LAF.multMat` modelMat newGlobal
+  p <- get projMat
+  let vp = p `LAF.multMat` viewMat
+  let mvp = vp `LAF.multMat` modelMat
 
   -- render
-  render (simTime newGlobal)
-         (drawSolid newGlobal)
-         (drawNormals newGlobal)
-         (drawMazePath newGlobal)
-         (if depthRender newGlobal then if depthInvert newGlobal then -1 else 1 else 0)
-         (depthScale newGlobal)
-         (explodedFactor newGlobal)
+  render simTime
+         drawSolid
+         drawNormals
+         drawMazePath
+         (if depthRender then if depthInvert then -1 else 1 else 0)
+         depthScale
+         explodedFactor
          mvp
-         (glids newGlobal)
-         (faceId litPosition)
-         (fromIntegral (depth litPosition) / fromIntegral (depthMax newGlobal))
+         glids
+         (if highlight then faceId litPosition else -1)
+         (fromIntegral (depth litPosition) / fromIntegral depthMax)
 
   t <- get time
-  let (litUpdate, seed') = if lastPositionChange + 0.01 <= t then
-                             let (updatedPosition, newSeed) = nextPosition (seed newGlobal)
-                                                                       litPosition
-                                                                       (faces newGlobal)
-                                                                       (depths newGlobal) in
+  let (litUpdate, seed') = if highlight && lastPositionChange + 0.01 <= t then
+                             let (updatedPosition, newSeed) = nextPosition seed
+                                                                           litPosition
+                                                                           faces
+                                                                           depths in
                              ((updatedPosition, t), newSeed)
                            else
-                             ((litPosition, lastPositionChange), seed newGlobal)
+                             ((litPosition, lastPositionChange), seed)
 
   -- exit if window closed or Esc pressed
   esc <- GLFW.getKey GLFW.ESC
@@ -898,6 +905,7 @@ main = do
                            , depths = depths
                            , depthMax = maxDepth
                            , seed = seed''''
+                           , highlight = True
                            }
 
   state <- loadModel state0 rndCutsModel laby

@@ -11,6 +11,8 @@ Maze generation from the voronoi cells.
 
 [Video demo 2 (tessellation result)](https://www.youtube.com/watch?v=_JYSKB4cUnA)
 
+[Video demo 3 (egg shell world)](http://youtu.be/QiNU-jJ_odc)
+
 Usage
 -----
 
@@ -33,6 +35,7 @@ Features
 * Page Up / Page Down: explosion factor control.
 * L: show/hide maze path.
 * S: show/hide model.
+* space: toggle random cell highlighting.
 * N: show/hide face normals (originating from Voronoi cells seeds).
 * ESC or Q to exit.
 * Web demo (partial port, slow, unstable at least on Firefox): open web/index.html after compiling to JS with:
