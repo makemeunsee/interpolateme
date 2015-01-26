@@ -44,8 +44,22 @@ longestBranch :: Labyrinth a -> Int
 longestBranch (Node _ d ls) = foldr' (\l m -> max m $ longestBranch l) d ls
 
 
-depthMap :: Ord a => Labyrinth a -> (Map a [Int], Int)
-depthMap (Node i d ls) = foldr' (\(m', d') (m, oldMax) -> (unionWith (++) m m', max d' oldMax)) (singleton i [d], d) $ map depthMap ls
+depthMap :: Ord a => Labyrinth a -> (Map a [Int], Int, Int)
+depthMap (Node i d ls) = foldr' (\(m', dmax, dmin) (m, oldMax, oldMin) ->
+                                  (unionWith (++) m m', max dmax oldMax, min dmin oldMin))
+                                (singleton i [d], d, d)
+                                $ map depthMap ls
+
+
+-- for each (value, depth) in the maze, gives the ids of the (value, depth) pairs which are the parent or a children.
+neighboursMap :: Ord a => Maybe (a, Int) -> Labyrinth a -> Map (a, Int) [(a, Int)]
+neighboursMap parent (Node i d ls) =
+  let ns0 = if parent == Nothing then [] else [fromJust parent] in
+  let ns = foldr (\(Node i' d' _) ns -> (i', d') : ns) ns0 ls in
+  foldr' (\m' m ->
+           unionWith (++) m m')
+         (singleton (i, d) ns)
+         $ map (neighboursMap (Just (i, d))) ls
 
 
 elem :: Eq a => a -> Labyrinth a -> Bool
@@ -81,41 +95,51 @@ labyrinth2 topo
            $ neighbours $ S.index topo i)
 
 
--- create a random maze, using the face neighbours as a topology.
--- the maze graph has a maximum depth of maxDepth
--- a face can be part of the maze multiple times (overlapping), with a minimum depth gap of (minGapFrac * maxDepth / 100) between maze nodes referring to the same face.
--- if minGapFrac is set to 100, no overlap can happen.
-labyrinth1 :: RealFrac a => Seed -> Int -> Int -> S.Seq (Face a) -> (Labyrinth Int, Seed)
-labyrinth1 seed maxDepth minGapFrac topo
+-- Create a random maze, using the face neighbours as a topology.
+-- The maze is an acyclic directed graph. Its nodes carry a value (identifier from the topology) and a depth.
+-- The depth difference from a child node to its parent is always 1 or -1 (always 1 if alwaysDeeper is true).
+-- maxBranchLength determines the maximum length from the root to any leaf this maze is allowed to grow to.
+-- If maxBranchLength << the number of cell in the topology, the maze will cover only part of the topology.
+-- minGapForOverlap determines the minimum depth gap between 2 nodes of the maze for them to carry the same identifier.
+-- ie: If a branch of the maze is deep enough, it can use a cell from the topology previously used, but higher.
+-- Having minGapForOverlap >= maxBranchLength is a guarantee to have no overlap (no branch will be become deep enough).
+-- alwaysDeeper forces the maze branches to go always deeper.
+-- If alwaysDeeper is False, each single continuous sequence of maze nodes will randomly go higher or deeper.
+labyrinth1 :: RealFrac a => Seed -> Int -> Int -> Bool -> S.Seq (Face a) -> (Labyrinth Int, Seed)
+labyrinth1 seed maxBranchLength minGapForOverlap alwaysDeeper topo
   | S.null topo = (Node (-1) (-1) [], seed) -- illegal
-  | otherwise   = topologyToLabyrinth0 seed (singleton 0 [0]) [] [(0, 0)]
+  | otherwise   = topologyToLabyrinth0 seed (singleton 0 [0]) [] [(0, 0, 0)] 1
   where
-    minGap = floor $ 0.01 * (fromIntegral $ maxDepth * minGapFrac)
-    topologyToLabyrinth0 seed visited !acc ((i, depth) : parents) =
+    topologyToLabyrinth0 :: Seed -> Map Int [Int] -> [(Int, Labyrinth Int)] -> [(Int, Int, Int)] -> Int -> (Labyrinth Int, Seed)
+    topologyToLabyrinth0 seed visited acc [] dir = (snd $ head acc, seed)
+    topologyToLabyrinth0 seed visited !acc ((i, depth, dist) : parents) dir =
       let explorable = filter (\(_, depths) ->
-                                depths == [] || L.all (\d -> abs (depth - d) > minGap) depths
+                                depths == [] || L.all (\d -> abs (depth - d) >= minGapForOverlap) depths
                               )
                               $ map (\n -> (n, maybe [] id $ Data.Map.lookup n visited))
                               $ neighbours $ S.index topo i in
       let l = length explorable in
       let (rndIndex, seed') = range_random (0, l) seed in
-      if depth >= maxDepth || explorable == [] then
-        if depth > 0 then
-          let newAcc = case acc of
-                         [] -> [Node i depth []]
-                         ls -> let (tails, parallelBranches) = L.partition (\l-> nodeDepth l == depth+1) ls in
-                               if tails == [] then
-                                 (Node i depth []) : ls
-                               else
-                                 (Node i depth tails) : parallelBranches
-                       in
-          topologyToLabyrinth0 seed visited newAcc parents
-        else
-          (Node i 0 acc, seed)
+      if dist >= maxBranchLength || explorable == [] then
+        let newAcc = case acc of
+                       [] -> [(dist, Node i depth [])]
+                       ls -> let (tails, parallelBranches) = L.partition (\(d, _) -> d == dist+1) ls in
+                             if tails == [] then
+                               (dist, Node i depth []) : ls
+                             else
+                               (dist, Node i depth $ snd $ unzip tails) : parallelBranches
+                     in
+        topologyToLabyrinth0 seed visited newAcc parents dir
       else
+        let (newDir, seed'') = if alwaysDeeper || l == 1 then
+                                 (dir, seed')
+                               else
+                                 let (rnd, seed'') = range_random (0,2) seed' in
+                                 (2*rnd -1, seed')
+                               in
         let (j, jDepths) = explorable !! rndIndex in
         let newVisited = insert j (depth : jDepths) visited in
-        topologyToLabyrinth0 seed' newVisited acc ((j, depth+1):(i, depth):parents)
+        topologyToLabyrinth0 seed'' newVisited acc ((j, depth+dir,dist+1):(i, depth, dist):parents) newDir
 
 
 faceIndice :: Integral a => a -> Face b -> [a]
@@ -128,21 +152,21 @@ faceIndice offset Face{..} =
   concatMap (\(i,j) -> map (offset+) [centerIndex', 2*i+1, 2*j+1, centerIndex, 2*j, 2*i, 2*i, 2*j, 2*j+1, 2*i, 2*j+1, 2*i+1]) idPairs
 
 
-depthFracValue :: RealFloat a => Int -> Int -> a
-depthFracValue maxDepth depth = fromIntegral depth / maxDepthF
-  where maxDepthF = fromIntegral maxDepth
+depthFracValue :: RealFloat a => Int -> Int -> Int -> a
+depthFracValue depthMin depthMax depth = fromIntegral (depth - depthMin) / depthSpan
+  where depthSpan = fromIntegral $ depthMax - depthMin
 
 
-toBufferData :: (RealFloat a, Integral b) => S.Seq (Face a) -> Map Int [Int] -> Int -> ([G.Point3f a], [b], [a], [a], [G.Point3f a], [a])
-toBufferData faces depthMap maxDepth = ( reverse vs
-                                       , ids
-                                       , reverse centers
-                                       , reverse mazeData
-                                       , reverse normals
-                                       , reverse cellIds
-                                       )
+toBufferData :: (RealFloat a, Integral b) => S.Seq (Face a) -> Map Int [Int] -> Int -> Int -> ([G.Point3f a], [b], [a], [a], [G.Point3f a], [a])
+toBufferData faces depthMap depthMin depthMax = ( reverse vs
+                                                , ids
+                                                , reverse centers
+                                                , reverse mazeData
+                                                , reverse normals
+                                                , reverse cellIds
+                                                )
   where
-    depth = depthFracValue maxDepth
+    depth = depthFracValue depthMin depthMax
     fc = fromIntegral $ S.length faces
     (  vs
      , ids
@@ -156,7 +180,7 @@ toBufferData faces depthMap maxDepth = ( reverse vs
                       let l = length newVs in
                       foldr' (\d (vs', is', cs', ns', md', fis', offset') ->
                                let ms = take (2*l+2) $ repeat $ depth d in -- dToHalf pos
-                               ( (concatMap (\v -> [G.times 0.975 v, v]) $ barycenter f : newVs) ++ vs'
+                               ( (concatMap (\v -> [G.times 0.98 v, v]) $ barycenter f : newVs) ++ vs'
                                , (faceIndice (fromIntegral offset') f) ++ is'
                                , 1 : 1 : (take (2*l) $ repeat 0) ++ cs'
                                , (take (2*l+2) $ repeat $ seed f) ++ ns'
@@ -172,14 +196,16 @@ toBufferData faces depthMap maxDepth = ( reverse vs
                    $ toAscList depthMap
 
 
-toPathBufferData :: (RealFloat a, Integral b) => S.Seq (Face a) -> Map Int [Int] -> Int -> ([G.Point3f a], [b], [a])
-toPathBufferData faces depthMap maxDepth = ( reverse vs
-                                           , ids
-                                           , reverse mazeData
-                                           )
+toPathBufferData :: (RealFloat a, Integral b) => S.Seq (Face a) -> Int -> Int -> Map (Int, Int) [(Int, Int)] -> ([G.Point3f a], [b], [a])
+toPathBufferData faces depthMin depthMax neighboursMap = ( reverse vs
+                                                         , ids
+                                                         , reverse mazeData
+                                                         )
   where
-    fracDepth = depthFracValue maxDepth
-    fDepths faceId = fromJust $ Data.Map.lookup faceId depthMap
+    fracDepth = depthFracValue depthMin depthMax
+    fNeighbours p = case Data.Map.lookup p neighboursMap of
+                      Nothing -> []
+                      Just ns -> ns
 
     junction f0 f1 =
       let [v0, v1] = intersection (vertice f0) (vertice f1) in
@@ -188,25 +214,20 @@ toPathBufferData faces depthMap maxDepth = ( reverse vs
     (  vs
      , ids
      , mazeData
-     , _) = foldr' (\(i, depths) (vs, is, md, offset) ->
+     , _) = foldr' (\((i, d), neighbours) (vs, is, md, offset) ->
                       let f = S.index faces i in
                       let bary = barycenter f in
-                      foldr' (\d (vs', is', md', offset') ->
-                               let actualNeighbours = map (\nId -> S.index faces nId) $ filter (L.elem (d-1) . fDepths) $ neighbours f in
-                               let dv = fracDepth d in
-                               foldr' (\f' (vs'', is'', md'', offset'') ->
-                                        let j = junction f f' in
-                                        let bary' = barycenter f' in
-                                        ( bary : j : bary' : vs''
-                                        , offset'' : offset''+1 : offset''+1 : offset''+2 : is''
-                                        , dv : dv : dv : md''
-                                        , offset'' + 3)
-                               )
-                               (vs', is', md', offset')
-                               actualNeighbours
+                      let dv = fracDepth d in
+                      foldr' (\(i', _) (vs', is', md', offset') ->
+                               let f' = S.index faces i' in
+                               let j = junction f f' in
+                               ( j : vs'
+                               , offset : offset' : is'
+                               , dv : md'
+                               , offset' + 1)
                              )
-                             (vs, is, md, offset)
-                             depths
+                             (bary : vs, is, dv : md, offset + 1)
+                             neighbours
                    )
                    ([], [], [], 0)
-                   $ toAscList depthMap
+                   $ toAscList neighboursMap

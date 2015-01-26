@@ -21,9 +21,13 @@ Usage
 Run with:
 
 * "--f" for fullscreen.
-* "--c xxx" to specify the number of cells to create at start. Default is 8000, slow from 20000 onward.
-* "--s someString" to specify the seed to use to randomize the cells.
-* "--g xx" to specify the maze overlapping factor. 100 for no overlapping, 25 for medium overlapping, >10 for extreme overlapping.
+* "--s someString" (global random seed): the seed to use for all random processes.
+* "--c xxx" (tessellation control): the number of cells to create at start. Default is 8000, slow from 20000 onward.
+* "--m xxx" (maze control): the maximum length the maze can grow to. Default to the number of cells parameter.
+* "--g xxx" (maze control): the minimum depth gap for the maze to re-use a cell. Default to the maximum length parameter.
+* "--r" (maze control): allow the maze branches to randomly go up instead of always down.
+
+See the Cool mazes section for examples of parameters usage.
 
 Features
 --------
@@ -45,9 +49,24 @@ Features
 In the works
 ------------
 
-* Optimisations for maze generation.
+* Optimisations for maze generation (quadtree to store cell seeds and find closest seed faster).
 * Optimisations so that the JS port performs decently.
-* Nicer maze visualisation.
+* More maze visualisations (path -> walls).
+
+Cool mazes
+----------
+* simple eggshell: ``--c 2000``
+* high cell count eggshell: ``--s imullinaty --c 10000``
+* multilayer eggshell: ``--s trustme --c 8000 --m 1000 --g 400``
+* rough eggshell: ``--c 2000 --m 400 --r``
+* high cell count rough eggshell: ``--s toomanytocount --c 15000 --r``
+* rough multilayer eggshell: ``--s sexyseed --c 1000 --m 250 --g 25 --r``
+* 1 layer and a half: ``--s stairwaytoheaven --c 8000 --m 550 --g 400``
+* severely multilayered (smooth): ``--s meetchaos --c 6000 --m 2000 --g 500``
+* severely multilayered (rough): ``--s meetchaos --c 6000 --g 50 --r``
+* wider and wider layers: ``--s somewhatuniform --c 1000 --m 50 --g 5``
+* partial coverage: ``--s shish --c 8000 --m 300``
+* weird geom: ``--c 0 --g 1 --m 4``
 
 Credits
 -------

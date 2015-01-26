@@ -89,7 +89,6 @@ data GlobalState = GlobalState { viewMat :: Mat44f
                                , drawSolid :: Bool
                                , drawNormals :: Bool
                                , drawMazePath :: Bool
-                               , mazeDepthGap :: Int
                                , depthRender :: Bool
                                , depthInvert :: Bool
                                , depthScale :: GLfloat
@@ -103,7 +102,9 @@ data GlobalState = GlobalState { viewMat :: Mat44f
                                , zoom :: IORef GLfloat
                                , faces :: Seq.Seq (VC.Face GLfloat)
                                , depths :: Map.Map Int [Int]
+                               , depthMin :: Int
                                , depthMax :: Int
+                               , inMazeNeighbours :: Map.Map (Int, Int) [(Int, Int)]
                                , seed :: Seed
                                , highlight :: Bool
                                }
@@ -313,7 +314,7 @@ render t drawSolid drawNormals drawMazePath depthMode depthScale explodedFactor 
   uniform col0Loc $= GL.Color3 1 0 (0 :: GLfloat)
   uniform col1Loc $= GL.Color3 0.4 0 (1 :: GLfloat)
   uniform col2Loc $= GL.Color3 1 0.4 (0 :: GLfloat)
-  uniform col3Loc $= GL.Color3 1 0.2 (0.2 :: GLfloat)
+  uniform col3Loc $= GL.Color3 1 0.4 (0.4 :: GLfloat)
 
   colLoc <- get $ uniformLocation prog "u_color"
   bColLoc <- get $ uniformLocation prog "u_borderColor"
@@ -645,18 +646,30 @@ applyMouseActions speed newMouseState global = do
     global' = global { mouse = newMouseState }
 
 
+xor :: Bool -> Bool -> Bool
+xor True a = not a
+xor False a = a
+
+
 nextPosition :: Seed -> MazePosition -> Seq.Seq (VC.Face a) -> Map.Map Int [Int] -> (MazePosition, Seed)
-nextPosition seed currPosition faces depths = (MazePosition newFaceId newDepth, seed')
+nextPosition seed MazePosition{..} faces depths =
+  if okNs == [] then
+    (MazePosition faceId depth ((-1)*direction), seed)
+  else
+    (MazePosition newFaceId newDepth direction, seed')
   where
-    neighbours = VC.neighbours $ Seq.index faces $ faceId currPosition
-    nsWithDepth = concatMap (\fId -> zip (repeat fId) $ fromJust $ Map.lookup fId depths) neighbours
-    okNs = filter (\(i, d) -> abs (depth currPosition - d) < 10) nsWithDepth
+    neighbours = VC.neighbours $ Seq.index faces faceId
+    fDepths faceId = case Map.lookup faceId depths of
+                       Nothing -> []
+                       Just ds -> ds
+    nsWithDepth = concatMap (\fId -> zip (repeat fId) $ fDepths fId) neighbours
+    okNs = filter (\(_, d) -> ((d < depth) `xor` (direction > 0)) && abs (depth - d) == 1) nsWithDepth
     l = length okNs
     (rndIndex, seed') = range_random (0, l) seed
     (newFaceId, newDepth) = okNs !! rndIndex
 
 
-data MazePosition = MazePosition { faceId :: Int, depth :: Int }
+data MazePosition = MazePosition { faceId :: Int, depth :: Int, direction :: Int }
                     deriving Show
 
 
@@ -694,10 +707,10 @@ loop action global (litPosition, lastPositionChange) = do
          mvp
          glids
          (if highlight then faceId litPosition else -1)
-         (fromIntegral (depth litPosition) / fromIntegral depthMax)
+         (fromIntegral (depth litPosition + depthMin) / fromIntegral (depthMax - depthMin))
 
   t <- get time
-  let (litUpdate, seed') = if highlight && lastPositionChange + 0.01 <= t then
+  let (litUpdate, seed') = if highlight && lastPositionChange + 0.05 <= t then
                              let (updatedPosition, newSeed) = nextPosition seed
                                                                            litPosition
                                                                            faces
@@ -725,6 +738,7 @@ intArgument arg defaultValue args =
           [(i, _)] -> i)
         cutsStr
 
+
 boolArgument :: String -> [String] -> Bool
 boolArgument arg args = [] /= filter (== arg) args
 
@@ -742,7 +756,7 @@ loadModel global@GlobalState{..} vm laby = do
   let faces = VC.faces vm
   let fc = VC.faceCount vm
 
-  let (vertexBuffer, ids, centerBuffer, mazeBuffer, normalBuffer, faceIdsBuffer) = toBufferData faces depths depthMax
+  let (vertexBuffer, ids, centerBuffer, mazeBuffer, normalBuffer, faceIdsBuffer) = toBufferData faces depths depthMin depthMax
 
   -- clean gl buffers and recreate them with proper data
   cleanBuffers objectBuffersInfo
@@ -770,7 +784,7 @@ loadModel global@GlobalState{..} vm laby = do
   cleanBuffers labyrinthBuffersInfo
 
   t3 <- get time
-  let (pathVs, pathIds, pathDs) = toPathBufferData faces depths depthMax
+  let (pathVs, pathIds, pathDs) = toPathBufferData faces depthMin depthMax inMazeNeighbours
   putStrLn $ "path size:\t" ++ (show $ length pathVs)
   t4 <- get time
   putStrLn $ "path buffers duration:\t" ++ (show $ t4 - t3)
@@ -807,23 +821,29 @@ main = do
 
   putStrLn $ "seed:\t" ++ seedStr
 
-  let cuts = intArgument "--c" 8000 args
-  let mazeDepthGap = intArgument "--g" 28 args
-
+  let cuts = max 0 $ intArgument "--c" 8000 args
+  let branchMax = max 1 $ intArgument "--m" cuts args
+  let gapMin = max 1 $ intArgument "--g" branchMax args
+  let rndDepth = boolArgument "--r" args
 
   -- initialize early to have access to time
   GLFW.initialize
 
-  let cuttableModel = VC.fromModel icosahedron
 
   t0 <- get time
   let (rndCuts, seed') = generateRndCuts cuts seed
   putStrLn $ "cuts:\t" ++ (show $ length rndCuts)
+  putStrLn $ "branch lmax:\t" ++ show branchMax
+  putStrLn $ "gap frac:\t" ++ show gapMin
+  putStrLn $ "rnd depth:\t" ++ show rndDepth
   if cuts > 0
     then do
       putStrLn $ "last cut:\t" ++ (show $ last rndCuts)
     else
       return ()
+
+  -- apply the cuts to a base model, to obtain a random tessellation
+  let cuttableModel = VC.fromModel icosahedron
   let rndCutsModel = foldr' (\(t,p) m -> VC.cutModelFromAngles t p m) cuttableModel rndCuts
   putStrLn $ "last face seed:\t" ++ (show $ VC.seed $ VC.lastFace rndCutsModel)
 --  putStrLn "cut\tfaces\tduration"
@@ -838,25 +858,41 @@ main = do
 --                              )
 --                              (cuttableModel, 0)
 --                              rndCuts
+
+  -- rough perf measurement
   t1 <- get time
-  putStrLn $ "topology:\t" ++ (show $ map VC.neighbours $ VC.faceList rndCutsModel)
+--  putStrLn $ "topology:\t" ++ (show $ map VC.neighbours $ VC.faceList rndCutsModel)
+  let topoComplexity = foldr' (\f acc -> acc + (length $ VC.neighbours f)) 0 $ VC.faceList rndCutsModel
+  putStrLn $ "topology complexity:\t" ++ show topoComplexity
   putStrLn $ "Truncation duration: " ++ show (t1 - t0)
 
   let faces = VC.faces rndCutsModel
   t2 <- get time
-  let (laby, seed'') = labyrinth1 seed' (Seq.length faces) mazeDepthGap faces
+
+  -- create a maze from the tessellation faces
+  let (laby, seed'') = labyrinth1 seed' branchMax gapMin (not rndDepth) faces
 --  putStrLn $ "maze:\t" ++ show laby
+
   let cellCount = size laby
   putStrLn $ "maze size:\t" ++ show cellCount
   t3 <- get time
   putStrLn $ "laby gen duration:\t" ++ show (t3 - t2)
-  let (depths, maxDepth) = depthMap laby
-  putStrLn $ "max depth:\t" ++ show maxDepth
+
+  -- extract maze depth data
+  let (depths, depthMax, depthMin) = depthMap laby
+  let depthSpan = depthMax - depthMin
+  putStrLn $ "depth span:\t" ++ show depthSpan
   t4 <- get time
   putStrLn $ "laby depth mapping:\t" ++ show (t4 - t3)
+  -- parent and children of each face
+  let inMazeNeighbours = neighboursMap Nothing laby
 
-  let (firstFaceId, seed''') = range_random (0, Seq.length faces) seed''
-  let firstDepths = fromJust $ Map.lookup firstFaceId depths
+  -- which cell to highlight first
+  let findFaceInMaze s = let (firstFaceId, s') = range_random (0, Seq.length faces) s in
+                         let m_firstDepths = Map.lookup firstFaceId depths in
+                         maybe (findFaceInMaze s') (\ds -> (firstFaceId, ds, s')) m_firstDepths
+
+  let (firstFaceId, firstDepths, seed''') = findFaceInMaze seed''
   let (dId, seed'''') = range_random (0, length firstDepths) seed'''
   let firstDepth = firstDepths !! dId
   putStrLn $ "first position:\t" ++ show (firstFaceId, firstDepth)
@@ -889,10 +925,9 @@ main = do
                            , drawSolid = True
                            , drawNormals = False
                            , drawMazePath = False
-                           , mazeDepthGap = mazeDepthGap
                            , depthRender = True
                            , depthInvert = True
-                           , depthScale = fromIntegral mazeDepthGap / 200
+                           , depthScale = 0.5
                            , explodedFactor = 1
                            , mouse = defaultMouseState
                            , glids = glstuff
@@ -903,7 +938,9 @@ main = do
                            , zoom = zoom
                            , faces = faces
                            , depths = depths
-                           , depthMax = maxDepth
+                           , depthMin = depthMin
+                           , depthMax = depthMax
+                           , inMazeNeighbours = inMazeNeighbours
                            , seed = seed''''
                            , highlight = True
                            }
@@ -915,7 +952,7 @@ main = do
   GLFW.windowTitle        $= "Voronyi maze"
   GLFW.windowSizeCallback $= resize projMat zoom
   -- main loop
-  lastState <- loop waitForPress state (MazePosition firstFaceId firstDepth, 0)
+  lastState <- loop waitForPress state (MazePosition firstFaceId firstDepth 1, 0)
   -- exit
   cleanBuffers $ objectBuffersInfo $ glids lastState
   cleanBuffers $ normalsBuffersInfo $ glids lastState
