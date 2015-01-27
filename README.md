@@ -65,7 +65,9 @@ Cool mazes
 * severely multilayered (smooth): ``--s meetchaos --c 6000 --m 2000 --g 500``
 * severely multilayered (rough): ``--s meetchaos --c 6000 --g 50 --r``
 * wider and wider layers: ``--s somewhatuniform --c 1000 --m 50 --g 5``
+* partial, multiple layers: ``--s glibglob --c 8000 --m 300 --g 5 --r``
 * partial coverage: ``--s shish --c 8000 --m 300``
+* a funny hat: ``--s glibglob --c 8000 --m 30 --g 5``
 * weird geom: ``--c 0 --g 1 --m 4``
 
 Credits
