@@ -210,14 +210,44 @@ toPathBufferData faces depthMin depthMax neighboursMap = ( reverse vs
     junction f0 f1 =
       let [v0, v1] = intersection (vertice f0) (vertice f1) in
       G.times 0.5 $ G.add v0 v1
-    junction0 f0 f1 =
+
+    (  vs
+     , ids
+     , mazeData
+     , _) = foldr' (\((i, d), neighbours) (vs, is, md, offset) ->
+                      let f = S.index faces i in
+                      let bary = barycenter f in
+                      let dv = fracDepth d in
+                      foldr' (\(i', _) (vs', is', md', offset') ->
+                               let f' = S.index faces i' in
+                               let j = junction f f' in
+                               ( j : vs'
+                               , offset : offset' : is'
+                               , dv : md'
+                               , offset' + 1)
+                             )
+                             (bary : vs, is, dv : md, offset + 1)
+                             neighbours
+                   )
+                   ([], [], [], 0)
+                   $ toAscList neighboursMap
+
+
+toThickPathBufferData :: (RealFloat a, Integral b) => S.Seq (Face a) -> Int -> Int -> Map (Int, Int) [(Int, Int)] -> ([G.Point3f a], [b], [a])
+toThickPathBufferData faces depthMin depthMax neighboursMap = ( reverse vs
+                                                              , ids
+                                                              , reverse mazeData
+                                                              )
+  where
+    fracDepth = depthFracValue depthMin depthMax
+    fNeighbours p = case Data.Map.lookup p neighboursMap of
+                      Nothing -> []
+                      Just ns -> ns
+
+    junctions f0 f1 =
       let [v0, v1] = intersection (vertice f0) (vertice f1) in
       let d = G.add v1 $ G.times (-1) v0 in
-      G.add v0 $ G.times 0.33 d
-    junction1 f0 f1 =
-      let [v0, v1] = intersection (vertice f0) (vertice f1) in
-      let d = G.add v1 $ G.times (-1) v0 in
-      G.add v0 $ G.times 0.66 d
+      [G.add v0 $ G.times 0.33 d, G.add v0 $ G.times 0.66 d]
 
     (  vs
      , ids
@@ -228,9 +258,9 @@ toPathBufferData faces depthMin depthMax neighboursMap = ( reverse vs
                       let dv = fracDepth d in
                       case neighbours of
                         [(i',_)] ->
+                          -- create a dead end
                           let f' = S.index faces i' in
-                          let j0 = junction0 f f' in
-                          let j1 = junction1 f f' in
+                          let [j0,j1] = junctions f f' in
                           let d = G.add j1 $ G.times (-1) j0 in
                           let b0 = G.add bary $ G.times (-0.5) d in
                           let b1 = G.add bary $ G.times 0.5 d in
@@ -239,17 +269,24 @@ toPathBufferData faces depthMin depthMax neighboursMap = ( reverse vs
                           , dv : dv : dv : dv : md
                           , offset + 4)
                         _   ->
-                          foldr' (\(i', _) (vs', is', md', offset') ->
-                                   let f' = S.index faces i' in
-                                   let j0 = junction0 f f' in
-                                   let j1 = junction1 f f' in
-                                   ( j0 : j1 : vs'
-                                   , offset : offset' : offset : offset'+1 : is'
-                                   , dv : dv : md'
-                                   , offset' + 2)
-                                 )
-                                 (bary : vs, is, dv : md, offset + 1)
-                                 neighbours
+                          -- create a crossroad
+                          let fvs = vertice f in
+                          let vsAndJs = foldr' (\(i', _) vjs ->
+                                                 let f' = S.index faces i' in
+                                                 let [v0, v1] = intersection fvs (vertice f') in
+                                                 let [j0,j1] = junctions f f' in
+                                                 insertBetween [j0,j1] v0 v1 vjs
+                                               )
+                                               fvs
+                                               neighbours in
+                          let js = filter (\v -> not $ L.elem v fvs) vsAndJs in
+                          let l = length js in
+                          let shiftedIds = map (offset+) $ take l [0..] in
+                          let is' = (last shiftedIds) : (take (l-1) shiftedIds) in
+                          ( js ++ vs
+                          , is' ++ is
+                          , (take l $ repeat dv) ++ md
+                          , offset + fromIntegral l)
                    )
                    ([], [], [], 0)
                    $ toAscList neighboursMap
