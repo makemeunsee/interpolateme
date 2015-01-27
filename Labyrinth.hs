@@ -210,6 +210,14 @@ toPathBufferData faces depthMin depthMax neighboursMap = ( reverse vs
     junction f0 f1 =
       let [v0, v1] = intersection (vertice f0) (vertice f1) in
       G.times 0.5 $ G.add v0 v1
+    junction0 f0 f1 =
+      let [v0, v1] = intersection (vertice f0) (vertice f1) in
+      let d = G.add v1 $ G.times (-1) v0 in
+      G.add v0 $ G.times 0.33 d
+    junction1 f0 f1 =
+      let [v0, v1] = intersection (vertice f0) (vertice f1) in
+      let d = G.add v1 $ G.times (-1) v0 in
+      G.add v0 $ G.times 0.66 d
 
     (  vs
      , ids
@@ -218,16 +226,30 @@ toPathBufferData faces depthMin depthMax neighboursMap = ( reverse vs
                       let f = S.index faces i in
                       let bary = barycenter f in
                       let dv = fracDepth d in
-                      foldr' (\(i', _) (vs', is', md', offset') ->
-                               let f' = S.index faces i' in
-                               let j = junction f f' in
-                               ( j : vs'
-                               , offset : offset' : is'
-                               , dv : md'
-                               , offset' + 1)
-                             )
-                             (bary : vs, is, dv : md, offset + 1)
-                             neighbours
+                      case neighbours of
+                        [(i',_)] ->
+                          let f' = S.index faces i' in
+                          let j0 = junction0 f f' in
+                          let j1 = junction1 f f' in
+                          let d = G.add j1 $ G.times (-1) j0 in
+                          let b0 = G.add bary $ G.times (-0.5) d in
+                          let b1 = G.add bary $ G.times 0.5 d in
+                          ( j0 : j1 : b0 : b1 : vs
+                          , offset : offset+1 : offset+1 : offset+3 : offset+2 : offset : is
+                          , dv : dv : dv : dv : md
+                          , offset + 4)
+                        _   ->
+                          foldr' (\(i', _) (vs', is', md', offset') ->
+                                   let f' = S.index faces i' in
+                                   let j0 = junction0 f f' in
+                                   let j1 = junction1 f f' in
+                                   ( j0 : j1 : vs'
+                                   , offset : offset' : offset : offset'+1 : is'
+                                   , dv : dv : md'
+                                   , offset' + 2)
+                                 )
+                                 (bary : vs, is, dv : md, offset + 1)
+                                 neighbours
                    )
                    ([], [], [], 0)
                    $ toAscList neighboursMap
