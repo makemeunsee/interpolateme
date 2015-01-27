@@ -24,16 +24,16 @@ instance RND.RangeRandom CInt where
     where (r, s') = RND.range_random(fromIntegral x0 :: Int, fromIntegral x1 :: Int) s
 
 
-rndSpherePosition :: (RealFloat a, RND.RangeRandom a) => RND.Seed -> (a, a, RND.Seed)
-rndSpherePosition seed = (2*pi*u, acos $ 2*v - 1, newSeed)
+rndPair :: (RealFloat a, RND.RangeRandom a) => RND.Seed -> (a, a, RND.Seed)
+rndPair seed = (u, v, newSeed)
   where
     (u, newSeed0) = RND.range_random (0, 1) seed
     (v, newSeed) = RND.range_random (0, 1) newSeed0
 
 
-generateRndCuts :: (RealFloat a, RND.RangeRandom a) => Int -> RND.Seed -> ([(a,a)], RND.Seed)
-generateRndCuts n seed = generateRndCuts0 (max 0 n) seed []
-generateRndCuts0 0 seed acc = (acc, seed)
-generateRndCuts0 n seed acc = generateRndCuts0 (n-1) seed' $ (theta, phi) : acc
+generatePairs :: (RealFloat a, RND.RangeRandom a) => Int -> RND.Seed -> ([(a,a)], RND.Seed)
+generatePairs n seed = generatePairs0 (max 0 n) seed []
   where
-    (theta, phi, seed') = rndSpherePosition seed
+    generatePairs0 0 seed acc = (acc, seed)
+    generatePairs0 n seed acc = generatePairs0 (n-1) seed' $ (u, v) : acc
+      where (u, v, seed') = rndPair seed

@@ -196,9 +196,10 @@ toBufferData faces depthMap depthMin depthMax = ( reverse vs
                    $ toAscList depthMap
 
 
-toPathBufferData :: (RealFloat a, Integral b) => S.Seq (Face a) -> Int -> Int -> Map (Int, Int) [(Int, Int)] -> ([G.Point3f a], [b], [a])
+toPathBufferData :: (RealFloat a, Integral b) => S.Seq (Face a) -> Int -> Int -> Map (Int, Int) [(Int, Int)] -> ([G.Point3f a], [b], [G.Point3f a], [a])
 toPathBufferData faces depthMin depthMax neighboursMap = ( reverse vs
                                                          , ids
+                                                         , reverse normals
                                                          , reverse mazeData
                                                          )
   where
@@ -213,80 +214,110 @@ toPathBufferData faces depthMin depthMax neighboursMap = ( reverse vs
 
     (  vs
      , ids
+     , normals
      , mazeData
-     , _) = foldr' (\((i, d), neighbours) (vs, is, md, offset) ->
+     , _) = foldr' (\((i, d), neighbours) (vs, is, ns, md, offset) ->
                       let f = S.index faces i in
                       let bary = barycenter f in
                       let dv = fracDepth d in
-                      foldr' (\(i', _) (vs', is', md', offset') ->
+                      foldr' (\(i', _) (vs', is', ns', md', offset') ->
                                let f' = S.index faces i' in
                                let j = junction f f' in
                                ( j : vs'
                                , offset : offset' : is'
+                               , seed f : ns'
                                , dv : md'
                                , offset' + 1)
                              )
-                             (bary : vs, is, dv : md, offset + 1)
+                             (bary : vs, is, seed f : ns, dv : md, offset + 1)
                              neighbours
                    )
-                   ([], [], [], 0)
+                   ([], [], [], [], 0)
                    $ toAscList neighboursMap
 
 
-toThickPathBufferData :: (RealFloat a, Integral b) => S.Seq (Face a) -> Int -> Int -> Map (Int, Int) [(Int, Int)] -> ([G.Point3f a], [b], [a])
+toThickPathBufferData :: (RealFloat a, Integral b) => S.Seq (Face a) -> Int -> Int -> Map (Int, Int) [(Int, Int)] -> ([G.Point3f a], [b], [a], [G.Point3f a], [a])
 toThickPathBufferData faces depthMin depthMax neighboursMap = ( reverse vs
                                                               , ids
+                                                              , reverse centers
+                                                              , reverse normals
                                                               , reverse mazeData
                                                               )
   where
+    hFactor = 1 + 0.2 / log (fromIntegral (S.length faces))
     fracDepth = depthFracValue depthMin depthMax
     fNeighbours p = case Data.Map.lookup p neighboursMap of
                       Nothing -> []
                       Just ns -> ns
 
     junctions f0 f1 =
-      let [v0, v1] = intersection (vertice f0) (vertice f1) in
+      let fVs0 = vertice f0 in
+      let [v0, v1] = intersection fVs0 (vertice f1) in
       let d = G.add v1 $ G.times (-1) v0 in
-      [G.add v0 $ G.times 0.33 d, G.add v0 $ G.times 0.66 d]
+      let (j0,j1) = (G.add v0 $ G.times 0.3 d, G.add v0 $ G.times 0.7 d) in
+      ([j0,j1], [v0,v1])
 
     (  vs
      , ids
+     , centers
+     , normals
      , mazeData
-     , _) = foldr' (\((i, d), neighbours) (vs, is, md, offset) ->
+     , _) = foldr' (\((i, d), neighbours) (vs, is, cs, ns, md, offset) ->
                       let f = S.index faces i in
                       let bary = barycenter f in
                       let dv = fracDepth d in
+                      let fvs = vertice f in
                       case neighbours of
                         [(i',_)] ->
                           -- create a dead end
                           let f' = S.index faces i' in
-                          let [j0,j1] = junctions f f' in
-                          let d = G.add j1 $ G.times (-1) j0 in
+                          let ([j0,j1], [v0,v1]) = junctions f f' in
+                          let i0 = fromJust (L.elemIndex v0 fvs) in
+                          let i1 = fromJust (L.elemIndex v1 fvs) in
+                          let (oj0,oj1) = if i1 == i0+1 then
+                                            (j0,j1)
+                                          else if i0 == i1+1 then
+                                            (j1,j0)
+                                          else if i1 == 0 then
+                                            (j0,j1)
+                                          else
+                                            (j1,j0)
+                                          in
+                          let d = G.add oj1 $ G.times (-1) oj0 in
                           let b0 = G.add bary $ G.times (-0.5) d in
                           let b1 = G.add bary $ G.times 0.5 d in
-                          ( j0 : j1 : b0 : b1 : vs
-                          , offset : offset+1 : offset+1 : offset+3 : offset+2 : offset : is
-                          , dv : dv : dv : dv : md
-                          , offset + 4)
+                          let c = G.times 0.25 $ oj0 `G.add` oj1 `G.add` b0 `G.add` b1 in
+                          let newVs = [oj0,oj1,b1,b0] in
+                          ( c : newVs ++ vs
+                          , map (offset+) [ 4,1,0
+                                          , 4,2,1
+                                          , 4,3,2
+                                          , 4,0,3] ++ is
+                          , 1 : (take 4 $ repeat 0) ++ cs
+                          , (take 5 $ repeat $ seed f) ++ ns
+                          , (take 5 $ repeat dv) ++ md
+                          , offset + 5)
                         _   ->
                           -- create a crossroad
-                          let fvs = vertice f in
                           let vsAndJs = foldr' (\(i', _) vjs ->
                                                  let f' = S.index faces i' in
-                                                 let [v0, v1] = intersection fvs (vertice f') in
-                                                 let [j0,j1] = junctions f f' in
+                                                 let ([j0,j1], [v0, v1]) = junctions f f' in
                                                  insertBetween [j0,j1] v0 v1 vjs
                                                )
                                                fvs
                                                neighbours in
                           let js = filter (\v -> not $ L.elem v fvs) vsAndJs in
                           let l = length js in
+                          let il = fromIntegral l in
+                          let c = G.times (1 / fromIntegral l) $ foldr1 (\v acc -> G.add v acc) js in
                           let shiftedIds = map (offset+) $ take l [0..] in
                           let is' = (last shiftedIds) : (take (l-1) shiftedIds) in
-                          ( js ++ vs
-                          , is' ++ is
-                          , (take l $ repeat dv) ++ md
-                          , offset + fromIntegral l)
+                          ( c : js ++ vs
+                          , (concatMap (\(i0,i1) -> [il+offset, i1, i0]) $ cyclicConsecutivePairs is') ++ is
+                          , 1 : (take l $ repeat 0) ++ cs
+                          , (take (l+1) $ repeat $ seed f) ++ ns
+                          , (take (l+1) $ repeat dv) ++ md
+                          , offset + il +1)
                    )
-                   ([], [], [], 0)
+                   ([], [], [], [], [], 0)
                    $ toAscList neighboursMap

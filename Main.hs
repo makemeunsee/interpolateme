@@ -358,27 +358,6 @@ render t drawSolid drawNormals drawMazePath depthMode depthScale explodedFactor 
       return ()
 
 
-  -- draw labyrinth path
-  if drawMazePath
-    then do
-      -- bind uniforms
-      uniform colLoc $= GL.Color4 0.4 0.4 0.4 (1 :: GLfloat)
-      uniform bColLoc $= GL.Color4 0.4 0.4 0.4 (1 :: GLfloat)
-      uniform borderWidthLoc $= GL.Index1 (0 :: GLfloat)
-
-      -- bind attributes
-      bindGeometry shaderInfo labyrinthBuffersInfo
-
-      -- bind indice
-      bindBuffer ElementArrayBuffer $= Just (indice labyrinthBuffersInfo)
-
-      drawElements GL.Lines (indiceCount labyrinthBuffersInfo) GL.UnsignedInt offset0
-
-      unbindGeometry shaderInfo
-    else
-      return ()
-
-
   let drawSolidFct = do
                        -- bind attributes
                        bindGeometry shaderInfo objectBuffersInfo
@@ -403,6 +382,27 @@ render t drawSolid drawNormals drawMazePath depthMode depthScale explodedFactor 
         drawSolidFct
     else
       return () -- depth mode, no solid -> dont draw solid
+
+
+  -- draw labyrinth path
+  if drawMazePath
+    then do
+      -- bind uniforms
+      uniform colLoc $= GL.Color4 0.1 1.0 0.0 (0 :: GLfloat)
+      uniform bColLoc $= GL.Color4 0.1 1.0 0.0 (0 :: GLfloat)
+      uniform borderWidthLoc $= GL.Index1 (0.0 :: GLfloat)
+
+      -- bind attributes
+      bindGeometry shaderInfo labyrinthBuffersInfo
+
+      -- bind indice
+      bindBuffer ElementArrayBuffer $= Just (indice labyrinthBuffersInfo)
+
+      drawElements GL.Lines (indiceCount labyrinthBuffersInfo) GL.UnsignedInt offset0
+
+      unbindGeometry shaderInfo
+    else
+      return ()
 
 
   GLFW.swapBuffers
@@ -784,15 +784,16 @@ loadModel global@GlobalState{..} vm laby = do
   cleanBuffers labyrinthBuffersInfo
 
   t3 <- get time
-  let (pathVs, pathIds, pathDs) = toPathBufferData faces depthMin depthMax inMazeNeighbours
+--  let (pathVs, pathIds, pathCs, pathNs, pathDs) = toThickPathBufferData faces depthMin depthMax inMazeNeighbours
+  let (pathVs, pathIds, pathNs, pathDs) = toPathBufferData faces depthMin depthMax inMazeNeighbours
   putStrLn $ "path size:\t" ++ (show $ length pathVs)
   t4 <- get time
   putStrLn $ "path buffers duration:\t" ++ (show $ t4 - t3)
 
   newLabyrinthBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) pathVs)
                                          pathIds
-                                         Nothing
-                                         Nothing
+                                         (Just $ concatMap G.pointToArr pathNs)
+                                         Nothing -- (Just pathCs)
                                          (Just pathDs)
                                          Nothing
 
@@ -805,6 +806,10 @@ loadModel global@GlobalState{..} vm laby = do
                        }
 
   return global { glids = newGlids }
+
+
+uniformToSphericCoordinates :: RealFloat a => (a, a) -> (a, a)
+uniformToSphericCoordinates (u,v) = (2*pi*u, acos $ 2*v - 1)
 
 
 main :: IO ()
@@ -831,7 +836,7 @@ main = do
 
 
   t0 <- get time
-  let (rndCuts, seed') = generateRndCuts cuts seed
+  let (rndCuts, seed') = generatePairs cuts seed
   putStrLn $ "cuts:\t" ++ (show $ length rndCuts)
   putStrLn $ "branch lmax:\t" ++ show branchMax
   putStrLn $ "gap frac:\t" ++ show gapMin
@@ -844,7 +849,7 @@ main = do
 
   -- apply the cuts to a base model, to obtain a random tessellation
   let cuttableModel = VC.fromModel icosahedron
-  let rndCutsModel = foldr' (\(t,p) m -> VC.cutModelFromAngles t p m) cuttableModel rndCuts
+  let rndCutsModel = foldr' (\(t,p) m -> VC.cutModelFromAngles t p m) cuttableModel $ map uniformToSphericCoordinates rndCuts
   putStrLn $ "last face seed:\t" ++ (show $ VC.seed $ VC.lastFace rndCutsModel)
 --  putStrLn "cut\tfaces\tduration"
 --  (rndCutsModel, _) <- foldrM (\(t,p) (m,i)  -> do
