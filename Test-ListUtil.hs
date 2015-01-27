@@ -43,3 +43,20 @@ main = hspec $ do
       associate [(0,1)] `shouldBe` [(0, [1])]
       associate [(0,1), (0,2)] `shouldBe` [(0, [1,2])]
       associate [(0,1), (2,3)] `shouldBe` [(0, [1]), (2, [3])]
+
+  describe "insert between" $ do
+    it "should work as follow" $ do
+      insertBetween [2,3] 1 4 [1,4] `shouldBe` [1,2,3,4]
+      insertBetween [2,3] 1 4 [1,4,0] `shouldBe` [1,2,3,4,0]
+      insertBetween [2,3] 1 4 [0,1,4] `shouldBe` [0,1,2,3,4]
+      insertBetween [2,3] 1 4 [0,1,4,0] `shouldBe` [0,1,2,3,4,0]
+      insertBetween [2,3] 1 4 [4,1] `shouldBe` [4,3,2,1]
+      insertBetween [2,3] 1 4 [4,1,0] `shouldBe` [4,3,2,1,0]
+      insertBetween [2,3] 1 4 [0,4,1] `shouldBe` [0,4,3,2,1]
+      insertBetween [2,3] 1 4 [0,4,1,0] `shouldBe` [0,4,3,2,1,0]
+      insertBetween [2,3] 1 4 [1,0,0,4] `shouldBe` [3,2,1,0,0,4]
+      insertBetween [2,3] 1 4 [4,0,0,1] `shouldBe` [2,3,4,0,0,1]
+      insertBetween [2,3] 1 4 [4] `shouldBe` [2,3,4]
+      insertBetween [2,3] 1 4 [1] `shouldBe` [1,2,3]
+      insertBetween [2,3] 1 4 [0] `shouldBe` [0]
+

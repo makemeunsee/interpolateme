@@ -76,3 +76,28 @@ swapElems i j ls = [get k x | (k, x) <- zip [0..] ls]
   where get k x | k == i = ls !! j
                 | k == j = ls !! i
                 | otherwise = x
+
+
+-- see unit tests for expected behavior
+insertBetween :: Eq a => [a] -> a -> a -> [a] -> [a]
+insertBetween toInsert after before [] = []
+insertBetween toInsert after before [a] =
+  if a == after then
+    a : toInsert
+  else if a == before then
+    toInsert ++ [a]
+  else
+    [a]
+insertBetween toInsert after before (a:b:l) =
+  if a == after && b == before then
+    (a : toInsert) ++ (b : l)
+  else if a == before && b == after then
+    (a : reverse toInsert) ++ (b : l)
+  else if a == after then
+    (reverse toInsert) ++ (a:b:l)
+  else if a == before then
+    toInsert ++ (a:b:l)
+  else
+    a : (insertBetween toInsert after before $ b:l)
+
+
