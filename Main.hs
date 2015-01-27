@@ -642,7 +642,7 @@ applyMouseActions speed newMouseState global = do
     diffX = fromIntegral $ (mouseX newMouseState) - (mouseX oldMouse)
     diffY = fromIntegral $ (mouseY newMouseState) - (mouseY oldMouse)
     diffWheel = wheel newMouseState - wheel oldMouse
-    zoomF = 1.01 ** (fromIntegral diffWheel)
+    zoomF = 1.05 ** (fromIntegral diffWheel)
     global' = global { mouse = newMouseState }
 
 
