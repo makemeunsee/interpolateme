@@ -108,7 +108,9 @@ labyrinth2 topo
 labyrinth1 :: RealFrac a => Seed -> Int -> Int -> Bool -> S.Seq (Face a) -> (Labyrinth Int, Seed)
 labyrinth1 seed maxBranchLength minGapForOverlap alwaysDeeper topo
   | S.null topo = (Node (-1) (-1) [], seed) -- illegal
-  | otherwise   = topologyToLabyrinth0 seed (singleton 0 [0]) [] [(0, 0, 0)] 1
+  | otherwise   =
+    let (id0, seed0) = range_random (0, S.length topo) seed in
+    topologyToLabyrinth0 seed0 (singleton id0 [0]) [] [(id0, 0, 0)] 1
   where
     topologyToLabyrinth0 :: Seed -> Map Int [Int] -> [(Int, Labyrinth Int)] -> [(Int, Int, Int)] -> Int -> (Labyrinth Int, Seed)
     topologyToLabyrinth0 seed visited acc [] dir = (snd $ head acc, seed)
