@@ -4,8 +4,6 @@ module Main (
     main
 ) where
 
-import System.IO.Unsafe (unsafePerformIO)
-
 import System.Environment (getArgs)
 
 import Graphics.Rendering.OpenGL.GL ( GLfloat
@@ -815,7 +813,7 @@ uniformToSphericCoordinates :: RealFloat a => (a, a) -> (a, a)
 uniformToSphericCoordinates (u,v) = (2*pi*u, acos $ 2*v - 1)
 
 
-uniformModel :: (RealFloat a, Show a) => Int -> VC.VoronoiModel a
+uniformModel :: RealFloat a => Int -> VC.VoronoiModel a
 uniformModel bn = VC.VoronoiModel rows
   where
     n = max 3 bn
