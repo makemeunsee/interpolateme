@@ -813,6 +813,24 @@ uniformToSphericCoordinates :: RealFloat a => (a, a) -> (a, a)
 uniformToSphericCoordinates (u,v) = (2*pi*u, acos $ 2*v - 1)
 
 
+uniformModel :: RealFloat a => Int -> VC.VoronoiModel a
+uniformModel bn = VC.VoronoiModel $ topRow Seq.>< bottomRow
+  where
+    n = max 3 bn
+    n' = 2 -- ceil (fromIntegral n / 2)
+    faceCount = n*n'
+    southP = G.Point3f 0 (-1) 0
+    northP = G.Point3f 0 1 0
+    k = 1 / fromIntegral n
+    k' = 1 / fromIntegral n'
+    upoints = [map (\(t,p) -> LAF.latLongPosition t p 1) $ map uniformToSphericCoordinates [(fromIntegral u * k, fromIntegral v * k') | u <- [0..n-1]] |  v <- [1..n'-1]]
+    (topRow, offset) = foldr (\(p0,p1) (acc, i) -> (acc Seq.|> newFace0 p0 p1 i, i+1)) (Seq.empty, 0) $ cyclicConsecutivePairs $ head upoints
+    offset' = offset
+    bottomRow = fst $ foldr (\(p0,p1) (acc, i) -> (acc Seq.|> newFace1 p0 p1 i, i+1)) (Seq.empty, offset') $ cyclicConsecutivePairs $ last upoints
+    newFace0 p0 p1 i = VC.Face (G.normalized $ G.barycenter [p0,p1,northP]) [p1,p0,northP] [i+n, if i == 0 then n-1 else i-1, if i == n-1 then 0 else i+1]
+    newFace1 p0 p1 i = VC.Face (G.normalized $ G.barycenter [p0,p1,southP]) [p1,southP,p0] [i-n, if i == faceCount-n then faceCount-1 else i-1, if i == faceCount-1 then faceCount-n else i+1]
+
+
 twoPyramids :: RealFloat a => Int -> VC.VoronoiModel a
 twoPyramids bn = VC.VoronoiModel faces
   where
@@ -833,14 +851,17 @@ voronoiModel seed cuts = do
   putStrLn $ "cuts:\t" ++ (show $ length rndCuts)
   if cuts > 0
     then do
-      putStrLn $ "last cut:\t" ++ (show $ last rndCuts)
+      let lastCut = last rndCuts
+      putStrLn $ "last cut:\t" ++ (show lastCut)
+      let (t,p) = uniformToSphericCoordinates lastCut
+      putStrLn $ "last cut seed:\t" ++ (show $ LAF.latLongPosition t p 1)
     else
       return ()
 
   -- apply the cuts to a base model, to obtain a random tessellation
   let cuttableModel = VC.fromModel icosahedron
   let rndCutsModel = foldr' (\(t,p) m -> VC.cutModelFromAngles t p m) cuttableModel $ map uniformToSphericCoordinates rndCuts
-  putStrLn $ "last face seed:\t" ++ (show $ VC.seed $ VC.lastFace rndCutsModel)
+  putStrLn $ "first face seed:\t" ++ (show $ VC.seed $ Seq.index (VC.faces rndCutsModel) 0)
 --  putStrLn "cut\tfaces\tduration"
 --  (rndCutsModel, _) <- foldrM (\(t,p) (m,i)  -> do
 --                                putStr $ show i
@@ -856,7 +877,7 @@ voronoiModel seed cuts = do
 
   -- rough perf measurement
   t1 <- get time
-  putStrLn $ "topology:\t" ++ (show $ map VC.neighbours $ VC.faceList rndCutsModel)
+--  putStrLn $ "topology:\t" ++ (show $ map VC.neighbours $ VC.faceList rndCutsModel)
   let topoComplexity = foldr' (\f acc -> acc + (length $ VC.neighbours f)) 0 $ VC.faceList rndCutsModel
   putStrLn $ "topology complexity:\t" ++ show topoComplexity
   putStrLn $ "Truncation duration: " ++ show (t1 - t0)
@@ -891,6 +912,8 @@ main = do
   GLFW.initialize
 
 --  let model = twoPyramids cuts
+--  let model = uniformModel cuts
+--  putStrLn $ show model
 --  let seed' = seed
   (model,seed') <- voronoiModel seed cuts
 
