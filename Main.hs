@@ -59,6 +59,7 @@ import qualified LinAlgFunctions as LAF
 import qualified VoronoiCut as VC
 import Labyrinth
 import RandomUtil
+import ListUtil
 
 
 type Vec4f = Vec4 GLfloat
@@ -812,35 +813,24 @@ uniformToSphericCoordinates :: RealFloat a => (a, a) -> (a, a)
 uniformToSphericCoordinates (u,v) = (2*pi*u, acos $ 2*v - 1)
 
 
-main :: IO ()
-main = do
-
-  args <- getArgs
-
-  -- fullscreen flag
-  let fullScreenRequest = boolArgument "--f" args
-
-  -- seed input
-  let seedStr = maybe "sexyseed" id $ strArgument "--s" args
-  let seed = seedForString seedStr
-
-  putStrLn $ "seed:\t" ++ seedStr
-
-  let cuts = max 0 $ intArgument "--c" 8000 args
-  let branchMax = max 1 $ intArgument "--m" cuts args
-  let gapMin = max 1 $ intArgument "--g" branchMax args
-  let rndDepth = boolArgument "--r" args
-
-  -- initialize early to have access to time
-  GLFW.initialize
+twoPyramids :: RealFloat a => Int -> VC.VoronoiModel a
+twoPyramids bn = VC.VoronoiModel faces
+  where
+    n = max 3 bn
+    southP = G.Point3f 0 (-1) 0
+    northP = G.Point3f 0 1 0
+    k = 1 / fromIntegral n
+    points = map (\(t,p) -> LAF.latLongPosition t p 1) $ map uniformToSphericCoordinates [(fromIntegral u * k, 0.5) | u <- [0..n-1]]
+    faces = fst $ foldr (\(p0,p1) (acc, i) -> (acc Seq.|> newFace0 p0 p1 i Seq.|> newFace1 p0 p1 i, i+1)) (Seq.empty, 0) $ cyclicConsecutivePairs points
+    newFace0 p0 p1 i = VC.Face (G.normalized $ G.barycenter [p0,p1,northP]) [p1,p0,northP] $ map within [2*i+1, 2*(i-1), 2*(i+1)]
+    newFace1 p0 p1 i = VC.Face (G.normalized $ G.barycenter [p0,p1,southP]) [p1,southP,p0] $ map within [2*i, 2*i-1, 2*i+3]
+    within i = (if i < 0 then i + 2*n else i) `mod` (2*n)
 
 
+voronoiModel seed cuts = do
   t0 <- get time
   let (rndCuts, seed') = generatePairs cuts seed
   putStrLn $ "cuts:\t" ++ (show $ length rndCuts)
-  putStrLn $ "branch lmax:\t" ++ show branchMax
-  putStrLn $ "gap frac:\t" ++ show gapMin
-  putStrLn $ "rnd depth:\t" ++ show rndDepth
   if cuts > 0
     then do
       putStrLn $ "last cut:\t" ++ (show $ last rndCuts)
@@ -866,12 +856,45 @@ main = do
 
   -- rough perf measurement
   t1 <- get time
---  putStrLn $ "topology:\t" ++ (show $ map VC.neighbours $ VC.faceList rndCutsModel)
+  putStrLn $ "topology:\t" ++ (show $ map VC.neighbours $ VC.faceList rndCutsModel)
   let topoComplexity = foldr' (\f acc -> acc + (length $ VC.neighbours f)) 0 $ VC.faceList rndCutsModel
   putStrLn $ "topology complexity:\t" ++ show topoComplexity
   putStrLn $ "Truncation duration: " ++ show (t1 - t0)
+  return (rndCutsModel, seed')
 
-  let faces = VC.faces rndCutsModel
+
+main :: IO ()
+main = do
+
+
+  args <- getArgs
+
+  -- fullscreen flag
+  let fullScreenRequest = boolArgument "--f" args
+
+  -- seed input
+  let seedStr = maybe "sexyseed" id $ strArgument "--s" args
+  let seed = seedForString seedStr
+
+  putStrLn $ "seed:\t" ++ seedStr
+
+  let cuts = max 0 $ intArgument "--c" 8000 args
+  let branchMax = max 1 $ intArgument "--m" cuts args
+  let gapMin = max 1 $ intArgument "--g" branchMax args
+  let rndDepth = boolArgument "--r" args
+
+  putStrLn $ "branch lmax:\t" ++ show branchMax
+  putStrLn $ "gap frac:\t" ++ show gapMin
+  putStrLn $ "rnd depth:\t" ++ show rndDepth
+
+  -- initialize early to have access to time
+  GLFW.initialize
+
+--  let model = twoPyramids cuts
+--  let seed' = seed
+  (model,seed') <- voronoiModel seed cuts
+
+  let faces = VC.faces model
   t2 <- get time
 
   -- create a maze from the tessellation faces
@@ -950,7 +973,7 @@ main = do
                            , highlight = True
                            }
 
-  state <- loadModel state0 rndCutsModel laby
+  state <- loadModel state0 model laby
 
   -- setup stuff
   GLFW.swapInterval       $= 1 -- vsync
