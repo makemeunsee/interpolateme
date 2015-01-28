@@ -4,6 +4,8 @@ module Main (
     main
 ) where
 
+import System.IO.Unsafe (unsafePerformIO)
+
 import System.Environment (getArgs)
 
 import Graphics.Rendering.OpenGL.GL ( GLfloat
@@ -813,22 +815,31 @@ uniformToSphericCoordinates :: RealFloat a => (a, a) -> (a, a)
 uniformToSphericCoordinates (u,v) = (2*pi*u, acos $ 2*v - 1)
 
 
-uniformModel :: RealFloat a => Int -> VC.VoronoiModel a
-uniformModel bn = VC.VoronoiModel $ topRow Seq.>< bottomRow
+uniformModel :: (RealFloat a, Show a) => Int -> VC.VoronoiModel a
+uniformModel bn = VC.VoronoiModel rows
   where
     n = max 3 bn
-    n' = 2 -- ceil (fromIntegral n / 2)
+    n' = ceiling (fromIntegral n / 2)
     faceCount = n*n'
     southP = G.Point3f 0 (-1) 0
     northP = G.Point3f 0 1 0
     k = 1 / fromIntegral n
     k' = 1 / fromIntegral n'
-    upoints = [map (\(t,p) -> LAF.latLongPosition t p 1) $ map uniformToSphericCoordinates [(fromIntegral u * k, fromIntegral v * k') | u <- [0..n-1]] |  v <- [1..n'-1]]
-    (topRow, offset) = foldr (\(p0,p1) (acc, i) -> (acc Seq.|> newFace0 p0 p1 i, i+1)) (Seq.empty, 0) $ cyclicConsecutivePairs $ head upoints
-    offset' = offset
-    bottomRow = fst $ foldr (\(p0,p1) (acc, i) -> (acc Seq.|> newFace1 p0 p1 i, i+1)) (Seq.empty, offset') $ cyclicConsecutivePairs $ last upoints
-    newFace0 p0 p1 i = VC.Face (G.normalized $ G.barycenter [p0,p1,northP]) [p1,p0,northP] [i+n, if i == 0 then n-1 else i-1, if i == n-1 then 0 else i+1]
-    newFace1 p0 p1 i = VC.Face (G.normalized $ G.barycenter [p0,p1,southP]) [p1,southP,p0] [i-n, if i == faceCount-n then faceCount-1 else i-1, if i == faceCount-1 then faceCount-n else i+1]
+    upoints = [map (\(t,p) -> LAF.latLongPosition t p 1) $ map (\(u,v) -> (2*pi*u, pi - v*pi)) [(fromIntegral u * k, fromIntegral v * k') | u <- [0..n-1]] |  v <- [1..n'-1]]
+
+    (bottomRow, offset) = foldr (\(p0,p1) (acc, i) -> (acc Seq.|> newBottomFace p0 p1 i, i+1)) (Seq.empty, 0) $ cyclicConsecutivePairs $ head upoints
+    (rows, _) = rowsGen upoints offset bottomRow
+
+    rowsGen (r0:r1:rs) o acc = rowsGen (r1:rs) (o+n) (acc Seq.>< row r0 r1 o)
+    rowsGen [r] o acc = rowsGen [] (o+n) (acc Seq.>< topRow r o)
+    rowsGen [] o acc = (acc, o)
+    row r0 r1 o = fst $ foldr (\((p0,p1),(p2,p3)) (acc, o') -> (acc Seq.|> (newFace p0 p1 p2 p3 o'), o'+1)) (Seq.empty, o) $ cyclicConsecutivePairs $ zip r0 r1
+
+    topRow r o = fst $ foldr (\(p0,p1) (acc, i) -> (acc Seq.|> newTopFace p0 p1 i, i+1)) (Seq.empty, o) $ cyclicConsecutivePairs r
+
+    newBottomFace p0 p1 i = VC.Face (G.normalized $ G.barycenter [p0,p1,southP]) [p0,p1,southP] [i+n, if i == 0 then n-1 else i-1, if i == n-1 then 0 else i+1]
+    newTopFace p0 p1 i = VC.Face (G.normalized $ G.barycenter [p0,p1,northP]) [p1,p0,northP] [i-n, if i == faceCount-n then faceCount-1 else i-1, if i == faceCount-1 then faceCount-n else i+1]
+    newFace p0 p1 p2 p3 o = VC.Face (G.normalized $ G.barycenter [p0,p1,p2,p3]) [p0,p1,p3,p2] [o+n,o-n, if o `mod` n == 0 then o + n - 1 else o-1, if (o+1) `mod` n == 0 then o + 1 - n else o+1]
 
 
 twoPyramids :: RealFloat a => Int -> VC.VoronoiModel a
@@ -912,10 +923,10 @@ main = do
   GLFW.initialize
 
 --  let model = twoPyramids cuts
---  let model = uniformModel cuts
+  let model = uniformModel cuts
 --  putStrLn $ show model
---  let seed' = seed
-  (model,seed') <- voronoiModel seed cuts
+  let seed' = seed
+--  (model,seed') <- voronoiModel seed cuts
 
   let faces = VC.faces model
   t2 <- get time
