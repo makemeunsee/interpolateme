@@ -818,26 +818,30 @@ uniformModel bn = VC.VoronoiModel rows
   where
     n = max 3 bn
     n' = ceiling (fromIntegral n / 2)
-    faceCount = n*n'
     southP = G.Point3f 0 (-1) 0
     northP = G.Point3f 0 1 0
+    southFaceId = 0
+    northFaceId = 1 + n*(n'-2)
     k = 1 / fromIntegral n
     k' = 1 / fromIntegral n'
     upoints = [map (\(t,p) -> LAF.latLongPosition t p 1) $ map (\(u,v) -> (2*pi*u, pi - v*pi)) [(fromIntegral u * k, fromIntegral v * k') | u <- [0..n-1]] |  v <- [1..n'-1]]
 
-    (bottomRow, offset) = foldr (\(p0,p1) (acc, i) -> (acc Seq.|> newBottomFace p0 p1 i, i+1)) (Seq.empty, 0) $ cyclicConsecutivePairs $ head upoints
-    (rows, _) = rowsGen upoints offset bottomRow
+    bottomFace = VC.Face (G.Point3f 0 (-1) 0) (head upoints) (take n [1..])
+    rows = rowsGen upoints 1 (Seq.singleton bottomFace)
 
     rowsGen (r0:r1:rs) o acc = rowsGen (r1:rs) (o+n) (acc Seq.>< row r0 r1 o)
-    rowsGen [r] o acc = rowsGen [] (o+n) (acc Seq.>< topRow r o)
-    rowsGen [] o acc = (acc, o)
+    rowsGen [r] o acc = rowsGen [] (o+n) (acc Seq.|> topFace r o)
+    rowsGen [] o acc = acc
     row r0 r1 o = fst $ foldr (\((p0,p1),(p2,p3)) (acc, o') -> (acc Seq.|> (newFace p0 p1 p2 p3 o'), o'+1)) (Seq.empty, o) $ cyclicConsecutivePairs $ zip r0 r1
 
-    topRow r o = fst $ foldr (\(p0,p1) (acc, i) -> (acc Seq.|> newTopFace p0 p1 i, i+1)) (Seq.empty, o) $ cyclicConsecutivePairs r
+    topFace r o = VC.Face (G.Point3f 0 (-1) 0) (reverse $ r) (take n $ map (o-) [1..])
 
-    newBottomFace p0 p1 i = VC.Face (G.normalized $ G.barycenter [p0,p1,southP]) [p0,p1,southP] [i+n, if i == 0 then n-1 else i-1, if i == n-1 then 0 else i+1]
-    newTopFace p0 p1 i = VC.Face (G.normalized $ G.barycenter [p0,p1,northP]) [p1,p0,northP] [i-n, if i == faceCount-n then faceCount-1 else i-1, if i == faceCount-1 then faceCount-n else i+1]
-    newFace p0 p1 p2 p3 o = VC.Face (G.normalized $ G.barycenter [p0,p1,p2,p3]) [p0,p1,p3,p2] [o+n,o-n, if o `mod` n == 0 then o + n - 1 else o-1, if (o+1) `mod` n == 0 then o + 1 - n else o+1]
+    newFace p0 p1 p2 p3 o = VC.Face (G.normalized $ G.barycenter [p0,p1,p2,p3])
+                                    [p0,p1,p3,p2]
+                                    [ min (o+n) northFaceId
+                                    , max (o-n) southFaceId
+                                    , if (o-1) `mod` n == 0 then o + n - 1 else o-1
+                                    , if o `mod` n == 0 then o + 1 - n else o+1 ]
 
 
 twoPyramids :: RealFloat a => Int -> VC.VoronoiModel a
