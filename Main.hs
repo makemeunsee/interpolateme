@@ -50,7 +50,7 @@ import qualified Data.Sequence as Seq
 import Data.Maybe (listToMaybe, fromJust)
 import Data.IORef (IORef, newIORef)
 import Data.Vec (Mat44, Vec4, multmv, identity)
-import Data.Foldable (foldr', foldl', foldrM)
+import Data.Foldable (foldr', foldl', foldrM, toList)
 import Random.MWC.Pure (Seed, range_random)
 
 import Models
@@ -74,6 +74,7 @@ data KeyState = KeyState { n :: KeyButtonState
                          , l :: KeyButtonState
                          , d :: KeyButtonState
                          , i :: KeyButtonState
+                         , t :: KeyButtonState
                          , space :: KeyButtonState
                          }
 
@@ -90,6 +91,7 @@ data GlobalState = GlobalState { viewMat :: Mat44f
                                , drawSolid :: Bool
                                , drawNormals :: Bool
                                , drawMazePath :: Bool
+                               , thickPath :: Bool
                                , depthRender :: Bool
                                , depthInvert :: Bool
                                , depthScale :: GLfloat
@@ -102,6 +104,7 @@ data GlobalState = GlobalState { viewMat :: Mat44f
                                , projMat :: IORef Mat44f
                                , zoom :: IORef GLfloat
                                , faces :: Seq.Seq (VC.Face GLfloat)
+                               , maze :: Labyrinth Int
                                , depths :: Map.Map Int [Int]
                                , depthMin :: Int
                                , depthMax :: Int
@@ -115,7 +118,7 @@ data GlobalState = GlobalState { viewMat :: Mat44f
 
 
 defaultKeyState :: KeyState
-defaultKeyState = KeyState Release Release Release Release Release Release
+defaultKeyState = KeyState Release Release Release Release Release Release Release
 
 
 defaultMouseState :: MouseState
@@ -294,8 +297,8 @@ bindUniformVector prog uName vec = do
   with vec $ glUniform4fv vLoc 1 . castPtr
 
 
-render :: GLfloat -> Bool -> Bool -> Bool -> GLfloat -> GLfloat -> GLfloat -> Mat44f -> GLIDs -> Int -> GLfloat -> IO ()
-render t drawSolid drawNormals drawMazePath depthMode depthScale explodedFactor mvp glids@GLIDs{..} litFaceId litFaceDepth = do
+render :: GLfloat -> Bool -> Bool -> Bool -> Bool -> GLfloat -> GLfloat -> GLfloat -> Mat44f -> GLIDs -> Int -> GLfloat -> IO ()
+render t drawSolid drawNormals drawMazePath thickPath depthMode depthScale explodedFactor mvp glids@GLIDs{..} litFaceId litFaceDepth = do
   GL.clear [GL.ColorBuffer, GL.DepthBuffer]
 
   let ShaderInfo{..} = shaderInfo
@@ -315,7 +318,7 @@ render t drawSolid drawNormals drawMazePath depthMode depthScale explodedFactor 
   uniform col0Loc $= GL.Color3 1 0 (0 :: GLfloat)
   uniform col1Loc $= GL.Color3 0.4 0 (1 :: GLfloat)
   uniform col2Loc $= GL.Color3 1 0.4 (0 :: GLfloat)
-  uniform col3Loc $= GL.Color3 1 0.4 (0.4 :: GLfloat)
+  uniform col3Loc $= GL.Color3 0.4 0.4 (1 :: GLfloat)
 
   colLoc <- get $ uniformLocation prog "u_color"
   bColLoc <- get $ uniformLocation prog "u_borderColor"
@@ -378,7 +381,7 @@ render t drawSolid drawNormals drawMazePath depthMode depthScale explodedFactor 
     else if depthMode == 0 -- no depth mode, no solid -> draw solid black
       then do
         uniform colLoc $= GL.Color4 0 0 0 (1 :: GLfloat)
-        uniform bColLoc $= GL.Color4 0.0 0.0 0.0 (1 :: GLfloat)
+        uniform bColLoc $= GL.Color4 0 0 0 (1 :: GLfloat)
         uniform borderWidthLoc $= GL.Index1 (0 :: GLfloat)
         drawSolidFct
     else
@@ -389,8 +392,8 @@ render t drawSolid drawNormals drawMazePath depthMode depthScale explodedFactor 
   if drawMazePath
     then do
       -- bind uniforms
-      uniform colLoc $= GL.Color4 0.1 1.0 0.0 (0 :: GLfloat)
-      uniform bColLoc $= GL.Color4 0.1 1.0 0.0 (0 :: GLfloat)
+      uniform colLoc $= GL.Color4 0.1 1 0 (0 :: GLfloat)
+      uniform bColLoc $= GL.Color4 0.1 1 0 (0 :: GLfloat)
       uniform borderWidthLoc $= GL.Index1 (0.0 :: GLfloat)
 
       -- bind attributes
@@ -399,7 +402,9 @@ render t drawSolid drawNormals drawMazePath depthMode depthScale explodedFactor 
       -- bind indice
       bindBuffer ElementArrayBuffer $= Just (indice labyrinthBuffersInfo)
 
-      drawElements GL.Lines (indiceCount labyrinthBuffersInfo) GL.UnsignedInt offset0
+      if thickPath
+        then do drawElements GL.Triangles (indiceCount labyrinthBuffersInfo) GL.UnsignedInt offset0
+        else do drawElements GL.Lines (indiceCount labyrinthBuffersInfo) GL.UnsignedInt offset0
 
       unbindGeometry shaderInfo
     else
@@ -567,8 +572,8 @@ waitForRelease = do
 -- rotate model matrix on arrow keys released
 handleKeys :: GlobalState -> IO GlobalState
 handleKeys state = do
-  let modelMatrix = modelMat state
-  let keyState@KeyState{..} = keys state
+  let GlobalState{..} = state
+  let keyState@KeyState{..} = keys
 
   -- read key inputs
   sp <- GLFW.getKey ' '
@@ -577,6 +582,7 @@ handleKeys state = do
   kl <- GLFW.getKey 'L'
   kd <- GLFW.getKey 'D'
   ki <- GLFW.getKey 'I'
+  kt <- GLFW.getKey 'T'
   kpl <- GLFW.getKey GLFW.KP_ADD
   kmi <- GLFW.getKey GLFW.KP_SUBTRACT
   kpd <- GLFW.getKey GLFW.PAGEDOWN
@@ -587,6 +593,7 @@ handleKeys state = do
   let sR = released ks s
   let dR = released kd d
   let iR = released ki i
+  let tR = released kt t
   let spR = released sp space
 
   let newKeyState = keyState { n = kn
@@ -594,25 +601,37 @@ handleKeys state = do
                              , l = kl
                              , d = kd
                              , i = ki
+                             , t = kt
                              , space = sp
                              }
 
   let scaleF = if kpl == Press then 0.01 else if kmi == Press then (-0.01) else 0
-  let dScale = max 0 $ min 1 $ scaleF + depthScale state
+  let dScale = max 0 $ min 1 $ scaleF + depthScale
 
   let scaleExp = if kpu == Press then 1.01 else if kpd == Press then (1/1.01) else 1
-  let expFact = max 1 $ scaleExp * explodedFactor state
+  let expFact = max 1 $ scaleExp * explodedFactor
 
-  return state { keys = newKeyState
-               , drawSolid = if sR then not $ drawSolid state else drawSolid state
-               , drawNormals = if nR then not $ drawNormals state else drawNormals state
-               , drawMazePath = if lR then not $ drawMazePath state else drawMazePath state
-               , depthRender = if dR then not $ depthRender state else depthRender state
-               , depthInvert = if iR then not $ depthInvert state else depthInvert state
-               , highlight = if spR then not $ highlight state else highlight state
-               , depthScale = dScale
-               , explodedFactor = expFact
-               }
+  let nState = state { keys = newKeyState
+                     , drawSolid = if sR then not drawSolid else drawSolid
+                     , drawNormals = if nR then not drawNormals else drawNormals
+                     , drawMazePath = if lR then not drawMazePath else drawMazePath
+                     , thickPath = if tR then not thickPath else thickPath
+                     , depthRender = if dR then not depthRender else depthRender
+                     , depthInvert = if iR then not depthInvert else depthInvert
+                     , highlight = if spR then not highlight else highlight
+                     , depthScale = dScale
+                     , explodedFactor = expFact
+                     }
+
+  if tR
+    then do
+      newLabyrinthBuffersInfo <- loadMazePath nState
+      let newGlids = glids { labyrinthBuffersInfo = newLabyrinthBuffersInfo }
+      return nState { glids = newGlids }
+    else do
+      return nState
+
+
 
   where released newK oldK = newK == Release && newK /= oldK
 
@@ -702,6 +721,7 @@ loop action global (litPosition, lastPositionChange) = do
          drawSolid
          drawNormals
          drawMazePath
+         thickPath
          (if depthRender then if depthInvert then -1 else 1 else 0)
          depthScale
          explodedFactor
@@ -748,14 +768,13 @@ strArgument :: String -> [String] -> Maybe String
 strArgument arg args = listToMaybe $ drop 1 $ dropWhile (/= arg) args
 
 
-loadModel :: GlobalState -> VC.VoronoiModel GLfloat -> Labyrinth Int -> IO GlobalState
-loadModel global@GlobalState{..} vm laby = do
+loadModel :: GlobalState -> IO GlobalState
+loadModel global@GlobalState{..} = do
 
   t0 <- get time
   let GLIDs{..} = glids
 
-  let faces = VC.faces vm
-  let fc = VC.faceCount vm
+  let fc = Seq.length faces
 
   let (vertexBuffer, ids, centerBuffer, mazeBuffer, normalBuffer, faceIdsBuffer) = toBufferData faces depths depthMin depthMax
 
@@ -770,7 +789,7 @@ loadModel global@GlobalState{..} vm laby = do
                                 (Just mazeBuffer)
                                 (Just faceIdsBuffer)
 
-  let faceCenters = VC.normals vm -- on the unit sphere so they're normalized too
+  let faceCenters = map VC.seed $ toList faces -- on the unit sphere so they're normalized too
   let verticeOfNormalsBuffer = concatMap (\(G.Point3f cx cy cz) ->
                                          [cx, cy, cz, cx + 0.1 * cx, cy + 0.1 * cy, cz + 0.1 * cz])
                                          faceCenters
@@ -782,24 +801,11 @@ loadModel global@GlobalState{..} vm laby = do
                                        Nothing
 
 
-  cleanBuffers labyrinthBuffersInfo
 
-  t3 <- get time
---  let (pathVs, pathIds, pathCs, pathNs, pathDs) = toThickPathBufferData faces depthMin depthMax inMazeNeighbours
-  let (pathVs, pathIds, pathNs, pathDs) = toPathBufferData faces depthMin depthMax inMazeNeighbours
-  putStrLn $ "path size:\t" ++ (show $ length pathVs)
-  t4 <- get time
-  putStrLn $ "path buffers duration:\t" ++ (show $ t4 - t3)
+  t1 <- get time
+  putStrLn $ "load model duration:\t" ++ show (t1 - t0)
 
-  newLabyrinthBuffersInfo <- loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) pathVs)
-                                         pathIds
-                                         (Just $ concatMap G.pointToArr pathNs)
-                                         Nothing -- (Just pathCs)
-                                         (Just pathDs)
-                                         Nothing
-
-  t3 <- get time
-  putStrLn $ "load model duration:\t" ++ show (t3 - t0)
+  newLabyrinthBuffersInfo <- loadMazePath global
 
   let newGlids = glids { objectBuffersInfo = newBuffersInfo
                        , normalsBuffersInfo = newNormalsBuffersInfo
@@ -807,6 +813,37 @@ loadModel global@GlobalState{..} vm laby = do
                        }
 
   return global { glids = newGlids }
+
+
+loadMazePath :: GlobalState -> IO BuffersInfo
+loadMazePath GlobalState{..} = do
+
+  cleanBuffers $ labyrinthBuffersInfo glids
+
+  t0 <- get time
+  if thickPath
+    then do
+      let (pathVs, pathIds, pathCs, pathNs, pathDs) = toThickPathBufferData faces depthMin depthMax inMazeNeighbours
+      putStrLn $ "path size:\t" ++ (show $ length pathVs)
+      t1 <- get time
+      putStrLn $ "path buffers duration:\t" ++ (show $ t1 - t0)
+      loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) pathVs)
+                  pathIds
+                  (Just $ concatMap G.pointToArr pathNs)
+                  (Just pathCs)
+                  (Just pathDs)
+                  Nothing
+    else do
+      let (pathVs, pathIds, pathNs, pathDs) = toPathBufferData faces depthMin depthMax inMazeNeighbours
+      putStrLn $ "path size:\t" ++ (show $ length pathVs)
+      t1 <- get time
+      putStrLn $ "path buffers duration:\t" ++ (show $ t1 - t0)
+      loadBuffers (concatMap (\(G.Point3f x y z) -> [1.001*x,1.001*y,1.001*z]) pathVs)
+                  pathIds
+                  (Just $ concatMap G.pointToArr pathNs)
+                  Nothing
+                  (Just pathDs)
+                  Nothing
 
 
 uniformToSphericCoordinates :: RealFloat a => (a, a) -> (a, a)
@@ -834,7 +871,7 @@ uniformModel bn = VC.VoronoiModel rows
     rowsGen [] o acc = acc
     row r0 r1 o = fst $ foldr (\((p0,p1),(p2,p3)) (acc, o') -> (acc Seq.|> (newFace p0 p1 p2 p3 o'), o'+1)) (Seq.empty, o) $ cyclicConsecutivePairs $ zip r0 r1
 
-    topFace r o = VC.Face (G.Point3f 0 (-1) 0) (reverse $ r) (take n $ map (o-) [1..])
+    topFace r o = VC.Face (G.Point3f 0 1 0) (reverse $ r) (take n $ map (o-) [1..])
 
     newFace p0 p1 p2 p3 o = VC.Face (G.normalized $ G.barycenter [p0,p1,p2,p3])
                                     [p0,p1,p3,p2]
@@ -891,7 +928,7 @@ voronoiModel seed cuts = do
   -- rough perf measurement
   t1 <- get time
 --  putStrLn $ "topology:\t" ++ (show $ map VC.neighbours $ VC.faceList rndCutsModel)
-  let topoComplexity = foldr' (\f acc -> acc + (length $ VC.neighbours f)) 0 $ VC.faceList rndCutsModel
+  let topoComplexity = foldr' (\f acc -> acc + (length $ VC.neighbours f)) 0 $ VC.faces rndCutsModel
   putStrLn $ "topology complexity:\t" ++ show topoComplexity
   putStrLn $ "Truncation duration: " ++ show (t1 - t0)
   return (rndCutsModel, seed')
@@ -925,10 +962,10 @@ main = do
   GLFW.initialize
 
 --  let model = twoPyramids cuts
-  let model = uniformModel cuts
+--  let model = uniformModel cuts
+--  let seed' = seed
+  (model,seed') <- voronoiModel seed cuts
 --  putStrLn $ show model
-  let seed' = seed
---  (model,seed') <- voronoiModel seed cuts
 
   let faces = VC.faces model
   t2 <- get time
@@ -989,6 +1026,7 @@ main = do
                            , drawSolid = True
                            , drawNormals = False
                            , drawMazePath = False
+                           , thickPath = False
                            , depthRender = True
                            , depthInvert = True
                            , depthScale = 0.5
@@ -1001,6 +1039,7 @@ main = do
                            , modelMat = identity
                            , zoom = zoom
                            , faces = faces
+                           , maze = laby
                            , depths = depths
                            , depthMin = depthMin
                            , depthMax = depthMax
@@ -1009,7 +1048,7 @@ main = do
                            , highlight = True
                            }
 
-  state <- loadModel state0 model laby
+  state <- loadModel state0
 
   -- setup stuff
   GLFW.swapInterval       $= 1 -- vsync

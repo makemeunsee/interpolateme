@@ -38,6 +38,7 @@ Features
 * +/-: depth exaggeration control.
 * Page Up / Page Down: explosion factor control.
 * L: show/hide maze path.
+* T: switch path rendering style.
 * S: show/hide model.
 * space: toggle random cell highlighting.
 * N: show/hide face normals (originating from Voronoi cells seeds).
