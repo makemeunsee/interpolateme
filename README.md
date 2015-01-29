@@ -5,13 +5,14 @@ Voronoi tessellation of a sphere, by successive truncations using planes tangent
 
 Maze generation from the voronoi cells.
 
-[Web demo](http://www.jollycyb.org/haskell_maze/)
+Video demos (best viewed in HD);
 
-[Video demo 1 (tessellation demo)](https://www.youtube.com/watch?v=SFVgltKpxSA)
+[Video demo 1 (voronoi tessellation to maze to more)](https://www.youtube.com/watch?v=86twBpK1YIs)
 
-[Video demo 2 (tessellation result)](https://www.youtube.com/watch?v=_JYSKB4cUnA)
+[Video demo 2 (egg shell world)](https://youtu.be/QiNU-jJ_odc)
 
-[Video demo 3 (egg shell world)](http://youtu.be/QiNU-jJ_odc)
+[Video demo 3 (simple tessellation to maze to more)](https://www.youtube.com/watch?v=GorqpNm6wTg)
+
 
 Usage
 -----
@@ -43,7 +44,7 @@ Features
 * space: toggle random cell highlighting.
 * N: show/hide face normals (originating from Voronoi cells seeds).
 * ESC or Q to exit.
-* Web demo (partial port, slow, unstable at least on Firefox): open web/index.html after compiling to JS with:
+* Web demo (unmaintained, at best partial, slow and unstable): open web/index.html after compiling to JS with:
 
 ``hastec '--start=$HASTE_MAIN();' --with-js=web/js/app.js MainJs.hs -o web/js/appHaste.js``
 
