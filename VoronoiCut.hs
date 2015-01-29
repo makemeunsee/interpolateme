@@ -2,9 +2,6 @@
 
 module VoronoiCut ( fromModel
                   , VoronoiModel (..)
-                  , normals
-                  , faceList
-                  , faceCount
                   , Face (..)
                   , barycenter
                   , closestSeed
@@ -47,18 +44,6 @@ barycenter Face{..} = G.barycenter vertice
 
 data VoronoiModel a = VoronoiModel { faces :: !(Seq (Face a)) }
                       deriving (Eq, Show)
-
-
-faceCount :: VoronoiModel a -> Int
-faceCount = S.length . faces
-
-
-faceList :: RealFloat a => VoronoiModel a -> [Face a]
-faceList vm = F.toList $ faces vm
-
-
-normals :: RealFloat a => VoronoiModel a -> [G.Point3f a]
-normals = (map seed) . faceList
 
 
 fromModel :: RealFloat a => G.Model a -> VoronoiModel a
