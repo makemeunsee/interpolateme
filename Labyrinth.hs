@@ -8,12 +8,12 @@ where
 
 
 import Random.MWC.Pure (Seed, range_random)
-import Data.Map (Map, singleton, notMember, insert, (!), lookup, empty, unionWith, toAscList)
+import Data.Map (Map, singleton, insert, lookup, unionWith, toAscList)
 import qualified Data.List as L
 import qualified Data.Set as Set
 import qualified Data.Sequence as S
 import Data.Foldable (foldr')
-import Data.Maybe (fromJust, listToMaybe)
+import Data.Maybe (fromJust, isNothing, fromMaybe)
 
 import qualified Geometry as G
 import ListUtil
@@ -54,10 +54,9 @@ depthMap (Node i d ls) = foldr' (\(m', dmax, dmin) (m, oldMax, oldMin) ->
 -- for each (value, depth) in the maze, gives the ids of the (value, depth) pairs which are the parent or a children.
 neighboursMap :: Ord a => Maybe (a, Int) -> Labyrinth a -> Map (a, Int) [(a, Int)]
 neighboursMap parent (Node i d ls) =
-  let ns0 = if parent == Nothing then [] else [fromJust parent] in
+  let ns0 = if isNothing parent then [] else [fromJust parent] in
   let ns = foldr (\(Node i' d' _) ns -> (i', d') : ns) ns0 ls in
-  foldr' (\m' m ->
-           unionWith (++) m m')
+  foldr' (unionWith (++))
          (singleton (i, d) ns)
          $ map (neighboursMap (Just (i, d))) ls
 
@@ -70,7 +69,7 @@ elem k (Node j _ ls) = k == j || any (Labyrinth.elem k) ls
 -- does NOT check for duplicates
 insertAt :: Eq a => a -> a -> Labyrinth a -> Labyrinth a
 insertAt k at laby = case laby of
-  Node i d ls | i == at   -> Node i d $ (Node k (d+1) []) : ls       -- insert k as new leaf to found parent
+  Node i d ls | i == at   -> Node i d $ Node k (d+1) [] : ls       -- insert k as new leaf to found parent
               | otherwise -> Node i d $ map (insertAt k at) ls  -- explore the labyrinth to find the right parent
 
 
@@ -79,7 +78,7 @@ labyrinth2 topo
   | S.null topo = Node (-1) (-1) [] -- illegal
   | otherwise   = laby2Rec [0] (Node 0 0 []) (Set.singleton 0)
   where
-    laby2Rec [] laby visited = laby
+    laby2Rec [] laby _ = laby
     laby2Rec stack laby visited = let currentId = head stack in
                                   let currentNeighbours = neighbours $ S.index topo currentId in
                                   case findExplorable currentId currentNeighbours visited of
@@ -91,8 +90,8 @@ labyrinth2 topo
       -- if it's not part of the maze already
       Set.notMember i visited &&
       -- and the faces it touches are either the parent face or not in the maze
-      (all (\j -> j == parentId || Set.notMember j visited)
-           $ neighbours $ S.index topo i)
+      all (\j -> j == parentId || Set.notMember j visited)
+          (neighbours $ S.index topo i)
 
 
 -- Create a random maze, using the face neighbours as a topology.
@@ -113,20 +112,20 @@ labyrinth1 seed maxBranchLength minGapForOverlap alwaysDeeper topo
     topologyToLabyrinth0 seed0 (singleton id0 [0]) [] [(id0, 0, 0)] 1
   where
     topologyToLabyrinth0 :: Seed -> Map Int [Int] -> [(Int, Labyrinth Int)] -> [(Int, Int, Int)] -> Int -> (Labyrinth Int, Seed)
-    topologyToLabyrinth0 seed visited acc [] dir = (snd $ head acc, seed)
+    topologyToLabyrinth0 seed _ acc [] _ = (snd $ head acc, seed)
     topologyToLabyrinth0 seed visited !acc ((i, depth, dist) : parents) dir =
       let explorable = filter (\(_, depths) ->
-                                depths == [] || L.all (\d -> abs (depth - d) >= minGapForOverlap) depths
+                                null depths || L.all (\d -> abs (depth - d) >= minGapForOverlap) depths
                               )
-                              $ map (\n -> (n, maybe [] id $ Data.Map.lookup n visited))
+                              $ map (\n -> (n, fromMaybe [] $ Data.Map.lookup n visited))
                               $ neighbours $ S.index topo i in
       let l = length explorable in
       let (rndIndex, seed') = range_random (0, l) seed in
-      if dist >= maxBranchLength || explorable == [] then
+      if dist >= maxBranchLength || null explorable then
         let newAcc = case acc of
                        [] -> [(dist, Node i depth [])]
                        ls -> let (tails, parallelBranches) = L.partition (\(d, _) -> d == dist+1) ls in
-                             if tails == [] then
+                             if null tails then
                                (dist, Node i depth []) : ls
                              else
                                (dist, Node i depth $ snd $ unzip tails) : parallelBranches
@@ -137,7 +136,7 @@ labyrinth1 seed maxBranchLength minGapForOverlap alwaysDeeper topo
                                  (dir, seed')
                                else
                                  let (rnd, seed'') = range_random (0,2) seed' in
-                                 (2*rnd -1, seed')
+                                 (2*rnd -1, seed'')
                                in
         let (j, jDepths) = explorable !! rndIndex in
         let newVisited = insert j (depth : jDepths) visited in
@@ -169,7 +168,6 @@ toBufferData faces depthMap depthMin depthMax = ( reverse vs
                                                 )
   where
     depth = depthFracValue depthMin depthMax
-    fc = fromIntegral $ S.length faces
     (  vs
      , ids
      , centers
@@ -181,13 +179,13 @@ toBufferData faces depthMap depthMin depthMax = ( reverse vs
                       let newVs = vertice f in
                       let l = length newVs in
                       foldr' (\d (vs', is', cs', ns', md', fis', offset') ->
-                               let ms = take (2*l+2) $ repeat $ depth d in -- dToHalf pos
-                               ( (concatMap (\v -> [G.times 0.98 v, v]) $ barycenter f : newVs) ++ vs'
-                               , (faceIndice (fromIntegral offset') f) ++ is'
-                               , 1 : 1 : (take (2*l) $ repeat 0) ++ cs'
-                               , (take (2*l+2) $ repeat $ seed f) ++ ns'
+                               let ms = replicate (2*l+2) (depth d) in -- dToHalf pos
+                               ( concatMap (\v -> [G.times 0.98 v, v]) (barycenter f : newVs) ++ vs'
+                               , faceIndice (fromIntegral offset') f ++ is'
+                               , 1 : 1 : replicate (2*l) 0 ++ cs'
+                               , replicate (2*l+2) (seed f) ++ ns'
                                , ms ++ md'
-                               , (take (2*l+2) $ repeat $ fromIntegral i) ++ fis'
+                               , replicate (2*l+2) (fromIntegral i) ++ fis'
                                , offset' + 2*l + 2
                                )
                              )
@@ -206,9 +204,6 @@ toPathBufferData faces depthMin depthMax neighboursMap = ( reverse vs
                                                          )
   where
     fracDepth = depthFracValue depthMin depthMax
-    fNeighbours p = case Data.Map.lookup p neighboursMap of
-                      Nothing -> []
-                      Just ns -> ns
 
     junction f0 f1 =
       let [v0, v1] = intersection (vertice f0) (vertice f1) in
@@ -246,11 +241,8 @@ toThickPathBufferData faces depthMin depthMax neighboursMap = ( reverse vs
                                                               , reverse mazeData
                                                               )
   where
-    hFactor = 1 + 0.2 / log (fromIntegral (S.length faces))
+    -- hFactor = 1 + 0.2 / log (fromIntegral (S.length faces))
     fracDepth = depthFracValue depthMin depthMax
-    fNeighbours p = case Data.Map.lookup p neighboursMap of
-                      Nothing -> []
-                      Just ns -> ns
 
     junctions f0 f1 =
       let fVs0 = vertice f0 in
@@ -276,15 +268,11 @@ toThickPathBufferData faces depthMin depthMax neighboursMap = ( reverse vs
                           let ([j0,j1], [v0,v1]) = junctions f f' in
                           let i0 = fromJust (L.elemIndex v0 fvs) in
                           let i1 = fromJust (L.elemIndex v1 fvs) in
-                          let (oj0,oj1) = if i1 == i0+1 then
-                                            (j0,j1)
-                                          else if i0 == i1+1 then
-                                            (j1,j0)
-                                          else if i1 == 0 then
-                                            (j0,j1)
-                                          else
-                                            (j1,j0)
-                                          in
+                          let (oj0,oj1) | i1 == i0+1 = (j0,j1)
+                                        | i0 == i1+1 = (j1,j0)
+                                        | i1 == 0 = (j0,j1)
+                                        | otherwise = (j1,j0)
+                                        in
                           let d = G.add oj1 $ G.times (-1) oj0 in
                           let b0 = G.add bary $ G.times (-0.5) d in
                           let b1 = G.add bary $ G.times 0.5 d in
@@ -295,9 +283,9 @@ toThickPathBufferData faces depthMin depthMax neighboursMap = ( reverse vs
                                           , 4,2,1
                                           , 4,3,2
                                           , 4,0,3] ++ is
-                          , 1 : (take 4 $ repeat 0) ++ cs
-                          , (take 5 $ repeat $ seed f) ++ ns
-                          , (take 5 $ repeat dv) ++ md
+                          , 1 : replicate 4 0 ++ cs
+                          , replicate 5 (seed f) ++ ns
+                          , replicate 5 dv ++ md
                           , offset + 5)
                         _   ->
                           -- create a crossroad
@@ -308,17 +296,17 @@ toThickPathBufferData faces depthMin depthMax neighboursMap = ( reverse vs
                                                )
                                                fvs
                                                neighbours in
-                          let js = filter (\v -> not $ L.elem v fvs) vsAndJs in
+                          let js = filter (`L.notElem` fvs) vsAndJs in
                           let l = length js in
                           let il = fromIntegral l in
-                          let c = G.times (1 / fromIntegral l) $ foldr1 (\v acc -> G.add v acc) js in
+                          let c = G.times (1 / fromIntegral l) $ foldr1 G.add js in
                           let shiftedIds = map (offset+) $ take l [0..] in
-                          let is' = (last shiftedIds) : (take (l-1) shiftedIds) in
+                          let is' = last shiftedIds : take (l-1) shiftedIds in
                           ( c : js ++ vs
-                          , (concatMap (\(i0,i1) -> [il+offset, i1, i0]) $ cyclicConsecutivePairs is') ++ is
-                          , 1 : (take l $ repeat 0) ++ cs
-                          , (take (l+1) $ repeat $ seed f) ++ ns
-                          , (take (l+1) $ repeat dv) ++ md
+                          , concatMap (\(i0,i1) -> [il+offset, i1, i0]) (cyclicConsecutivePairs is') ++ is
+                          , 1 : replicate l 0 ++ cs
+                          , replicate (l+1) (seed f) ++ ns
+                          , replicate (l+1) dv ++ md
                           , offset + il +1)
                    )
                    ([], [], [], [], [], 0)

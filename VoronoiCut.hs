@@ -1,6 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module VoronoiCut ( fromModel
+                  , toModel
                   , VoronoiModel (..)
                   , Face (..)
                   , barycenter
@@ -13,14 +14,13 @@ module VoronoiCut ( fromModel
 where
 
 
-import Data.List (findIndices, groupBy, find, partition)
+import Data.List (partition)
 
 import Data.Sequence (Seq, (|>))
 import qualified Data.Sequence as S
 import Data.Set (singleton, notMember, insert)
 import qualified Data.Foldable as F
-import Data.Maybe (fromJust, maybe)
-import qualified Data.List as L
+import Data.Maybe (fromJust)
 
 import ListUtil
 import qualified Geometry as G
@@ -47,10 +47,10 @@ data VoronoiModel a = VoronoiModel { faces :: !(Seq (Face a)) }
 
 
 fromModel :: RealFloat a => G.Model a -> VoronoiModel a
-fromModel m@(G.Model vs fs ns) = m'
+fromModel m@(G.Model vs fs _) = m'
   where
     -- scale vertice, so that the distance from face centers to origin is 1
-    center0 = G.faceBarycenter vs $ fs !! 0
+    center0 = G.faceBarycenter vs $ head fs
     scale = map (G.divBy $ G.norm center0)
     vs' = scale vs
     center f = G.normalized $ foldr1 G.add $ map (vs' !!) f
@@ -62,18 +62,17 @@ toModel :: RealFloat a => VoronoiModel a -> G.Model a
 toModel VoronoiModel{..} = G.modelAutoNormals (reverse vs) fs
   where
     (vs, fs, _) = foldr (\f (vs, fs, offset) ->
-                          ( (reverse $ vertice f) ++ vs                             -- prepend reversed shorter list, reverse everything once at the end
-                          , (map (offset+) $ take (length $ vertice f) [0..]) : fs  --
-                          , offset + (length $ vertice f))                          --
+                          ( reverse (vertice f) ++ vs                             -- prepend reversed shorter list, reverse everything once at the end
+                          , map (offset+) (take (length $ vertice f) [0..]) : fs  --
+                          , offset + length (vertice f))                          --
                         )
                         ([], [], 0)
                         $ F.toList faces
 
 
 closestSeed :: RealFloat a => VoronoiModel a -> G.Point3f a -> (Int, G.Point3f a)
-closestSeed vm@VoronoiModel{..} unitSpherePoint = closestRec 0 where
+closestSeed VoronoiModel{..} unitSpherePoint = closestRec 0 where
   faceSeed = seed . S.index faces
-  faceNeighbours = neighbours . S.index faces
   closestRec i =
     let c = faceSeed i in
     let (closerId, _) = foldr (\j' (j, d) ->
@@ -85,7 +84,7 @@ closestSeed vm@VoronoiModel{..} unitSpherePoint = closestRec 0 where
                               )
                               (i, G.dist unitSpherePoint c)
                               $ neighbours $ S.index faces i in
-    if (closerId == i) then
+    if closerId == i then
       (closerId, c)
     else
       closestRec closerId
@@ -96,17 +95,17 @@ tolerance = 1e-8
 
 
 cutFace :: RealFloat a => Int -> Face a -> Plane a -> (Face a, [G.Point3f a])
-cutFace newFaceId f@Face{..} pl@Plane{..} =
+cutFace newFaceId Face{..} pl@Plane{..} =
   ( Face seed (cyclicRemoveConsecutiveDuplicates $ fst afterCut) newNeighbours
   , edgePoints)
   where
     edgePoints = removeDups $ snd afterCut
-    newNeighbours = if length edgePoints > 0 then (newFaceId:neighbours) else neighbours
+    newNeighbours = if null edgePoints then neighbours else newFaceId : neighbours
     cutInfo = map (\v -> (v, toPlane v)) vertice
     afterCut = foldr (\(vi0, vi1) (allVerts, newVerts) -> case (vi0, vi1) of
                        ((v0,OnPlane),(v1,OnPlane)) -> (v0 : v1 : allVerts, v0 : v1 : newVerts) -- both on the plane, both on edge.
-                       ((v0,OnPlane),(v1,Above))   -> (v0 : allVerts, v0 : newVerts)           -- only keep the one on the plane
-                       ((v0,Above),(v1,OnPlane))   -> (v1 : allVerts, v1 : newVerts)           -- only keep the one on the plane
+                       ((v0,OnPlane),(_,Above))   -> (v0 : allVerts, v0 : newVerts)           -- only keep the one on the plane
+                       ((_,Above),(v1,OnPlane))   -> (v1 : allVerts, v1 : newVerts)           -- only keep the one on the plane
                        ((_,Above),(_,Above))       -> (allVerts, newVerts)                     -- discard both, no cut edge
                        ((v0,Below),(v1,Above))     -> -- cut, keep first and create one, new one on cut edge
                          let newV = fromJust $ intersectPlaneAndSegment tolerance pl (v0,v1) in
@@ -143,7 +142,7 @@ cutModel vm@VoronoiModel{..} p@Plane{..} = VoronoiModel $ updatedFaces |> newFac
     cuts = doCuts [firstCutFaceId] (singleton firstCutFaceId) []
 
     uFaces = map (\(i,f,_) -> (i,f)) cuts
-    updatedFaces = foldr (\(i, f) fs -> S.adjust (\_ -> f) i fs) faces (cleanNeighbours uFaces)
+    updatedFaces = foldr (\(i, f) fs -> S.adjust (const f) i fs) faces (cleanNeighbours uFaces)
 
     -- extract points of the new face, order them properly
     newPoints = foldr (\(i,_,pts) allPts -> map (\p -> (p,i)) pts ++ allPts) [] cuts
@@ -163,14 +162,14 @@ cutModel vm@VoronoiModel{..} p@Plane{..} = VoronoiModel $ updatedFaces |> newFac
       if length newPoints /= 2 then
         doCuts ids (insert i visited) acc
       else
-        doCuts ( (filter (\j -> not (elem j ids) && notMember j visited) (neighbours f)) ++ ids)
+        doCuts ( filter (\j -> j `notElem` ids && j `notMember` visited) (neighbours f) ++ ids)
                (insert i visited)
                ( (i, newFace, newPoints) : acc )
 
 
 maybeFlipPolygon :: RealFloat a => G.Point3f a -> [G.Point3f a] -> [G.Point3f a]
 maybeFlipPolygon up is@(p0:p1:p2:_) =
-  let normal = (G.vec p0 p1) `G.cross` (G.vec p1 p2) in
+  let normal = G.vec p0 p1 `G.cross` G.vec p1 p2 in
   let k = normal `G.dot` up in
   if k > 0 then
     is
@@ -180,9 +179,9 @@ maybeFlipPolygon _ is = is
 
 
 chain [] = []
-chain ((p,ids):r) = (p, ids) : (chain newR)
+chain ((p,ids):r) = (p, ids) : chain newR
   where
-    newR = if r == [] then
+    newR = if null r then
              []
            else
              left ++ right
@@ -197,8 +196,8 @@ cleanNeighbours ((i,f):fs) = cleanedF : cleanNeighbours cleanedFs
                                     let vs' = vertice f' in
                                     let ns'' = neighbours f'' in
                                     let vs'' = vertice f'' in
-                                    if elem i'' ns' then
-                                      if (<=) 2 $ length $ filter (\v -> elem v vs'') vs' then
+                                    if i'' `elem` ns' then
+                                      if (<=) 2 $ length $ filter (`elem` vs'') vs' then
                                         ((i',f'), (i'',f'') : fs' )
                                       else
                                         ( (i', f' { neighbours = filter (/=i'') ns' })

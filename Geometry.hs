@@ -13,8 +13,8 @@ module Geometry ( Point3f(Point3f), Normal
                 )
 where
 
-import Data.List (elemIndex, elemIndices)
-import ListUtil
+import           Data.List (elemIndices)
+import           ListUtil
 
 data Point3f a = Point3f a a a
                  deriving (Eq, Show)
@@ -33,7 +33,7 @@ edgeNeighbours :: Model a -> [[Int]]
 edgeNeighbours = genericNeighboursFct shareTwoConsecutiveVertice
   where
     -- look for matching pairs of vertice among the 2 faces (regardless of face orientation)
-    shareTwoConsecutiveVertice f0 f1 = any (\p -> (any (p ==) pairs1) || any (p ==) revPairs1) pairs0
+    shareTwoConsecutiveVertice f0 f1 = any (\p -> elem p pairs1 || elem p revPairs1) pairs0
       where pairs0 = cyclicConsecutivePairs f0
             pairs1 = cyclicConsecutivePairs f1
             revPairs1 = cyclicConsecutivePairs $ reverse f1
@@ -42,7 +42,7 @@ edgeNeighbours = genericNeighboursFct shareTwoConsecutiveVertice
 vertexNeighbours :: Model a -> [[Int]]
 vertexNeighbours = genericNeighboursFct shareOneVertex
   where
-    shareOneVertex f0 f1 = any (\p -> (any (p ==) f1)) f0
+    shareOneVertex f0 f1 = any (`elem` f1) f0
 
 
 genericNeighboursFct :: ([Int] -> [Int] -> Bool) -> Model a -> [[Int]]
@@ -80,7 +80,7 @@ faceBarycenter pts faceIds = barycenter $ map (pts !!) faceIds
 
 -- average on a point3f list
 barycenter :: RealFloat a => [Point3f a] -> Point3f a
-barycenter = uncurry (divBy) . foldr (\e (c,s) -> (c+1, e `add` s)) (0, Point3f 0 0 0)
+barycenter = uncurry divBy . foldr (\e (c,s) -> (c+1, e `add` s)) (0, Point3f 0 0 0)
 
 
 -- basic geometry functions
@@ -135,4 +135,4 @@ normalized p@(Point3f x y z) = Point3f (x / n) (y / n) (z / n)
 
 
 forceNorm :: RealFloat a => a -> Point3f a -> Point3f a
-forceNorm a p = a `times` (normalized p)
+forceNorm a p = a `times` normalized p

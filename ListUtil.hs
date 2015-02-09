@@ -30,15 +30,15 @@ cyclicRemoveConsecutiveDuplicates xs =
     cleaned
   where
     l = length cleaned
-    cleaned = rec xs
-    rec [] = []
-    rec (x:xs) = x : (rec $ dropWhile (x==) xs)
+    cleaned = rec0 xs
+    rec0 [] = []
+    rec0 (x:xs) = x : rec0 (dropWhile (x==) xs)
 
 
 -- group all b's by a's
 associate :: Eq a => [(a, b)] -> [(a, [b])]
 associate [] = []
-associate ((x, i):r) = (x, i : map (\(_, j) -> j) xs) : associate nonXs
+associate ((x, i):r) = (x, i : map snd xs) : associate nonXs
   where
     (xs, nonXs) = partition (\(y, _) -> x == y) r
 
@@ -52,13 +52,13 @@ concatDistinct = foldr union []
 -- prepend to xs0 all of xs1 not in xs0.
 -- duplicates may occur.
 union :: Eq a => [a] -> [a] -> [a]
-union xs0 xs1 = (filter (\f -> not $ elem f xs0) xs1) ++ xs0
+union xs0 xs1 = filter (`notElem` xs0) xs1 ++ xs0
 
 
 intersection :: Eq a => [a] -> [a] -> [a]
-intersection xs [] = []
+intersection _ [] = []
 intersection xs (y:ys) =
-  if elem y xs && not (elem y rem)
+  if elem y xs && notElem y rem
     then y : rem
     else rem
   where rem = intersection xs ys
@@ -67,11 +67,12 @@ intersection xs (y:ys) =
 removeDups :: Eq a => [a] -> [a]
 removeDups [] = []
 removeDups (h:t) =
-  if elem h t
+  if h `elem` t
     then removeDups t
     else h : removeDups t
 
 
+swapElems :: Int -> Int -> [a] -> [a]
 swapElems i j ls = [get k x | (k, x) <- zip [0..] ls]
   where get k x | k == i = ls !! j
                 | k == j = ls !! i
@@ -80,24 +81,14 @@ swapElems i j ls = [get k x | (k, x) <- zip [0..] ls]
 
 -- see unit tests for expected behavior
 insertBetween :: Eq a => [a] -> a -> a -> [a] -> [a]
-insertBetween toInsert after before [] = []
-insertBetween toInsert after before [a] =
-  if a == after then
-    a : toInsert
-  else if a == before then
-    toInsert ++ [a]
-  else
-    [a]
-insertBetween toInsert after before (a:b:l) =
-  if a == after && b == before then
-    (a : toInsert) ++ (b : l)
-  else if a == before && b == after then
-    (a : reverse toInsert) ++ (b : l)
-  else if a == after then
-    (reverse toInsert) ++ (a:b:l)
-  else if a == before then
-    toInsert ++ (a:b:l)
-  else
-    a : (insertBetween toInsert after before $ b:l)
-
-
+insertBetween _ _ _ [] = []
+insertBetween toInsert after before [a]
+  | a == after = a : toInsert
+  | a == before = toInsert ++ [a]
+  | otherwise = [a]
+insertBetween toInsert after before (a:b:l)
+  | a == after && b == before = (a : toInsert) ++ (b : l)
+  | a == before && b == after = (a : reverse toInsert) ++ (b : l)
+  | a == after = reverse toInsert ++ (a:b:l)
+  | a == before = toInsert ++ (a:b:l)
+  | otherwise = a : insertBetween toInsert after before (b:l)

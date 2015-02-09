@@ -3,7 +3,6 @@ module LinAlgFunctions
 where
 
 import qualified Data.Vec as V
-import Data.Maybe (fromJust)
 import Geometry
 import Foreign.C.Types (CFloat)
 
@@ -37,7 +36,7 @@ latLongPosition theta phi distance =
 
 -- simple rotation matrix of angle theta around y axis, phi around x axis
 naiveRotMat :: RealFloat a => a -> a -> V.Mat44 a
-naiveRotMat theta phi = (yMat `multMat` xzMat)
+naiveRotMat theta phi = yMat `multMat` xzMat
   where xzMat = rotMatrix4 theta (Point3f 0 1 0)
         yMat = rotMatrix4 phi (Point3f 1 0 0)
 
@@ -68,7 +67,7 @@ lookAtMatrix eye target up = x V.:. y V.:. z V.:. h V.:. ()
 orthoMatrixFromScreen :: (RealFloat a, Integral b) => b -> b -> a -> V.Mat44 a
 orthoMatrixFromScreen w h k = orthoMatrix left right bottom top near far
   where hh = if h < 0 then 1 else h
-        aspect = (fromIntegral w) / (fromIntegral hh)
+        aspect = fromIntegral w / fromIntegral hh
         far = 100
         near = -100
         right = k * aspect
@@ -117,7 +116,7 @@ scale :: RealFloat a => a -> V.Mat44 a -> V.Mat44 a
 scale k = V.scale (vec4 k k k)
 
 
-vec3 x y z = (x V.:. y V.:. z V.:. ())
+vec3 x y z = x V.:. y V.:. z V.:. ()
 
 
-vec4 x y z = (x V.:. y V.:. z V.:. 1 V.:. ())
+vec4 x y z = x V.:. y V.:. z V.:. 1 V.:. ()

@@ -3,16 +3,12 @@ module Models ( tetrahedron
               , dodecahedron
               , icosahedron
               , polyhedrons
+              , icosahedronRadius
               )
 
 where
 
-import Control.Exception (assert)
-import Data.List (elemIndex)
-import Data.Maybe (fromJust)
-import ListUtil
 import Geometry
-import Geometry (Point3f, Normal, modelAutoNormals)
 
 
 -- some polyhedrons created along the way...
@@ -134,18 +130,18 @@ dodecahedronFaces = [ [12,0,16,17,1] -- 0
 
 
 icosahedronPoints :: RealFloat a => [Point3f a]
-icosahedronPoints = [ Point3f 0 (1)  gold
+icosahedronPoints = [ Point3f 0 1  gold
                     , Point3f 0 (-1) gold
                     , Point3f 0 (-1) (-gold)
-                    , Point3f 0 (1)  (-gold)
-                    , Point3f (1)  (gold)  0
-                    , Point3f (-1) (gold)  0
+                    , Point3f 0 1  (-gold)
+                    , Point3f 1  gold  0
+                    , Point3f (-1) gold  0
                     , Point3f (-1) (-gold) 0
-                    , Point3f (1)  (-gold) 0
-                    , Point3f (gold)  0 (1)
-                    , Point3f (gold)  0 (-1)
+                    , Point3f 1  (-gold) 0
+                    , Point3f gold  0 1
+                    , Point3f gold  0 (-1)
                     , Point3f (-gold) 0 (-1)
-                    , Point3f (-gold) 0 (1)
+                    , Point3f (-gold) 0 1
                     ]
 
 

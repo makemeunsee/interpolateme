@@ -3,7 +3,7 @@ module RandomUtil
 where
 
 
-import Foreign.C.Types (CFloat, CInt)
+import           Foreign.C.Types (CFloat, CInt)
 import qualified Random.MWC.Pure as RND
 
 
