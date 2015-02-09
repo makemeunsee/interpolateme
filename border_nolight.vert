@@ -5,6 +5,7 @@ in vec3 normal;
 in float a_centerFlag;
 in float a_mazeDepth;
 in float a_faceId;
+in vec3 a_depthModeColor;
 
 uniform mat4 u_mvpMat;
 uniform float u_time;
@@ -15,6 +16,7 @@ uniform float u_explodedFactor;
 out float v_centerFlag;
 out float v_mazeDepth;
 out float v_faceId;
+out vec3 v_depthModeColor;
 
 void main()
 {
@@ -28,4 +30,5 @@ void main()
     v_centerFlag = a_centerFlag;
     v_mazeDepth = a_mazeDepth;
     v_faceId = a_faceId;
+    v_depthModeColor = a_depthModeColor;
 }
