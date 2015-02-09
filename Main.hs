@@ -367,8 +367,8 @@ render t drawSolid drawNormals drawMazePath thickPath depthMode depthScale explo
 
   -- draw labyrinth path
   when drawMazePath $
-    do uniform colLoc $= GL.Color3 0.1 1 (0 :: GLfloat)
-       uniform bColLoc $= GL.Color3 0.1 1 (0 :: GLfloat)
+    do uniform colLoc $= GL.Color3 1 0.1 (0 :: GLfloat)
+       uniform bColLoc $= GL.Color3 1 0.1 (0 :: GLfloat)
        uniform borderWidthLoc $= GL.Index1 (0.0 :: GLfloat)
        -- bind attributes
        bindGeometry shaderInfo labyrinthBuffersInfo
@@ -958,7 +958,8 @@ main = do
   t2 <- get time
 
   -- create a maze from the tessellation faces
-  let (laby, seed'') = labyrinth1 seed' branchMax gapMin (not rndDepth) faces
+  let (laby, seed'') = depthFirstMaze seed' branchMax gapMin (not rndDepth) faces
+--  let (laby, seed'') = breadthFirstMaze seed' faces
 --  putStrLn $ "maze:\t" ++ show laby
 
   let cellCount = size laby

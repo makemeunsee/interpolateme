@@ -2,10 +2,13 @@ module Main where
 
 import Test.Hspec
 
+import qualified Data.Map as M
+
 import Labyrinth
 import Models (cube, tetrahedron)
 import Geometry
 import VoronoiCut
+
 
 main :: IO ()
 main = hspec $ do
@@ -34,6 +37,32 @@ main = hspec $ do
       nodeValue laby2 `shouldBe` 2
       nodeValue laby3 `shouldBe` 3
       nodeValue cubeLaby `shouldBe` 0
+
+
+  describe "getNth" $ do
+    it "should work" $ do
+      let m0 = M.fromList [(0,1024)]
+      let m1 = M.fromList [(0,1024), (1,512), (2,256)]
+      let m2 = M.fromList [(3,1024), (5,512), (7,256), (11,128), (13,64), (17,32)]
+
+      getNth m0 0 `shouldBe` (0,1024)
+      getNth m0 1 `shouldBe` (0,1024)
+      getNth m0 (-1) `shouldBe` (0,1024)
+
+      getNth m1 (-1) `shouldBe` (0,1024)
+      getNth m1 0 `shouldBe` (0,1024)
+      getNth m1 1 `shouldBe` (1,512)
+      getNth m1 2 `shouldBe` (2,256)
+      getNth m1 3 `shouldBe` (2,256)
+
+      getNth m2 (-1) `shouldBe` (3,1024)
+      getNth m2 0 `shouldBe` (3,1024)
+      getNth m2 1 `shouldBe` (5,512)
+      getNth m2 2 `shouldBe` (7,256)
+      getNth m2 3 `shouldBe` (11,128)
+      getNth m2 4 `shouldBe` (13,64)
+      getNth m2 5 `shouldBe` (17,32)
+      getNth m2 6 `shouldBe` (17,32)
 
 --  describe "labyrinth to path vertice" $ do
 --    it "should work" $ do
