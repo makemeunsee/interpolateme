@@ -20,6 +20,7 @@ import ListUtil
 import VoronoiCut
 
 
+-- return the nth element of a map (last if n >= size, first if n <= 0)
 getNth :: M.Map Int Int -> Int -> (Int, Int)
 getNth m n
   | n <= 0 = min
@@ -34,8 +35,9 @@ getNth m n
           (bott, lookup, top) = (M.splitLookup mid m)
 
 
+-- simple, breadth first maze
 breadthFirstMaze :: Seed -> S.Seq (Face a) -> (Labyrinth Int, Seed)
-breadthFirstMaze seed faces = (buildMazeFromLists first 0, seed'')
+breadthFirstMaze seed faces = (buildMazeFromLists first (0, result), seed'')
   where
     l = S.length faces
     (first, seed') = range_random (0,l) seed
@@ -58,8 +60,45 @@ breadthFirstMaze seed faces = (buildMazeFromLists first 0, seed'')
                                    (Set.insert fid visited)
                                    (foldr (\n m -> M.insert n fid m) (M.delete fid nexts) $ neighbours $ S.index faces fid)
                                    (S.adjust (fid:) parent acc)
-    buildMazeFromLists k d = let kids = result `S.index` k in
-                             Node k d $ map (`buildMazeFromLists` (d+1)) kids
+
+
+buildMazeFromLists :: Int -> (Int, S.Seq [Int]) -> Labyrinth Int
+buildMazeFromLists k (d, lists) = let kids = lists `S.index` k in
+                                  Node k d $ map (`buildMazeFromLists` (d+1, lists)) kids
+
+
+-- Wilson's maze algorithm: uniform spanning tree over the topology of faces.
+-- (actually not sure the uniformity property holds in this implementation but at least it's a spanning tree, built using a loop erased random walk)
+wilsonMaze :: Seed -> S.Seq (Face a) -> (Labyrinth Int, Seed)
+wilsonMaze seed faces = (buildMazeFromLists first (0, result), seed'')
+  where
+    l = S.length faces
+    (first, seed') = range_random (0,l) seed
+    points = Set.fromList $ take l [0..]
+    (result, seed'') = buildPaths seed' (Set.delete first points) (Set.singleton first) (S.fromList $ replicate l [])
+    growPath s path = let ns = neighbours $ S.index faces $ head path in
+                      let (k, s') = range_random (0, length ns) s in
+                      let n = ns !! k in
+                      case L.elemIndex n path of
+                        Nothing -> (n:path, s')
+                        Just i  -> (drop i path, s')
+    recGrowPath s visited path = let (newPath, s') = growPath s path in
+                                 if head newPath `Set.member` visited then
+                                   (newPath, s')
+                                 else
+                                   recGrowPath s' visited newPath
+    updateLists lists (x0:x1:xs) = S.adjust (x1:) x0 $ updateLists lists (x1:xs)
+    updateLists lists _ = lists
+    buildPaths s pts visited acc = if Set.null pts then
+                                     (acc, s)
+                                   else
+                                     let pt = Set.findMin pts in
+                                     let (path, s') = recGrowPath s visited [pt] in
+                                     let (newVisited, newPts) = foldr (\i (vs, ps) -> (Set.insert i vs, Set.delete i ps))
+                                                                      (visited, Set.delete pt pts)
+                                                                      path in
+                                     let newAcc = updateLists acc path in
+                                     buildPaths s' newPts newVisited newAcc
 
 
 -- a simple data structure for a graph / labyrinth.
