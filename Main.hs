@@ -747,15 +747,15 @@ loadModel global@GlobalState{..} = do
   let colorFct = cubeHelixInterpolationFct 1 (-240) 0.5 1 300 0.5 0
   -- Matteo Niccoli’s perceptual rainbow
   let colorFct' = cubeHelixInterpolationFct 1 300 (5/12) 0.1 60 (25/24) 0.9
-
   let deepColorsBuffer = concatMap (\d -> colorFct' d) mazeBuffer
 
 --  -- cubehelix rainbow as seen here: http://bl.ocks.org/mbostock/310c99e53880faec2434
 --  let colorFct0 = cubeHelixInterpolationFct 1 (-100) 0.75 0.35 80 1.5 0.8
 --  let colorFct1 = cubeHelixInterpolationFct 1 80 1.5 0.8 260 0.75 0.3
 --  let deepColorsBuffer = concatMap (\d ->
---                                     if d < 0.5 then colorFct0 $ d*2
---                                                else colorFct1 $ (d-0.5)*2
+--                                     let intD = (mod) (round $ fromIntegral (depthMax - depthMin) * d) 256 in
+--                                     if intD < 128 then colorFct0 $ (fromIntegral intD / 128)
+--                                                  else colorFct1 $ (fromIntegral (intD-128) / 128)
 --                                   )
 --                                   mazeBuffer
 
@@ -958,8 +958,10 @@ main = do
   t2 <- get time
 
   -- create a maze from the tessellation faces
-  let (laby, seed'') = depthFirstMaze seed' branchMax gapMin (not rndDepth) faces
+--  let (laby, seed'') = depthFirstMaze' seed' branchMax gapMin (not rndDepth) faces
+--  let (laby, seed'') = depthFirstMaze seed' faces
 --  let (laby, seed'') = breadthFirstMaze seed' faces
+  let (laby, seed'') = wilsonMaze seed' faces
 --  putStrLn $ "maze:\t" ++ show laby
 
   let cellCount = size laby
@@ -1033,7 +1035,7 @@ main = do
                            , depthMax = depthMax
                            , inMazeNeighbours = inMazeNeighbours
                            , seed = seed''''
-                           , highlight = True
+                           , highlight = False
                            }
 
   state <- loadModel state0

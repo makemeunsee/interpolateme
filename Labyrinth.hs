@@ -20,85 +20,6 @@ import ListUtil
 import VoronoiCut
 
 
--- return the nth element of a map (last if n >= size, first if n <= 0)
-getNth :: M.Map Int Int -> Int -> (Int, Int)
-getNth m n
-  | n <= 0 = min
-  | n >= M.size m = max
-  | n < M.size bott = getNth bott n
-  | isJust lookup && M.size bott == n = (mid, fromJust lookup)
-  | isJust lookup = getNth top (n - M.size bott - 1)
-  | otherwise = getNth top (n - M.size bott)
-    where max@(iMax, kMax) = M.findMax m
-          min@(iMin, kMin) = M.findMin m
-          mid = (iMax - iMin) `div` 2 + iMin
-          (bott, lookup, top) = (M.splitLookup mid m)
-
-
--- simple, breadth first maze
-breadthFirstMaze :: Seed -> S.Seq (Face a) -> (Labyrinth Int, Seed)
-breadthFirstMaze seed faces = (buildMazeFromLists first (0, result), seed'')
-  where
-    l = S.length faces
-    (first, seed') = range_random (0,l) seed
-    (result, seed'') = breadthFirst seed'
-                                    (Set.singleton first)
-                                    (M.fromList $ map (\n -> (n, first)) $ neighbours $ S.index faces first)
-                                    (S.fromList $ replicate l [])
-    breadthFirst :: Seed -> Set.Set Int -> M.Map Int Int -> S.Seq [Int] -> (S.Seq [Int], Seed)
-    breadthFirst s visited nexts acc
-      | M.null nexts = (acc, s)
-      | otherwise = let (n, s') = range_random (0, M.size nexts) s in
-                    let (fid, parent) = nexts `getNth` n in
-                    if fid `Set.member` visited then
-                      breadthFirst s'
-                                   visited
-                                   (M.delete fid nexts)
-                                   acc
-                    else
-                      breadthFirst s'
-                                   (Set.insert fid visited)
-                                   (foldr (\n m -> M.insert n fid m) (M.delete fid nexts) $ neighbours $ S.index faces fid)
-                                   (S.adjust (fid:) parent acc)
-
-
-buildMazeFromLists :: Int -> (Int, S.Seq [Int]) -> Labyrinth Int
-buildMazeFromLists k (d, lists) = let kids = lists `S.index` k in
-                                  Node k d $ map (`buildMazeFromLists` (d+1, lists)) kids
-
-
--- Wilson's maze algorithm: uniform spanning tree over the topology of faces.
--- (actually not sure the uniformity property holds in this implementation but at least it's a spanning tree, built using a loop erased random walk)
-wilsonMaze :: Seed -> S.Seq (Face a) -> (Labyrinth Int, Seed)
-wilsonMaze seed faces = (buildMazeFromLists first (0, result), seed'')
-  where
-    l = S.length faces
-    (first, seed') = range_random (0,l) seed
-    points = Set.fromList $ take l [0..]
-    (result, seed'') = buildPaths seed' (Set.delete first points) (Set.singleton first) (S.fromList $ replicate l [])
-    growPath s path = let ns = neighbours $ S.index faces $ head path in
-                      let (k, s') = range_random (0, length ns) s in
-                      let n = ns !! k in
-                      case L.elemIndex n path of
-                        Nothing -> (n:path, s')
-                        Just i  -> (drop i path, s')
-    recGrowPath s visited path = let (newPath, s') = growPath s path in
-                                 if head newPath `Set.member` visited then
-                                   (newPath, s')
-                                 else
-                                   recGrowPath s' visited newPath
-    updateLists lists (x0:x1:xs) = S.adjust (x1:) x0 $ updateLists lists (x1:xs)
-    updateLists lists _ = lists
-    buildPaths s pts visited acc = if Set.null pts then
-                                     (acc, s)
-                                   else
-                                     let pt = Set.findMin pts in
-                                     let (path, s') = recGrowPath s visited [pt] in
-                                     let (newVisited, newPts) = foldr (\i (vs, ps) -> (Set.insert i vs, Set.delete i ps))
-                                                                      (visited, Set.delete pt pts)
-                                                                      path in
-                                     let newAcc = updateLists acc path in
-                                     buildPaths s' newPts newVisited newAcc
 
 
 -- a simple data structure for a graph / labyrinth.
@@ -154,6 +75,130 @@ insertAt k at laby = case laby of
               | otherwise -> Node i d $ map (insertAt k at) ls  -- explore the labyrinth to find the right parent
 
 
+-- return the nth element of a map (last if n >= size, first if n <= 0)
+getNth :: M.Map Int Int -> Int -> (Int, Int)
+getNth m n
+  | n <= 0 = min
+  | n >= M.size m = max
+  | n < M.size bott = getNth bott n
+  | isJust lookup && M.size bott == n = (mid, fromJust lookup)
+  | isJust lookup = getNth top (n - M.size bott - 1)
+  | otherwise = getNth top (n - M.size bott)
+    where max@(iMax, kMax) = M.findMax m
+          min@(iMin, kMin) = M.findMin m
+          mid = (iMax - iMin) `div` 2 + iMin
+          (bott, lookup, top) = (M.splitLookup mid m)
+
+
+buildMazeFromLists :: Int -> (Int, S.Seq [Int]) -> Labyrinth Int
+buildMazeFromLists k (d, lists) = let kids = lists `S.index` k in
+                                  Node k d $ map (`buildMazeFromLists` (d+1, lists)) kids
+
+
+-- simple, breadth first maze
+breadthFirstMaze :: Seed -> S.Seq (Face a) -> (Labyrinth Int, Seed)
+breadthFirstMaze seed faces = (buildMazeFromLists first (0, result), seed'')
+  where
+    l = S.length faces
+    (first, seed') = range_random (0,l) seed
+    (result, seed'') = breadthFirst seed'
+                                    (Set.singleton first)
+                                    (M.fromList $ map (\n -> (n, first)) $ neighbours $ S.index faces first)
+                                    (S.fromList $ replicate l [])
+    breadthFirst :: Seed -> Set.Set Int -> M.Map Int Int -> S.Seq [Int] -> (S.Seq [Int], Seed)
+    breadthFirst s visited nexts acc
+      | M.null nexts = (acc, s)
+      | otherwise = let (n, s') = range_random (0, M.size nexts) s in
+                    let (fid, parent) = nexts `getNth` n in
+                    if fid `Set.member` visited then
+                      breadthFirst s'
+                                   visited
+                                   (M.delete fid nexts)
+                                   acc
+                    else
+                      breadthFirst s'
+                                   (Set.insert fid visited)
+                                   (foldr (\n m -> M.insert n fid m) (M.delete fid nexts) $ neighbours $ S.index faces fid)
+                                   (S.adjust (fid:) parent acc)
+
+
+-- depth first maze (backtracking)
+depthFirstMaze :: RealFrac a => Seed -> S.Seq (Face a) -> (Labyrinth Int, Seed)
+depthFirstMaze seed topo
+  | S.null topo = (Node (-1) (-1) [], seed) -- illegal
+  | otherwise   =
+    let (id0, seed0) = range_random (0, S.length topo) seed in
+    topologyToLabyrinth0 seed0 (M.singleton id0 [0]) [] [(id0, 0)]
+  where
+    topologyToLabyrinth0 :: Seed -> M.Map Int [Int] -> [Labyrinth Int] -> [(Int, Int)] -> (Labyrinth Int, Seed)
+    topologyToLabyrinth0 seed _ acc [] = (head acc, seed)
+    topologyToLabyrinth0 seed visited !acc ((i, depth) : parents) =
+      -- find explorable cells around current position
+      let explorable = filter (null . snd)
+                              $ map (\n -> (n, fromMaybe [] $ M.lookup n visited))
+                              $ neighbours $ S.index topo i in
+      if null explorable then
+        -- nothing explorable, backtrack
+        let newAcc = case acc of
+                       -- simple dead end
+                       [] -> [Node i depth []]
+                       -- along the backtrack
+                       -- are there branches to combine with at this point?
+                       ls -> let (tails, parallelBranches) = L.partition (\l -> nodeDepth l == depth+1) ls in
+                             if null tails then
+                               -- no branch to combine with, create a new one
+                               Node i depth [] : ls
+                             else
+                               -- merge tailing branches into one new branch
+                               Node i depth tails : parallelBranches
+                     in
+        -- backtrack 1 step
+        topologyToLabyrinth0 seed visited newAcc parents
+      else
+        -- exploring further
+        let l = length explorable in
+        -- pick a random cell as next step
+        let (rndIndex, seed') = range_random (0, l) seed in
+        let (j, jDepths) = explorable !! rndIndex in
+        let newVisited = M.insert j (depth : jDepths) visited in
+        -- go deeper
+        topologyToLabyrinth0 seed' newVisited acc ((j, depth+1):(i, depth):parents)
+
+
+-- Wilson's maze algorithm: uniform spanning tree over the topology of faces.
+-- (actually not sure the uniformity property holds in this implementation but at least it's a spanning tree, built using a loop erased random walk)
+wilsonMaze :: Seed -> S.Seq (Face a) -> (Labyrinth Int, Seed)
+wilsonMaze seed faces = (buildMazeFromLists first (0, result), seed'')
+  where
+    l = S.length faces
+    (first, seed') = range_random (0,l) seed
+    points = Set.fromList $ take l [0..]
+    (result, seed'') = buildPaths seed' (Set.delete first points) (Set.singleton first) (S.fromList $ replicate l [])
+    growPath s path = let ns = neighbours $ S.index faces $ head path in
+                      let (k, s') = range_random (0, length ns) s in
+                      let n = ns !! k in
+                      case L.elemIndex n path of
+                        Nothing -> (n:path, s')
+                        Just i  -> (drop i path, s')
+    recGrowPath s visited path = let (newPath, s') = growPath s path in
+                                 if head newPath `Set.member` visited then
+                                   (newPath, s')
+                                 else
+                                   recGrowPath s' visited newPath
+    updateLists lists (x0:x1:xs) = S.adjust (x1:) x0 $ updateLists lists (x1:xs)
+    updateLists lists _ = lists
+    buildPaths s pts visited acc = if Set.null pts then
+                                     (acc, s)
+                                   else
+                                     let pt = Set.findMin pts in
+                                     let (path, s') = recGrowPath s visited [pt] in
+                                     let (newVisited, newPts) = foldr (\i (vs, ps) -> (Set.insert i vs, Set.delete i ps))
+                                                                      (visited, Set.delete pt pts)
+                                                                      path in
+                                     let newAcc = updateLists acc path in
+                                     buildPaths s' newPts newVisited newAcc
+
+
 -- Create a depth first, random maze using the face neighbours as a topology.
 -- The maze is an acyclic directed graph. Its nodes carry a value (identifier from the topology) and a depth.
 -- The depth difference from a child node to its parent is always 1 or -1 (always 1 if alwaysDeeper is true).
@@ -164,8 +209,8 @@ insertAt k at laby = case laby of
 -- Having minGapForOverlap >= maxBranchLength is a guarantee to have no overlap (no branch will be become deep enough).
 -- alwaysDeeper forces the maze branches to go always deeper.
 -- If alwaysDeeper is False, each single continuous sequence of maze nodes will randomly go higher or deeper.
-depthFirstMaze :: RealFrac a => Seed -> Int -> Int -> Bool -> S.Seq (Face a) -> (Labyrinth Int, Seed)
-depthFirstMaze seed maxBranchLength minGapForOverlap alwaysDeeper topo
+depthFirstMaze' :: RealFrac a => Seed -> Int -> Int -> Bool -> S.Seq (Face a) -> (Labyrinth Int, Seed)
+depthFirstMaze' seed maxBranchLength minGapForOverlap alwaysDeeper topo
   | S.null topo = (Node (-1) (-1) [], seed) -- illegal
   | otherwise   =
     let (id0, seed0) = range_random (0, S.length topo) seed in
