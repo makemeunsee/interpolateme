@@ -76,7 +76,7 @@ insertAt k at laby = case laby of
 
 
 -- return the nth element of a map (last if n >= size, first if n <= 0)
-getNth :: M.Map Int Int -> Int -> (Int, Int)
+getNth :: M.Map Int b -> Int -> (Int, b)
 getNth m n
   | n <= 0 = min
   | n >= M.size m = max
@@ -90,12 +90,20 @@ getNth m n
           (bott, lookup, top) = (M.splitLookup mid m)
 
 
+-- turn the sequence of the children of each cell into a maze, given a starting cell and a starting depth
 buildMazeFromLists :: Int -> (Int, S.Seq [Int]) -> Labyrinth Int
 buildMazeFromLists k (d, lists) = let kids = lists `S.index` k in
                                   Node k d $ map (`buildMazeFromLists` (d+1, lists)) kids
 
 
--- simple, breadth first maze
+-- turn the sequence of the children (and their depth) of each cell into a maze, given a starting cell and a starting depth
+-- ensures a child is 1 deeper than its parent when building the maze
+buildMazeFromLists' :: Int -> (Int, S.Seq [(Int, Int)]) -> Labyrinth Int
+buildMazeFromLists' k (d, lists) = let kids = map fst $ filter (\(_,d') -> d' == d+1) $ lists `S.index` k in
+                                   Node k d $ map (`buildMazeFromLists'` (d+1, lists)) kids
+
+
+-- breadth first maze (random traversal algo)
 breadthFirstMaze :: Seed -> S.Seq (Face a) -> (Labyrinth Int, Seed)
 breadthFirstMaze seed faces = (buildMazeFromLists first (0, result), seed'')
   where
@@ -103,23 +111,25 @@ breadthFirstMaze seed faces = (buildMazeFromLists first (0, result), seed'')
     (first, seed') = range_random (0,l) seed
     (result, seed'') = breadthFirst seed'
                                     (Set.singleton first)
-                                    (M.fromList $ map (\n -> (n, first)) $ neighbours $ S.index faces first)
+                                    (M.fromList $ map (\n -> (n, [first])) $ neighbours $ S.index faces first)
                                     (S.fromList $ replicate l [])
-    breadthFirst :: Seed -> Set.Set Int -> M.Map Int Int -> S.Seq [Int] -> (S.Seq [Int], Seed)
+    breadthFirst :: Seed -> Set.Set Int -> M.Map Int [Int] -> S.Seq [Int] -> (S.Seq [Int], Seed)
     breadthFirst s visited nexts acc
       | M.null nexts = (acc, s)
       | otherwise = let (n, s') = range_random (0, M.size nexts) s in
-                    let (fid, parent) = nexts `getNth` n in
-                    if fid `Set.member` visited then
-                      breadthFirst s'
-                                   visited
-                                   (M.delete fid nexts)
-                                   acc
-                    else
-                      breadthFirst s'
-                                   (Set.insert fid visited)
-                                   (foldr (\n m -> M.insert n fid m) (M.delete fid nexts) $ neighbours $ S.index faces fid)
-                                   (S.adjust (fid:) parent acc)
+                    let (fid, parents) = nexts `getNth` n in
+                    let (n', s'') = range_random (0, length parents) s' in
+                    let parent = parents !! n' in
+                    let visitableNeighbours = filter (`Set.notMember` visited) $ neighbours $ S.index faces fid in
+                    breadthFirst s''
+                                 (Set.insert fid visited)
+                                 (foldr (\n m -> M.alter (\oldParents -> if isNothing oldParents then
+                                                                           Just [fid]
+                                                                         else
+                                                                           Just $ fid : (fromJust oldParents)) n m)
+                                        (M.delete fid nexts)
+                                        visitableNeighbours)
+                                 (S.adjust (fid:) parent acc)
 
 
 -- depth first maze (backtracking)
